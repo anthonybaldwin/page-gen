@@ -44,6 +44,13 @@ export function broadcastAgentThinking(
   });
 }
 
+export function broadcastFilesChanged(projectId: string, files: string[]) {
+  broadcast({
+    type: "files_changed",
+    payload: { projectId, files },
+  });
+}
+
 export function broadcastTokenUsage(payload: {
   chatId: string;
   agentName: string;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { api } from "../../lib/api.ts";
+import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import type { FileNode } from "../../../shared/types.ts";
 
 function FileTreeNode({
@@ -68,6 +69,17 @@ export function FileExplorer() {
       return;
     }
     loadTree();
+  }, [activeProject]);
+
+  // Auto-refresh tree when files change
+  useEffect(() => {
+    connectWebSocket();
+    const unsub = onWsMessage((msg) => {
+      if (msg.type === "files_changed" && activeProject) {
+        loadTree();
+      }
+    });
+    return unsub;
   }, [activeProject]);
 
   async function loadTree() {

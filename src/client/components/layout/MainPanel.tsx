@@ -27,15 +27,15 @@ export function MainPanel() {
       .catch(() => setHasFiles(false));
   }, [activeProject]);
 
-  // Re-check files when agents complete
+  // Re-check files when agents complete or files change
   useEffect(() => {
     connectWebSocket();
     const unsub = onWsMessage((msg) => {
-      if (
-        msg.type === "agent_status" &&
-        (msg.payload as { status: string }).status === "completed" &&
-        activeProject
-      ) {
+      if (!activeProject) return;
+      const shouldCheck =
+        (msg.type === "files_changed") ||
+        (msg.type === "agent_status" && (msg.payload as { status: string }).status === "completed");
+      if (shouldCheck) {
         api
           .get<FileNode[]>(`/files/tree/${activeProject.id}`)
           .then((tree) => setHasFiles(tree.length > 0))
