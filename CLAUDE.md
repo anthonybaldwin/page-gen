@@ -238,7 +238,28 @@ If CI is configured:
 
 ## Wiki Documentation Rule
 
-Any new feature or system must have a corresponding `docs/wiki/` page updated in the same commit. Documentation lives in `docs/wiki/` and will later sync to the GitHub repo wiki.
+Any new feature or system must have a corresponding `docs/wiki/` page updated in the same commit.
+
+**Manual wiki sync required:** `docs/wiki/` is the source of truth. The GitHub repo wiki must stay 100% in sync. Whenever you create or update any file in `docs/wiki/`, you MUST also push those changes to the GitHub wiki repo immediately after committing:
+
+```bash
+# From repo root — sync docs/wiki/ to the GitHub wiki
+cp docs/wiki/*.md /tmp/wiki-sync/ && \
+  cd <wiki-repo-clone> && \
+  cp /tmp/wiki-sync/*.md . && \
+  git add -A && git commit -m "sync wiki from docs/wiki" && git push
+```
+
+In practice, use the following steps after every commit that touches `docs/wiki/`:
+
+1. Clone the wiki repo if not already cloned:
+   `git clone https://github.com/anthonybaldwin/just-build-it.wiki.git ../just-build-it-wiki`
+2. Copy all wiki files:
+   `cp docs/wiki/*.md ../just-build-it-wiki/`
+3. Commit and push the wiki:
+   `cd ../just-build-it-wiki && git add -A && git commit -m "sync: update wiki from docs/wiki" && git push`
+
+This is a temporary manual process. A GitHub Action with a PAT will automate this later.
 
 ---
 
