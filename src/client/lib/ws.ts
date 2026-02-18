@@ -7,7 +7,7 @@ let handlers: WsHandler[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function connectWebSocket() {
-  if (ws?.readyState === WebSocket.OPEN) return;
+  if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   // In development, Vite runs on :5173 but the backend is on :3000.
