@@ -64,6 +64,25 @@ export const tokenUsage = sqliteTable("token_usage", {
   createdAt: integer("created_at").notNull(),
 });
 
+// Permanent billing ledger — NO foreign keys so records survive chat/project deletion
+export const billingLedger = sqliteTable("billing_ledger", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id"),
+  projectName: text("project_name"),
+  chatId: text("chat_id"),
+  chatTitle: text("chat_title"),
+  executionId: text("execution_id"),
+  agentName: text("agent_name").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  apiKeyHash: text("api_key_hash").notNull(),
+  inputTokens: integer("input_tokens").notNull(),
+  outputTokens: integer("output_tokens").notNull(),
+  totalTokens: integer("total_tokens").notNull(),
+  costEstimate: real("cost_estimate").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const snapshots = sqliteTable("snapshots", {
   id: text("id").primaryKey(),
   projectId: text("project_id")

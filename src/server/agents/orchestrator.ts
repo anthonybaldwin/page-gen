@@ -8,8 +8,9 @@ import { getAgentConfig } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit } from "../services/cost-limiter.ts";
-import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged } from "../ws.ts";
 import { broadcast } from "../ws.ts";
+import { writeFile } from "../tools/file-ops.ts";
 
 const MAX_RETRIES = 3;
 
@@ -77,6 +78,12 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       },
     });
   }
+
+  // Load project name and chat title for billing ledger
+  const projectRow = await db.select({ name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.id, projectId)).get();
+  const chatRow = await db.select({ title: schema.chats.title }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
+  const projectName = projectRow?.name || "Unknown";
+  const chatTitle = chatRow?.title || "Unknown";
 
   // Load chat history
   const chatMessages = await db
@@ -175,6 +182,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
               apiKey: providerKey,
               inputTokens: result.tokenUsage.inputTokens,
               outputTokens: result.tokenUsage.outputTokens,
+              projectId,
+              projectName,
+              chatTitle,
             });
 
             // Broadcast token usage to client
@@ -201,9 +211,23 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           })
           .where(eq(schema.agentExecutions.id, executionId));
 
-        // Collect output internally — no per-agent message to user
+        // Collect output internally
         agentResults.set(step.agentName, result.content);
         completedAgents.push(step.agentName);
+
+        // Persist agent output as a message so it survives refresh
+        await db.insert(schema.messages).values({
+          id: nanoid(),
+          chatId,
+          role: "assistant",
+          content: result.content,
+          agentName: step.agentName,
+          metadata: JSON.stringify({ type: "agent_output" }),
+          createdAt: Date.now(),
+        });
+
+        // Extract and write files from agent output
+        extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
 
         break; // Success — exit retry loop
       } catch (err) {
@@ -350,6 +374,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
                 apiKey: providerKey,
                 inputTokens: result.tokenUsage.inputTokens,
                 outputTokens: result.tokenUsage.outputTokens,
+                projectId,
+                projectName,
+                chatTitle,
               });
               broadcastTokenUsage({
                 chatId,
@@ -371,6 +398,20 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           agentResults.set("frontend-dev-remediation", result.content);
           completedAgents.push("frontend-dev (remediation)");
 
+          // Persist remediation output
+          await db.insert(schema.messages).values({
+            id: nanoid(),
+            chatId,
+            role: "assistant",
+            content: result.content,
+            agentName: "frontend-dev",
+            metadata: JSON.stringify({ type: "agent_output", phase: "remediation" }),
+            createdAt: Date.now(),
+          });
+
+          // Extract and write remediated files
+          extractAndWriteFiles("frontend-dev", result.content, projectPath, projectId);
+
         } catch (err) {
           if (!signal.aborted) {
             const errorMsg = err instanceof Error ? err.message : String(err);
@@ -389,6 +430,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     userMessage,
     agentResults,
     chatId,
+    projectId,
+    projectName,
+    chatTitle,
     providers,
     apiKeys,
   });
@@ -436,12 +480,15 @@ interface SummaryInput {
   userMessage: string;
   agentResults: Map<string, string>;
   chatId: string;
+  projectId: string;
+  projectName: string;
+  chatTitle: string;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
 }
 
 async function generateSummary(input: SummaryInput): Promise<string> {
-  const { userMessage, agentResults, chatId, providers, apiKeys } = input;
+  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys } = input;
 
   const orchestratorConfig = getAgentConfig("orchestrator");
   if (!orchestratorConfig) {
@@ -504,6 +551,9 @@ async function generateSummary(input: SummaryInput): Promise<string> {
         apiKey: providerKey,
         inputTokens,
         outputTokens,
+        projectId,
+        projectName,
+        chatTitle,
       });
 
       broadcastTokenUsage({
@@ -583,4 +633,77 @@ function buildExecutionPlan(userMessage: string): ExecutionPlan {
       },
     ],
   };
+}
+
+// Agents whose output may contain file code blocks
+const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "qa", "security"]);
+
+/**
+ * Extract files from agent text output. Matches patterns like:
+ *   ```tsx
+ *   // src/App.tsx
+ *   ...code...
+ *   ```
+ * Or heading-style:
+ *   ### src/App.tsx
+ *   ```tsx
+ *   ...code...
+ *   ```
+ */
+function extractFilesFromOutput(agentOutput: string): Array<{ path: string; content: string }> {
+  const files: Array<{ path: string; content: string }> = [];
+  const seen = new Set<string>();
+
+  // Pattern 1: ```lang\n// filepath\n...code...\n```
+  const codeBlockRegex = /```[\w]*\n\/\/\s*((?:src\/|\.\/)?[\w./-]+\.\w+)\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
+    const filePath = match[1]!.replace(/^\.\//, "");
+    const content = match[2]!.trimEnd();
+    if (!seen.has(filePath)) {
+      seen.add(filePath);
+      files.push({ path: filePath, content });
+    }
+  }
+
+  // Pattern 2: ### filepath (or **filepath** or `filepath`) followed by ```...```
+  const headingBlockRegex = /(?:###\s+|[*]{2}|`)(\S+\.(?:tsx?|jsx?|css|html|json|md))(?:[*]{2}|`)?[\s\S]*?```[\w]*\n([\s\S]*?)```/g;
+  while ((match = headingBlockRegex.exec(agentOutput)) !== null) {
+    const filePath = match[1]!.replace(/^\.\//, "");
+    const content = match[2]!.trimEnd();
+    if (!seen.has(filePath)) {
+      seen.add(filePath);
+      files.push({ path: filePath, content });
+    }
+  }
+
+  return files;
+}
+
+function extractAndWriteFiles(
+  agentName: string,
+  agentOutput: string,
+  projectPath: string,
+  projectId: string
+): string[] {
+  if (!FILE_PRODUCING_AGENTS.has(agentName)) return [];
+
+  const files = extractFilesFromOutput(agentOutput);
+  if (files.length === 0) return [];
+
+  const written: string[] = [];
+  for (const file of files) {
+    try {
+      writeFile(projectPath, file.path, file.content);
+      written.push(file.path);
+    } catch (err) {
+      console.error(`[orchestrator] Failed to write ${file.path}:`, err);
+    }
+  }
+
+  if (written.length > 0) {
+    broadcastFilesChanged(projectId, written);
+  }
+
+  return written;
 }

@@ -68,6 +68,27 @@ export function runMigrations() {
     )
   `);
 
+  // Permanent billing ledger — no FKs, survives chat/project deletion
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS billing_ledger (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      project_name TEXT,
+      chat_id TEXT,
+      chat_title TEXT,
+      execution_id TEXT,
+      agent_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      api_key_hash TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      total_tokens INTEGER NOT NULL,
+      cost_estimate REAL NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
   db.run(sql`
     CREATE TABLE IF NOT EXISTS snapshots (
       id TEXT PRIMARY KEY,
