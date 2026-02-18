@@ -90,7 +90,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           summary: existing.summary,
           status: "streaming",
           content: existing.content + (chunk || ""),
-          expanded: true,
+          expanded: existing.expanded,
         };
         return { blocks };
       }

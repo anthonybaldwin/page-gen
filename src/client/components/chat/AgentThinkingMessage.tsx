@@ -1,5 +1,4 @@
 import { useRef, useEffect } from "react";
-import { MarkdownContent } from "./MarkdownContent.tsx";
 import type { ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 
 interface Props {
@@ -68,22 +67,18 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
           </svg>
         </button>
 
-        {/* Expandable thinking body */}
+        {/* Expandable thinking body — monospace code-style output */}
         {expanded && content && (
           <div
             ref={scrollRef}
-            className="border-t border-zinc-800/60 max-h-72 overflow-y-auto scrollbar-thin"
+            className="border-t border-zinc-800/60 max-h-60 overflow-y-auto"
           >
-            <div className="px-4 py-3 text-sm leading-relaxed text-zinc-400">
-              <MarkdownContent content={content} />
-            </div>
-
-            {/* Streaming cursor */}
-            {isActive && (
-              <div className="px-4 pb-3">
-                <span className="inline-block w-2 h-4 bg-zinc-500 animate-pulse rounded-sm" />
-              </div>
-            )}
+            <pre className="px-4 py-3 text-[11px] leading-[1.6] font-mono text-zinc-500 whitespace-pre-wrap break-words">
+              {content}
+              {isActive && (
+                <span className="inline-block w-1.5 h-3.5 bg-zinc-500 animate-pulse rounded-sm align-middle ml-0.5" />
+              )}
+            </pre>
           </div>
         )}
       </div>
