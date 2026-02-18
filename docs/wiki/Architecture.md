@@ -37,11 +37,14 @@
 2. Message is persisted to SQLite via REST API
 3. Backend triggers the orchestrator agent
 4. Orchestrator creates an execution plan and dispatches specialized agents
-5. Each agent streams thinking/status updates via WebSocket
-6. Agents write files to the project directory
-7. Vite dev server detects changes and pushes HMR updates
-8. Preview iframe re-renders with the new code
-9. Token usage is tracked for every AI API call
+5. Each agent runs sequentially; status updates stream via WebSocket (for the pipeline progress bar)
+6. Agent outputs are collected internally — not shown to the user
+7. Agents write files to the project directory
+8. Vite dev server detects changes and pushes HMR updates
+9. Preview iframe re-renders with the new code
+10. After all agents complete, the orchestrator synthesizes a single markdown summary
+11. Only the summary is saved as a chat message and displayed to the user (rendered as markdown)
+12. Token usage is tracked for every AI API call, including the summary generation
 
 ## Key Decisions
 

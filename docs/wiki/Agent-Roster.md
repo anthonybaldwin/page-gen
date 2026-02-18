@@ -8,9 +8,10 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 
 ### 1. Orchestrator
 - **Model:** Claude Opus 4.6 (Anthropic)
-- **Role:** Creates execution plan, dispatches agents, merges results, handles errors/retries
+- **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
 - **Tools:** Agent dispatch, snapshot creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
+- **Output:** After all agents complete, the orchestrator generates a clean markdown summary of what was built. This is the only message the user sees — individual agent outputs are collected internally and never shown directly in chat.
 
 ### 2. Research Agent
 - **Model:** Gemini 2.5 Flash (Google)
@@ -53,10 +54,14 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 ## Pipeline
 
 ```
-User → Orchestrator → Research → Architect → Frontend Dev → Styling → QA → Security
+User → Orchestrator → Research → Architect → Frontend Dev → Styling → QA → Security → Summary
 ```
 
-The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
+- Each agent's output is collected internally by the orchestrator (not saved as a chat message).
+- Agent execution records are still saved to the `agentExecutions` table for debugging and the status panel.
+- After the pipeline completes, the orchestrator calls its own model to generate a single markdown summary.
+- Only this summary is saved as a chat message and shown to the user.
+- The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
 
 ## Token Tracking
 

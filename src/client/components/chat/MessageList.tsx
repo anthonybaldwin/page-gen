@@ -1,4 +1,5 @@
 import type { Message } from "../../../shared/types.ts";
+import { MarkdownContent } from "./MarkdownContent.tsx";
 
 export function MessageList({ messages }: { messages: Message[] }) {
   if (messages.length === 0) {
@@ -32,7 +33,11 @@ export function MessageList({ messages }: { messages: Message[] }) {
                 {msg.agentName}
               </div>
             )}
-            <div className="whitespace-pre-wrap">{msg.content}</div>
+            {msg.role === "user" ? (
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+            ) : (
+              <MarkdownContent content={msg.content} />
+            )}
           </div>
         </div>
       ))}

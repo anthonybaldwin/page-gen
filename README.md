@@ -80,6 +80,7 @@ React Frontend ←→ Hono Backend ←→ AI Providers
 
 - **3-panel layout:** Sidebar (projects/chats) → Main (chat/preview) → File Explorer
 - **Agent pipeline:** Research → Architect → Frontend Dev → Styling → QA → Security
+- **Orchestrator summary:** Agent outputs are collected internally; the orchestrator synthesizes a single markdown response shown in chat
 - **HMR preview:** Agents write files → Vite detects changes → iframe updates live
 
 See [Architecture docs](docs/wiki/Architecture.md) for full details.
