@@ -1,5 +1,3 @@
 [test]
 root = "tests"
-
-[test.env]
-DB_PATH = "./data/test.db"
+preload = ["./tests/setup.ts"]
