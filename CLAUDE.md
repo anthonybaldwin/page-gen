@@ -236,6 +236,12 @@ If CI is configured:
 
 ---
 
+## Wiki Documentation Rule
+
+Any new feature or system must have a corresponding `docs/wiki/` page updated in the same commit. Documentation lives in `docs/wiki/` and will later sync to the GitHub repo wiki.
+
+---
+
 Principles:
 
 Move fast.
