@@ -8,10 +8,21 @@ import { getAgentConfig } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit } from "../services/cost-limiter.ts";
-import { broadcastAgentStatus, broadcastAgentError } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage } from "../ws.ts";
 import { broadcast } from "../ws.ts";
 
 const MAX_RETRIES = 3;
+
+// Abort registry — keyed by chatId
+const abortControllers = new Map<string, AbortController>();
+
+export function abortOrchestration(chatId: string) {
+  const controller = abortControllers.get(chatId);
+  if (controller) {
+    controller.abort();
+    abortControllers.delete(chatId);
+  }
+}
 
 interface OrchestratorInput {
   chatId: string;
@@ -33,9 +44,15 @@ interface ExecutionPlan {
 export async function runOrchestration(input: OrchestratorInput): Promise<void> {
   const { chatId, projectId, projectPath, userMessage, providers, apiKeys } = input;
 
+  // Create abort controller for this orchestration
+  const controller = new AbortController();
+  abortControllers.set(chatId, controller);
+  const { signal } = controller;
+
   // Check cost limits before starting
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) {
+    abortControllers.delete(chatId);
     broadcast({
       type: "agent_error",
       payload: {
@@ -76,12 +93,30 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
+  const completedAgents: string[] = [];
 
   // Execute each step sequentially
   for (const step of plan.steps) {
+    // Check if aborted before starting each agent
+    if (signal.aborted) {
+      await db.insert(schema.messages).values({
+        id: nanoid(),
+        chatId,
+        role: "system",
+        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+        agentName: "orchestrator",
+        metadata: null,
+        createdAt: Date.now(),
+      });
+      broadcastAgentStatus("orchestrator", "stopped");
+      abortControllers.delete(chatId);
+      return;
+    }
+
     const config = getAgentConfig(step.agentName);
     if (!config) {
       broadcastAgentError("orchestrator", `Unknown agent: ${step.agentName}`);
+      abortControllers.delete(chatId);
       return;
     }
 
@@ -106,6 +141,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      // Check abort inside retry loop too
+      if (signal.aborted) break;
+
       try {
         const agentInput: AgentInput = {
           userMessage: step.input,
@@ -114,13 +152,13 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           context: { projectId, originalRequest: userMessage },
         };
 
-        result = await runAgent(config, providers, agentInput);
+        result = await runAgent(config, providers, agentInput, undefined, signal);
 
         // Track token usage
         if (result.tokenUsage) {
           const providerKey = apiKeys[config.provider];
           if (providerKey) {
-            trackTokenUsage({
+            const record = trackTokenUsage({
               executionId,
               chatId,
               agentName: step.agentName,
@@ -129,6 +167,18 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
               apiKey: providerKey,
               inputTokens: result.tokenUsage.inputTokens,
               outputTokens: result.tokenUsage.outputTokens,
+            });
+
+            // Broadcast token usage to client
+            broadcastTokenUsage({
+              chatId,
+              agentName: step.agentName,
+              provider: config.provider,
+              model: config.model,
+              inputTokens: result.tokenUsage.inputTokens,
+              outputTokens: result.tokenUsage.outputTokens,
+              totalTokens: result.tokenUsage.totalTokens,
+              costEstimate: record.costEstimate,
             });
           }
         }
@@ -145,9 +195,13 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
         // Collect output internally — no per-agent message to user
         agentResults.set(step.agentName, result.content);
+        completedAgents.push(step.agentName);
 
         break; // Success — exit retry loop
       } catch (err) {
+        // Handle abort gracefully
+        if (signal.aborted) break;
+
         lastError = err instanceof Error ? err : new Error(String(err));
 
         if (attempt < MAX_RETRIES) {
@@ -160,6 +214,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           broadcastAgentStatus(step.agentName, "retrying", { attempt: attempt + 1 });
         }
       }
+    }
+
+    // Check if aborted after agent run
+    if (signal.aborted) {
+      await db.insert(schema.messages).values({
+        id: nanoid(),
+        chatId,
+        role: "system",
+        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+        agentName: "orchestrator",
+        metadata: null,
+        createdAt: Date.now(),
+      });
+      broadcastAgentStatus("orchestrator", "stopped");
+      abortControllers.delete(chatId);
+      return;
     }
 
     if (!result) {
@@ -189,6 +259,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         createdAt: Date.now(),
       });
 
+      abortControllers.delete(chatId);
       return; // HALT — do not continue to next step
     }
 
@@ -203,6 +274,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           error: `Token limit reached mid-pipeline. Completed through ${step.agentName}.`,
         },
       });
+      abortControllers.delete(chatId);
       return;
     }
   }
@@ -237,6 +309,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   });
 
   broadcastAgentStatus("orchestrator", "completed");
+  abortControllers.delete(chatId);
 }
 
 const SUMMARY_SYSTEM_PROMPT = `You are the orchestrator for a page builder. Summarize what the team of agents just built for the user.
@@ -295,15 +368,28 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   if (result.usage) {
     const providerKey = apiKeys[orchestratorConfig.provider];
     if (providerKey) {
-      trackTokenUsage({
+      const inputTokens = result.usage.inputTokens || 0;
+      const outputTokens = result.usage.outputTokens || 0;
+      const record = trackTokenUsage({
         executionId: `summary-${chatId}-${Date.now()}`,
         chatId,
         agentName: "orchestrator",
         provider: orchestratorConfig.provider,
         model: orchestratorConfig.model,
         apiKey: providerKey,
-        inputTokens: result.usage.inputTokens || 0,
-        outputTokens: result.usage.outputTokens || 0,
+        inputTokens,
+        outputTokens,
+      });
+
+      broadcastTokenUsage({
+        chatId,
+        agentName: "orchestrator",
+        provider: orchestratorConfig.provider,
+        model: orchestratorConfig.model,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        costEstimate: record.costEstimate,
       });
     }
   }

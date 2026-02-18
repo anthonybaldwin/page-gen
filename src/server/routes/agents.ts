@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
-import { runOrchestration } from "../agents/orchestrator.ts";
+import { runOrchestration, abortOrchestration } from "../agents/orchestrator.ts";
 
 export const agentRoutes = new Hono();
 
@@ -66,4 +66,11 @@ agentRoutes.post("/run", async (c) => {
   });
 
   return c.json({ status: "started", chatId: body.chatId });
+});
+
+// Stop orchestration
+agentRoutes.post("/stop", async (c) => {
+  const { chatId } = await c.req.json<{ chatId: string }>();
+  abortOrchestration(chatId);
+  return c.json({ ok: true });
 });
