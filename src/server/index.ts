@@ -53,7 +53,17 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 
 const server = Bun.serve({
   port: PORT,
-  fetch: app.fetch,
+  fetch(req, server) {
+    // Handle WebSocket upgrade requests
+    const url = new URL(req.url);
+    if (url.pathname === "/ws" && req.headers.get("upgrade") === "websocket") {
+      const success = server.upgrade(req);
+      if (success) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+    // All other requests go through Hono
+    return app.fetch(req, server);
+  },
   websocket: {
     open(ws) {
       ws.subscribe("agents");
