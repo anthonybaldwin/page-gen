@@ -99,17 +99,44 @@ export function Sidebar() {
           </div>
         )}
         {projects.map((project) => (
-          <button
+          <div
             key={project.id}
-            onClick={() => setActiveProject(project)}
-            className={`w-full text-left rounded px-2 py-1.5 text-sm transition-colors ${
-              activeProject?.id === project.id
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-            }`}
+            className="group flex items-center rounded transition-colors"
           >
-            {project.name}
-          </button>
+            <button
+              onClick={() => setActiveProject(project)}
+              className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                activeProject?.id === project.id
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
+            >
+              {project.name}
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await api.delete(`/projects/${project.id}`);
+                  setProjects(projects.filter((p) => p.id !== project.id));
+                  if (activeProject?.id === project.id) {
+                    setActiveProject(null);
+                    setChats([]);
+                    setActiveChat(null);
+                    setMessages([]);
+                  }
+                } catch (err) {
+                  console.error("[sidebar] Failed to delete project:", err);
+                }
+              }}
+              className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-zinc-500 hover:text-red-400 transition-all"
+              title="Delete project"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         ))}
         {projects.length === 0 && !showNewProject && (
           <p className="text-xs text-zinc-600 px-2 py-1">No projects yet</p>
@@ -132,17 +159,42 @@ export function Sidebar() {
               </button>
             </div>
             {chats.map((chat) => (
-              <button
+              <div
                 key={chat.id}
-                onClick={() => setActiveChat(chat)}
-                className={`w-full text-left rounded px-2 py-1.5 text-sm transition-colors ${
-                  activeChat?.id === chat.id
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-                }`}
+                className="group flex items-center rounded transition-colors"
               >
-                {chat.title}
-              </button>
+                <button
+                  onClick={() => setActiveChat(chat)}
+                  className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                    activeChat?.id === chat.id
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                  }`}
+                >
+                  {chat.title}
+                </button>
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await api.delete(`/chats/${chat.id}`);
+                      setChats(chats.filter((ch) => ch.id !== chat.id));
+                      if (activeChat?.id === chat.id) {
+                        setActiveChat(null);
+                        setMessages([]);
+                      }
+                    } catch (err) {
+                      console.error("[sidebar] Failed to delete chat:", err);
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-zinc-500 hover:text-red-400 transition-all"
+                  title="Delete chat"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
             ))}
             {chats.length === 0 && (
               <p className="text-xs text-zinc-600 px-2 py-1">No chats yet</p>

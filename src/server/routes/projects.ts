@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { mkdirSync } from "fs";
+import { mkdirSync, rmSync } from "fs";
 
 export const projectRoutes = new Hono();
 
@@ -41,9 +41,35 @@ projectRoutes.post("/", async (c) => {
   return c.json(project, 201);
 });
 
-// Delete project
+// Delete project (cascade: all chats + children, snapshots, disk cleanup)
 projectRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
+
+  // Fetch all chats for this project
+  const projectChats = await db
+    .select({ id: schema.chats.id })
+    .from(schema.chats)
+    .where(eq(schema.chats.projectId, id))
+    .all();
+
+  // Delete children for each chat: token_usage → agent_executions → messages
+  for (const chat of projectChats) {
+    await db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chat.id));
+    await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, chat.id));
+    await db.delete(schema.messages).where(eq(schema.messages.chatId, chat.id));
+  }
+
+  // Delete snapshots, then chats, then project
+  await db.delete(schema.snapshots).where(eq(schema.snapshots.projectId, id));
+  await db.delete(schema.chats).where(eq(schema.chats.projectId, id));
   await db.delete(schema.projects).where(eq(schema.projects.id, id));
+
+  // Remove project directory from disk
+  try {
+    rmSync(`./projects/${id}`, { recursive: true, force: true });
+  } catch {
+    // Directory may not exist — safe to ignore
+  }
+
   return c.json({ ok: true });
 });

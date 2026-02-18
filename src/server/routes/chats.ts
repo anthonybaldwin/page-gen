@@ -42,9 +42,16 @@ chatRoutes.post("/", async (c) => {
   return c.json(chat, 201);
 });
 
-// Delete chat
+// Delete chat (cascade: token_usage → agent_executions → messages, nullify snapshots)
 chatRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  await db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, id));
+  await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, id));
+  await db.delete(schema.messages).where(eq(schema.messages.chatId, id));
+  await db
+    .update(schema.snapshots)
+    .set({ chatId: null })
+    .where(eq(schema.snapshots.chatId, id));
   await db.delete(schema.chats).where(eq(schema.chats.id, id));
   return c.json({ ok: true });
 });
