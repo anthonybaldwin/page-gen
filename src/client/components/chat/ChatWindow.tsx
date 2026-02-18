@@ -13,7 +13,7 @@ import { nanoid } from "nanoid";
 
 export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage } = useChatStore();
-  const { blocks, reset: resetThinking, handleThinking, toggleExpanded } = useAgentThinkingStore();
+  const { blocks, reset: resetThinking, stopAll, handleThinking, toggleExpanded } = useAgentThinkingStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
@@ -62,8 +62,12 @@ export function ChatWindow() {
           if (status === "running") {
             resetThinking();
           }
-          if (status === "completed" || status === "failed" || status === "stopped") {
+          if (status === "completed" || status === "failed") {
             setThinking(false);
+          }
+          if (status === "stopped") {
+            setThinking(false);
+            stopAll();
           }
         }
       }
@@ -107,7 +111,7 @@ export function ChatWindow() {
     });
 
     return unsub;
-  }, [activeChat, addMessage, resetThinking, handleThinking]);
+  }, [activeChat, addMessage, resetThinking, stopAll, handleThinking]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

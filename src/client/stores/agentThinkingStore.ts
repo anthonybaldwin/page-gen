@@ -13,6 +13,7 @@ export interface ThinkingBlock {
 interface AgentThinkingState {
   blocks: ThinkingBlock[];
   reset: () => void;
+  stopAll: () => void;
   handleThinking: (payload: {
     agentName: string;
     displayName: string;
@@ -28,6 +29,23 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
 
   reset: () => set({ blocks: [] }),
 
+  stopAll: () =>
+    set((state) => ({
+      blocks: state.blocks.map((b) =>
+        b.status === "started" || b.status === "streaming"
+          ? {
+              agentName: b.agentName,
+              displayName: b.displayName,
+              startedAt: b.startedAt,
+              content: b.content,
+              summary: "Stopped",
+              status: "failed" as const,
+              expanded: false,
+            }
+          : b
+      ),
+    })),
+
   handleThinking: (payload) =>
     set((state) => {
       const { agentName, displayName, status, chunk, summary } = payload;
@@ -35,13 +53,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       const idx = blocks.findIndex((b) => b.agentName === agentName);
 
       if (status === "started") {
-        // Collapse any previously expanded blocks
-        const updated = blocks.map((b) =>
-          b.expanded && b.status !== "started" && b.status !== "streaming"
-            ? { ...b, expanded: false }
-            : b
-        );
-        updated.push({
+        const newBlock: ThinkingBlock = {
           agentName,
           displayName,
           status: "started",
@@ -49,7 +61,21 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           summary: "",
           expanded: true,
           startedAt: Date.now(),
-        });
+        };
+
+        if (idx !== -1) {
+          // Agent retrying — replace existing block instead of creating duplicate
+          blocks[idx] = newBlock;
+          return { blocks };
+        }
+
+        // Collapse any previously expanded completed/failed blocks
+        const updated = blocks.map((b) =>
+          b.expanded && b.status !== "started" && b.status !== "streaming"
+            ? { ...b, expanded: false }
+            : b
+        );
+        updated.push(newBlock);
         return { blocks: updated };
       }
 
