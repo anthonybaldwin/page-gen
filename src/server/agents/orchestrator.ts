@@ -153,7 +153,11 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           userMessage: step.input,
           chatHistory,
           projectPath,
-          context: { projectId, originalRequest: userMessage },
+          context: {
+            projectId,
+            originalRequest: userMessage,
+            upstreamOutputs: Object.fromEntries(agentResults),
+          },
         };
 
         result = await runAgent(config, providers, agentInput, undefined, signal);
@@ -280,6 +284,103 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       });
       abortControllers.delete(chatId);
       return;
+    }
+  }
+
+  // --- Remediation pass (max 1 cycle) ---
+  const findings = detectIssues(agentResults);
+  if (findings.hasIssues && !signal.aborted) {
+    const remediationCostCheck = checkCostLimit(chatId);
+    if (remediationCostCheck.allowed) {
+      const remediationAgent = "frontend-dev" as AgentName;
+      const config = getAgentConfig(remediationAgent);
+
+      if (config) {
+        const parts: string[] = [];
+        parts.push(`Fix the following issues found during review of: ${userMessage}`);
+        if (findings.qaFindings) {
+          parts.push(`\n## QA Findings\n${findings.qaFindings}`);
+        }
+        if (findings.securityFindings) {
+          parts.push(`\n## Security Findings\n${findings.securityFindings}`);
+        }
+        parts.push(`\nReview the original code in Previous Agent Outputs and output corrected versions of any files with issues.`);
+        const remediationInput = parts.join("\n");
+
+        broadcastAgentStatus(remediationAgent, "running", { phase: "remediation" });
+
+        const executionId = nanoid();
+        await db.insert(schema.agentExecutions).values({
+          id: executionId,
+          chatId,
+          agentName: remediationAgent,
+          status: "running",
+          input: JSON.stringify({ message: remediationInput, phase: "remediation" }),
+          output: null,
+          error: null,
+          retryCount: 0,
+          startedAt: Date.now(),
+          completedAt: null,
+        });
+
+        try {
+          const agentInput: AgentInput = {
+            userMessage: remediationInput,
+            chatHistory,
+            projectPath,
+            context: {
+              projectId,
+              originalRequest: userMessage,
+              upstreamOutputs: Object.fromEntries(agentResults),
+              phase: "remediation",
+            },
+          };
+
+          const result = await runAgent(config, providers, agentInput, undefined, signal);
+
+          if (result.tokenUsage) {
+            const providerKey = apiKeys[config.provider];
+            if (providerKey) {
+              const record = trackTokenUsage({
+                executionId,
+                chatId,
+                agentName: remediationAgent,
+                provider: config.provider,
+                model: config.model,
+                apiKey: providerKey,
+                inputTokens: result.tokenUsage.inputTokens,
+                outputTokens: result.tokenUsage.outputTokens,
+              });
+              broadcastTokenUsage({
+                chatId,
+                agentName: remediationAgent,
+                provider: config.provider,
+                model: config.model,
+                inputTokens: result.tokenUsage.inputTokens,
+                outputTokens: result.tokenUsage.outputTokens,
+                totalTokens: result.tokenUsage.totalTokens,
+                costEstimate: record.costEstimate,
+              });
+            }
+          }
+
+          await db.update(schema.agentExecutions)
+            .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
+            .where(eq(schema.agentExecutions.id, executionId));
+
+          agentResults.set("frontend-dev-remediation", result.content);
+          completedAgents.push("frontend-dev (remediation)");
+
+        } catch (err) {
+          if (!signal.aborted) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            await db.update(schema.agentExecutions)
+              .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
+              .where(eq(schema.agentExecutions.id, executionId));
+            broadcastAgentError(remediationAgent, `Remediation failed: ${errorMsg}`);
+          }
+        }
+      }
     }
   }
 
@@ -421,9 +522,34 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   return result.text;
 }
 
+interface ReviewFindings {
+  hasIssues: boolean;
+  qaFindings: string | null;
+  securityFindings: string | null;
+}
+
+function detectIssues(agentResults: Map<string, string>): ReviewFindings {
+  const qaOutput = agentResults.get("qa") || "";
+  const securityOutput = agentResults.get("security") || "";
+
+  // QA agent outputs "QA Review: Pass" when no issues found (see qa.md prompt)
+  const qaClean = qaOutput.includes("QA Review: Pass") || qaOutput.trim() === "";
+
+  // Security agent outputs "status": "pass" when no issues found (see security.md prompt)
+  const securityClean =
+    securityOutput.includes('"status": "pass"') ||
+    securityOutput.includes('"status":"pass"') ||
+    securityOutput.includes("Passed with no issues") ||
+    securityOutput.trim() === "";
+
+  return {
+    hasIssues: !qaClean || !securityClean,
+    qaFindings: qaClean ? null : qaOutput,
+    securityFindings: securityClean ? null : securityOutput,
+  };
+}
+
 function buildExecutionPlan(userMessage: string): ExecutionPlan {
-  // Default plan for a page build request
-  // In a real implementation, the orchestrator LLM would generate this plan
   return {
     steps: [
       {
@@ -432,27 +558,27 @@ function buildExecutionPlan(userMessage: string): ExecutionPlan {
       },
       {
         agentName: "architect",
-        input: `Design the component architecture for: ${userMessage}`,
+        input: `Design the component architecture based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
         dependsOn: ["research"],
       },
       {
         agentName: "frontend-dev",
-        input: `Generate the React components and code for: ${userMessage}`,
+        input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
         dependsOn: ["architect"],
       },
       {
         agentName: "styling",
-        input: `Apply design polish and responsive styling for: ${userMessage}`,
+        input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
         dependsOn: ["frontend-dev"],
       },
       {
         agentName: "qa",
-        input: `Review all generated code for: ${userMessage}`,
+        input: `Review and fix all code generated by frontend-dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
         dependsOn: ["styling"],
       },
       {
         agentName: "security",
-        input: `Security review all generated code for: ${userMessage}`,
+        input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
         dependsOn: ["qa"],
       },
     ],

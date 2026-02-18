@@ -7,6 +7,7 @@ interface AgentState {
   status: "pending" | "running" | "completed" | "failed" | "retrying";
   stream: string;
   error?: string;
+  phase?: string;
 }
 
 const PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
@@ -45,7 +46,11 @@ export function AgentStatusPanel() {
 
     const unsub = onWsMessage((msg) => {
       if (msg.type === "agent_status") {
-        const { agentName, status } = msg.payload as { agentName: string; status: string };
+        const { agentName, status, phase } = msg.payload as {
+          agentName: string;
+          status: string;
+          phase?: string;
+        };
         const display = PIPELINE_AGENTS.find((a) => a.name === agentName)?.displayName || agentName;
 
         if (status === "running" || status === "retrying") {
@@ -63,6 +68,7 @@ export function AgentStatusPanel() {
             displayName: display,
             status: status as AgentState["status"],
             stream: prev[agentName]?.stream || "",
+            phase,
           },
         }));
       }
@@ -148,6 +154,7 @@ export function AgentStatusPanel() {
                 </span>
                 <span className={status === "running" ? "text-zinc-200" : "text-zinc-500"}>
                   {agent.displayName}
+                  {state?.phase === "remediation" && " (fixing)"}
                 </span>
               </button>
             </div>
@@ -160,7 +167,8 @@ export function AgentStatusPanel() {
         <div className="flex items-center gap-2 text-xs text-zinc-400">
           <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
           <span>
-            <span className="text-zinc-200 font-medium">{currentAgent.displayName}</span> is working...
+            <span className="text-zinc-200 font-medium">{currentAgent.displayName}</span>
+            {currentAgent.phase === "remediation" ? " is fixing issues..." : " is working..."}
           </span>
         </div>
       )}

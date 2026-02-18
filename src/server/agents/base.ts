@@ -114,9 +114,22 @@ function buildPrompt(input: AgentInput): string {
   }
 
   if (input.context) {
-    parts.push("## Context");
-    parts.push(JSON.stringify(input.context, null, 2));
-    parts.push("");
+    const { upstreamOutputs, ...rest } = input.context as Record<string, unknown>;
+
+    if (Object.keys(rest).length > 0) {
+      parts.push("## Context");
+      parts.push(JSON.stringify(rest, null, 2));
+      parts.push("");
+    }
+
+    if (upstreamOutputs && typeof upstreamOutputs === "object") {
+      parts.push("## Previous Agent Outputs");
+      for (const [agent, output] of Object.entries(upstreamOutputs as Record<string, string>)) {
+        parts.push(`### ${agent}`);
+        parts.push(String(output));
+        parts.push("");
+      }
+    }
   }
 
   parts.push("## Current Request");
