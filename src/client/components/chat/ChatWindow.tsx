@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentStatusPanel } from "./AgentStatusPanel.tsx";
+import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
+import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
+import { useUsageStore } from "../../stores/usageStore.ts";
 import { api } from "../../lib/api.ts";
 import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
 import type { Message } from "../../../shared/types.ts";
@@ -10,6 +13,7 @@ import { nanoid } from "nanoid";
 
 export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage } = useChatStore();
+  const { blocks, reset: resetThinking, handleThinking, toggleExpanded } = useAgentThinkingStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
@@ -18,6 +22,7 @@ export function ChatWindow() {
     if (!activeChat) return;
     setError(null);
     setThinking(false);
+    resetThinking();
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
       .then(setMessages)
@@ -25,7 +30,7 @@ export function ChatWindow() {
         console.error("[chat] Failed to load messages:", err);
         setError("Failed to load messages. Is the backend server running?");
       });
-  }, [activeChat, setMessages]);
+  }, [activeChat, setMessages, resetThinking]);
 
   // Listen for agent messages and status updates via WebSocket
   useEffect(() => {
@@ -50,11 +55,16 @@ export function ChatWindow() {
         }
       }
 
-      // Orchestrator completed — stop thinking
+      // Orchestrator status changes
       if (msg.type === "agent_status") {
         const { agentName, status } = msg.payload as { agentName: string; status: string };
-        if (agentName === "orchestrator" && (status === "completed" || status === "failed")) {
-          setThinking(false);
+        if (agentName === "orchestrator") {
+          if (status === "running") {
+            resetThinking();
+          }
+          if (status === "completed" || status === "failed" || status === "stopped") {
+            setThinking(false);
+          }
         }
       }
 
@@ -66,14 +76,42 @@ export function ChatWindow() {
           setError(errMsg);
         }
       }
+
+      // Agent thinking events
+      if (msg.type === "agent_thinking") {
+        handleThinking(
+          msg.payload as {
+            agentName: string;
+            displayName: string;
+            status: "started" | "streaming" | "completed" | "failed";
+            chunk?: string;
+            summary?: string;
+          }
+        );
+      }
+
+      // Token usage events
+      if (msg.type === "token_usage") {
+        const payload = msg.payload as {
+          chatId: string;
+          agentName: string;
+          provider: string;
+          model: string;
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+          costEstimate: number;
+        };
+        useUsageStore.getState().addFromWs(payload);
+      }
     });
 
     return unsub;
-  }, [activeChat, addMessage]);
+  }, [activeChat, addMessage, resetThinking, handleThinking]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, thinking]);
+  }, [messages, thinking, blocks]);
 
   async function handleSend(content: string) {
     if (!activeChat) return;
@@ -119,6 +157,15 @@ export function ChatWindow() {
     }
   }
 
+  async function handleStop() {
+    if (!activeChat) return;
+    try {
+      await api.post("/agents/stop", { chatId: activeChat.id });
+    } catch (err) {
+      console.error("[chat] Failed to stop agents:", err);
+    }
+  }
+
   if (!activeChat) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -140,10 +187,17 @@ export function ChatWindow() {
       )}
       <div className="flex-1 overflow-y-auto">
         <MessageList messages={messages} />
-        {thinking && <ThinkingIndicator />}
+        {blocks.map((block) => (
+          <AgentThinkingMessage
+            key={block.agentName}
+            block={block}
+            onToggle={() => toggleExpanded(block.agentName)}
+          />
+        ))}
+        {thinking && blocks.length === 0 && <ThinkingIndicator />}
         <div ref={messagesEndRef} />
       </div>
-      <MessageInput onSend={handleSend} disabled={thinking} />
+      <MessageInput onSend={handleSend} disabled={thinking} onStop={handleStop} />
     </div>
   );
 }

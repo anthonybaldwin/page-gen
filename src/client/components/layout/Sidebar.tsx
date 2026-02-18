@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { useChatStore } from "../../stores/chatStore.ts";
+import { useUsageStore } from "../../stores/usageStore.ts";
 import { api } from "../../lib/api.ts";
 import type { Project, Chat } from "../../../shared/types.ts";
+import { UsageBadge } from "../billing/UsageBadge.tsx";
+import { UsageDashboard } from "../billing/UsageDashboard.tsx";
 
 export function Sidebar() {
   const { projects, activeProject, setProjects, setActiveProject } = useProjectStore();
@@ -10,6 +13,13 @@ export function Sidebar() {
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showUsage, setShowUsage] = useState(false);
+
+  // Sync active chat id to usage store
+  const setActiveChatId = useUsageStore((s) => s.setActiveChatId);
+  useEffect(() => {
+    setActiveChatId(activeChat?.id ?? null);
+  }, [activeChat, setActiveChatId]);
 
   useEffect(() => {
     api.get<Project[]>("/projects").then(setProjects).catch(console.error);
@@ -202,6 +212,30 @@ export function Sidebar() {
           </>
         )}
       </div>
+
+      <UsageBadge onClick={() => setShowUsage(true)} />
+
+      {/* Usage dashboard modal */}
+      {showUsage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <h2 className="text-sm font-medium text-white">Usage Dashboard</h2>
+              <button
+                onClick={() => setShowUsage(false)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <UsageDashboard />
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

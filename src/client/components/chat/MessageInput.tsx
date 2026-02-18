@@ -1,6 +1,12 @@
 import { useState, useRef } from "react";
 
-export function MessageInput({ onSend, disabled = false }: { onSend: (content: string) => void; disabled?: boolean }) {
+interface MessageInputProps {
+  onSend: (content: string) => void;
+  disabled?: boolean;
+  onStop?: () => void;
+}
+
+export function MessageInput({ onSend, disabled = false, onStop }: MessageInputProps) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,18 +35,28 @@ export function MessageInput({ onSend, disabled = false }: { onSend: (content: s
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? "Agents are working..." : "Describe what you want to build..."}
+          placeholder={disabled ? "Agents are working... click Stop to interrupt" : "Describe what you want to build..."}
           rows={1}
           disabled={disabled}
           className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors resize-none disabled:opacity-50"
         />
-        <button
-          type="submit"
-          disabled={disabled || !input.trim()}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          Send
-        </button>
+        {disabled && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 transition-colors"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={disabled || !input.trim()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Send
+          </button>
+        )}
       </div>
     </form>
   );
