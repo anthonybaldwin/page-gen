@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 
 export const usageRoutes = new Hono();
 
@@ -24,17 +24,17 @@ usageRoutes.get("/", (c) => {
   return c.json(all);
 });
 
-// Usage summary (totals)
+// Usage summary (lifetime totals from billing_ledger — survives deletions)
 usageRoutes.get("/summary", (c) => {
   const result = db
     .select({
-      totalInputTokens: sql<number>`sum(${schema.tokenUsage.inputTokens})`,
-      totalOutputTokens: sql<number>`sum(${schema.tokenUsage.outputTokens})`,
-      totalTokens: sql<number>`sum(${schema.tokenUsage.totalTokens})`,
-      totalCost: sql<number>`sum(${schema.tokenUsage.costEstimate})`,
+      totalInputTokens: sql<number>`sum(${schema.billingLedger.inputTokens})`,
+      totalOutputTokens: sql<number>`sum(${schema.billingLedger.outputTokens})`,
+      totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
-    .from(schema.tokenUsage)
+    .from(schema.billingLedger)
     .get();
 
   return c.json({
@@ -83,5 +83,45 @@ usageRoutes.get("/by-provider", (c) => {
     .from(schema.tokenUsage)
     .groupBy(schema.tokenUsage.provider, schema.tokenUsage.model)
     .all();
+  return c.json(results);
+});
+
+// Lifetime usage grouped by project (from billing_ledger)
+usageRoutes.get("/by-project", (c) => {
+  const results = db
+    .select({
+      projectId: schema.billingLedger.projectId,
+      projectName: schema.billingLedger.projectName,
+      totalInputTokens: sql<number>`sum(${schema.billingLedger.inputTokens})`,
+      totalOutputTokens: sql<number>`sum(${schema.billingLedger.outputTokens})`,
+      totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
+      requestCount: sql<number>`count(*)`,
+    })
+    .from(schema.billingLedger)
+    .groupBy(schema.billingLedger.projectId)
+    .all();
+  return c.json(results);
+});
+
+// Full billing history (from billing_ledger — never deleted)
+usageRoutes.get("/history", (c) => {
+  const projectId = c.req.query("projectId");
+  const chatId = c.req.query("chatId");
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+
+  const conditions = [];
+  if (projectId) conditions.push(eq(schema.billingLedger.projectId, projectId));
+  if (chatId) conditions.push(eq(schema.billingLedger.chatId, chatId));
+  if (from) conditions.push(gte(schema.billingLedger.createdAt, parseInt(from, 10)));
+  if (to) conditions.push(lte(schema.billingLedger.createdAt, parseInt(to, 10)));
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const results = whereClause
+    ? db.select().from(schema.billingLedger).where(whereClause).orderBy(desc(schema.billingLedger.createdAt)).all()
+    : db.select().from(schema.billingLedger).orderBy(desc(schema.billingLedger.createdAt)).all();
+
   return c.json(results);
 });
