@@ -1,0 +1,40 @@
+# Security Model
+
+## API Key Storage
+
+API keys are stored **exclusively** in the browser's `localStorage`. They are never persisted server-side.
+
+### Flow
+1. User enters API keys in the setup modal (first visit) or settings
+2. Keys are saved to `localStorage` under the `apiKeys` key
+3. On every API request, keys are sent via custom headers:
+   - `X-Api-Key-Anthropic`
+   - `X-Api-Key-OpenAI`
+   - `X-Api-Key-Google`
+4. Backend extracts keys from headers, creates provider instances per-request
+5. Keys are hashed (SHA-256) for usage tracking — the hash is stored, never the key
+
+### Proxy URLs
+- Users can optionally set proxy URLs per provider
+- Proxy URLs override the default API base URL
+- Sent via `X-Proxy-Url-{Provider}` headers
+- Validated as proper URLs on entry
+
+## Generated Code Sandbox
+
+- Each project runs in its own Vite dev server
+- Preview is rendered in an `<iframe>` with `sandbox` attribute
+- iframe has no access to the parent app's localStorage or cookies
+- File operations are scoped to `/projects/{projectId}/` — no parent directory traversal
+
+## Agent Tool Restrictions
+
+- File read/write restricted to project directory
+- Shell commands run in sandboxed context
+- No access to parent app's database or config
+
+## Network Access
+
+- Backend listens only on localhost (127.0.0.1)
+- No external network exposure
+- All communication is local HTTP/WS
