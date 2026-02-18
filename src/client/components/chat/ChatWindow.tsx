@@ -4,6 +4,7 @@ import { MessageInput } from "./MessageInput.tsx";
 import { AgentStatusPanel } from "./AgentStatusPanel.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { api } from "../../lib/api.ts";
+import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
 import type { Message } from "../../../shared/types.ts";
 import { nanoid } from "nanoid";
 
@@ -11,10 +12,12 @@ export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage } = useChatStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [thinking, setThinking] = useState(false);
 
   useEffect(() => {
     if (!activeChat) return;
     setError(null);
+    setThinking(false);
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
       .then(setMessages)
@@ -24,9 +27,53 @@ export function ChatWindow() {
       });
   }, [activeChat, setMessages]);
 
+  // Listen for agent messages and status updates via WebSocket
+  useEffect(() => {
+    connectWebSocket();
+
+    const unsub = onWsMessage((msg) => {
+      if (!activeChat) return;
+
+      // Agent completed and produced a chat message
+      if (msg.type === "chat_message") {
+        const payload = msg.payload as { chatId: string; agentName: string; content: string };
+        if (payload.chatId === activeChat.id) {
+          addMessage({
+            id: nanoid(),
+            chatId: payload.chatId,
+            role: "assistant",
+            content: payload.content,
+            agentName: payload.agentName,
+            metadata: null,
+            createdAt: Date.now(),
+          });
+        }
+      }
+
+      // Orchestrator completed — stop thinking
+      if (msg.type === "agent_status") {
+        const { agentName, status } = msg.payload as { agentName: string; status: string };
+        if (agentName === "orchestrator" && (status === "completed" || status === "failed")) {
+          setThinking(false);
+        }
+      }
+
+      // Agent error — stop thinking and show error
+      if (msg.type === "agent_error") {
+        const { agentName, error: errMsg } = msg.payload as { agentName: string; error: string };
+        if (agentName === "orchestrator") {
+          setThinking(false);
+          setError(errMsg);
+        }
+      }
+    });
+
+    return unsub;
+  }, [activeChat, addMessage]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, thinking]);
 
   async function handleSend(content: string) {
     if (!activeChat) return;
@@ -43,6 +90,7 @@ export function ChatWindow() {
       createdAt: Date.now(),
     };
     addMessage(optimisticMsg);
+    setThinking(true);
 
     // Persist to backend
     try {
@@ -54,7 +102,8 @@ export function ChatWindow() {
     } catch (err) {
       console.error("[chat] Failed to save message:", err);
       setError("Failed to save message. Check that the backend server is running (bun run dev).");
-      // Message stays visible in UI — user can see what they typed
+      setThinking(false);
+      return;
     }
 
     // Trigger agent orchestration
@@ -63,8 +112,10 @@ export function ChatWindow() {
         chatId: activeChat.id,
         message: content,
       });
-    } catch {
-      // Agent orchestration may fail for various reasons — not critical for message display
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Agent orchestration failed";
+      setError(msg);
+      setThinking(false);
     }
   }
 
@@ -89,9 +140,25 @@ export function ChatWindow() {
       )}
       <div className="flex-1 overflow-y-auto">
         <MessageList messages={messages} />
+        {thinking && <ThinkingIndicator />}
         <div ref={messagesEndRef} />
       </div>
-      <MessageInput onSend={handleSend} />
+      <MessageInput onSend={handleSend} disabled={thinking} />
+    </div>
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start p-4">
+      <div className="bg-zinc-800 rounded-lg px-4 py-3 flex items-center gap-2">
+        <div className="flex gap-1">
+          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+        <span className="text-xs text-zinc-400 ml-1">Agents working...</span>
+      </div>
     </div>
   );
 }

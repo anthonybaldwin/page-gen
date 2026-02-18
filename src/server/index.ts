@@ -10,6 +10,7 @@ import { snapshotRoutes } from "./routes/snapshots.ts";
 import { fileRoutes } from "./routes/files.ts";
 import { settingsRoutes } from "./routes/settings.ts";
 import { agentRoutes } from "./routes/agents.ts";
+import { setServer } from "./ws.ts";
 
 // Run migrations on startup
 runMigrations();
@@ -77,6 +78,9 @@ const server = Bun.serve({
     },
   },
 });
+
+// Register server for WebSocket broadcasts
+setServer(server);
 
 console.log(`[server] Running on http://localhost:${PORT}`);
 
