@@ -9,6 +9,7 @@ export function Sidebar() {
   const { chats, activeChat, setChats, setActiveChat } = useChatStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<Project[]>("/projects").then(setProjects).catch(console.error);
@@ -28,21 +29,31 @@ export function Sidebar() {
   async function handleCreateProject() {
     const name = newProjectName.trim();
     if (!name) return;
-    const project = await api.post<Project>("/projects", { name });
-    setProjects([...projects, project]);
-    setActiveProject(project);
-    setShowNewProject(false);
-    setNewProjectName("");
+    try {
+      const project = await api.post<Project>("/projects", { name });
+      setProjects([...projects, project]);
+      setActiveProject(project);
+      setShowNewProject(false);
+      setNewProjectName("");
+    } catch (err) {
+      console.error("[sidebar] Failed to create project:", err);
+      setError("Failed to create project. Is the backend server running?");
+    }
   }
 
   async function handleCreateChat() {
     if (!activeProject) return;
-    const chat = await api.post<Chat>("/chats", {
-      projectId: activeProject.id,
-      title: `Chat ${chats.length + 1}`,
-    });
-    setChats([...chats, chat]);
-    setActiveChat(chat);
+    try {
+      const chat = await api.post<Chat>("/chats", {
+        projectId: activeProject.id,
+        title: `Chat ${chats.length + 1}`,
+      });
+      setChats([...chats, chat]);
+      setActiveChat(chat);
+    } catch (err) {
+      console.error("[sidebar] Failed to create chat:", err);
+      setError("Failed to create chat. Is the backend server running?");
+    }
   }
 
   return (
@@ -50,6 +61,14 @@ export function Sidebar() {
       <div className="p-4 border-b border-zinc-800">
         <h1 className="text-lg font-bold text-white">Just Build It</h1>
       </div>
+      {error && (
+        <div className="px-3 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-1 underline">
+            dismiss
+          </button>
+        </div>
+      )}
 
       {/* Projects */}
       <div className="p-2 border-b border-zinc-800">

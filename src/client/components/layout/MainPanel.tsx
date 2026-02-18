@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ChatWindow } from "../chat/ChatWindow.tsx";
 import { LivePreview } from "../preview/LivePreview.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
@@ -6,6 +6,8 @@ import { useChatStore } from "../../stores/chatStore.ts";
 export function MainPanel() {
   const activeChat = useChatStore((s) => s.activeChat);
   const [activeTab, setActiveTab] = useState<"chat" | "preview">("chat");
+  const hasOpenedPreview = useRef(false);
+  if (activeTab === "preview") hasOpenedPreview.current = true;
 
   return (
     <main className="flex-1 flex flex-col min-w-0">
@@ -38,8 +40,13 @@ export function MainPanel() {
         )}
       </div>
 
-      {/* Content */}
-      {activeTab === "chat" ? <ChatWindow /> : <LivePreview />}
+      {/* Content — both panels stay mounted; hidden one uses display:none to preserve state */}
+      <div className={`flex-1 flex flex-col min-h-0 ${activeTab !== "chat" ? "hidden" : ""}`}>
+        <ChatWindow />
+      </div>
+      <div className={`flex-1 flex flex-col min-h-0 ${activeTab !== "preview" ? "hidden" : ""}`}>
+        {hasOpenedPreview.current && <LivePreview />}
+      </div>
     </main>
   );
 }
