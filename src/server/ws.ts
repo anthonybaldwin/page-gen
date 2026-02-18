@@ -31,3 +31,31 @@ export function broadcastAgentError(agentName: string, error: string) {
     payload: { agentName, error },
   });
 }
+
+export function broadcastAgentThinking(
+  agentName: string,
+  displayName: string,
+  status: "started" | "streaming" | "completed" | "failed",
+  extra?: { chunk?: string; summary?: string }
+) {
+  broadcast({
+    type: "agent_thinking",
+    payload: { agentName, displayName, status, ...extra },
+  });
+}
+
+export function broadcastTokenUsage(payload: {
+  chatId: string;
+  agentName: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costEstimate: number;
+}) {
+  broadcast({
+    type: "token_usage",
+    payload,
+  });
+}

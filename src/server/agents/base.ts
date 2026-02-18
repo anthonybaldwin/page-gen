@@ -1,7 +1,7 @@
-import { generateText } from "ai";
+import { streamText } from "ai";
 import type { ProviderInstance } from "../providers/registry.ts";
 import type { AgentConfig, AgentName } from "../../shared/types.ts";
-import { broadcastAgentStatus, broadcastAgentStream } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking } from "../ws.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -36,7 +36,8 @@ export async function runAgent(
   config: AgentConfig,
   providers: ProviderInstance,
   input: AgentInput,
-  tools?: Record<string, unknown>
+  tools?: Record<string, unknown>,
+  abortSignal?: AbortSignal
 ): Promise<AgentOutput> {
   const systemPrompt = loadSystemPrompt(config.name);
   const provider = getProviderModel(config, providers);
@@ -46,28 +47,44 @@ export async function runAgent(
   }
 
   broadcastAgentStatus(config.name, "running");
+  broadcastAgentThinking(config.name, config.displayName, "started");
 
   try {
-    const result = await generateText({
+    const result = streamText({
       model: provider,
       system: systemPrompt,
       prompt: buildPrompt(input),
       ...(tools ? { tools: tools as Record<string, never> } : {}),
+      ...(abortSignal ? { abortSignal } : {}),
     });
 
+    let fullText = "";
+    for await (const chunk of result.textStream) {
+      fullText += chunk;
+      broadcastAgentThinking(config.name, config.displayName, "streaming", { chunk });
+    }
+
+    const usage = await result.usage;
+
+    // Build summary: first sentence, max 120 chars
+    const firstSentence = fullText.split(/[.!?\n]/)[0]?.trim() || "";
+    const summary = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+
     broadcastAgentStatus(config.name, "completed");
-    broadcastAgentStream(config.name, result.text);
+    broadcastAgentStream(config.name, fullText);
+    broadcastAgentThinking(config.name, config.displayName, "completed", { summary });
 
     return {
-      content: result.text,
+      content: fullText,
       tokenUsage: {
-        inputTokens: result.usage?.inputTokens || 0,
-        outputTokens: result.usage?.outputTokens || 0,
-        totalTokens: (result.usage?.inputTokens || 0) + (result.usage?.outputTokens || 0),
+        inputTokens: usage?.inputTokens || 0,
+        outputTokens: usage?.outputTokens || 0,
+        totalTokens: (usage?.inputTokens || 0) + (usage?.outputTokens || 0),
       },
     };
   } catch (err) {
     broadcastAgentStatus(config.name, "failed");
+    broadcastAgentThinking(config.name, config.displayName, "failed");
     throw err;
   }
 }
