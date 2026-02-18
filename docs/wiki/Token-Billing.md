@@ -43,6 +43,14 @@ Per-million-token pricing used for estimates:
 - `GET /api/usage/by-agent` — Grouped by agent
 - `GET /api/usage/by-provider` — Grouped by provider + model
 
+## Real-Time Cost Display
+
+A usage badge in the sidebar footer shows:
+- **Total spent** across all chats (updated in real time via `token_usage` WebSocket events)
+- **This chat** cost when a chat is active
+
+Clicking the badge opens the full usage dashboard as a modal overlay.
+
 ## Dashboard Views
 
 1. **Overview** — Total tokens, cost, request count

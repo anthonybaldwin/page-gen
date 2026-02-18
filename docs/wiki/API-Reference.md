@@ -101,13 +101,20 @@ Trigger orchestration for a chat.
 
 **Body:** `{ chatId: string, message: string }`
 
+### POST /agents/stop
+Stop a running orchestration pipeline.
+
+**Body:** `{ chatId: string }`
+
 ## WebSocket
 
 Connect to `ws://localhost:3000/ws` for real-time agent updates.
 
 **Message types:**
-- `agent_status` — Agent status change (pending, running, completed, failed)
-- `agent_stream` — Agent thinking/output stream chunk
+- `agent_status` — Agent status change (pending, running, completed, failed, stopped)
+- `agent_stream` — Agent output stream (full text after completion)
 - `agent_complete` — Agent finished execution
 - `agent_error` — Agent encountered an error
 - `chat_message` — New chat message
+- `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
+- `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)

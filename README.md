@@ -6,9 +6,11 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 - **Chat-based UI** — Describe pages naturally, agents build them
 - **8 specialized AI agents** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, QA, Security
-- **Live HMR preview** — See changes as agents write code
+- **Real-time agent thinking** — Expandable per-agent thinking messages stream in chat as agents work
+- **Stop & continue** — Interrupt a running pipeline and resume from where it stopped
+- **Live HMR preview** — See changes as agents write code (tab disabled until files exist)
 - **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
-- **Token tracking** — Per-agent, per-provider, per-request usage dashboard
+- **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar
 - **Snapshots** — Version your project, rollback to any point
 - **Local-first** — All data in SQLite, API keys in localStorage, no cloud dependency
 
