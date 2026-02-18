@@ -1,4 +1,5 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
+import { MarkdownContent } from "./MarkdownContent.tsx";
 import type { ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 
 interface Props {
@@ -6,17 +7,52 @@ interface Props {
   onToggle: () => void;
 }
 
+/**
+ * Strip internal agent plumbing from the streamed content:
+ * - <tool_call>...</tool_call> blocks
+ * - <tool_response>...</tool_response> blocks
+ * - <tool>...</tool> tags and partial tags
+ * - Lone XML-like tags (<tool_call>, </tool_response>, etc.)
+ * - Raw JSON blobs ({ "name": ... })
+ * Keeps the agent's natural language reasoning.
+ */
+function sanitizeThinking(raw: string): string {
+  let cleaned = raw;
+
+  // Remove complete tool_call / tool_response / tool blocks (including partial/unclosed)
+  cleaned = cleaned.replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/gi, "");
+  cleaned = cleaned.replace(/<tool_response[\s\S]*?(<\/tool_response>|$)/gi, "");
+  cleaned = cleaned.replace(/<tool[\s>][\s\S]*?(<\/tool>|$)/gi, "");
+
+  // Remove any remaining XML-like tags that look like internal plumbing
+  cleaned = cleaned.replace(/<\/?(?:tool_call|tool_response|tool|function_call|function_response|result|invoke)[^>]*>/gi, "");
+
+  // Remove lines that are just JSON objects/arrays (common in tool responses)
+  cleaned = cleaned.replace(/^\s*[{[][\s\S]*?[}\]]\s*$/gm, (match) => {
+    // Only remove if it looks like a full JSON blob (has quotes and colons)
+    if (match.includes('"') && match.includes(":")) return "";
+    return match;
+  });
+
+  // Collapse multiple blank lines into one
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+
+  return cleaned.trim();
+}
+
 export function AgentThinkingMessage({ block, onToggle }: Props) {
   const { displayName, status, content, summary, expanded } = block;
   const isActive = status === "started" || status === "streaming";
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const cleanContent = useMemo(() => sanitizeThinking(content), [content]);
 
   // Auto-scroll the thinking body to bottom while streaming
   useEffect(() => {
     if (expanded && isActive && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [content, expanded, isActive]);
+  }, [cleanContent, expanded, isActive]);
 
   return (
     <div className="flex justify-start px-4 py-1.5">
@@ -67,18 +103,18 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
           </svg>
         </button>
 
-        {/* Expandable thinking body — monospace code-style output */}
-        {expanded && content && (
+        {/* Expandable thinking body */}
+        {expanded && cleanContent && (
           <div
             ref={scrollRef}
             className="border-t border-zinc-800/60 max-h-60 overflow-y-auto"
           >
-            <pre className="px-4 py-3 text-[11px] leading-[1.6] font-mono text-zinc-500 whitespace-pre-wrap break-words">
-              {content}
+            <div className="px-4 py-3 text-xs leading-relaxed text-zinc-500">
+              <MarkdownContent content={cleanContent} />
               {isActive && (
-                <span className="inline-block w-1.5 h-3.5 bg-zinc-500 animate-pulse rounded-sm align-middle ml-0.5" />
+                <span className="inline-block w-1.5 h-3 bg-zinc-500 animate-pulse rounded-sm align-middle ml-0.5" />
               )}
-            </pre>
+            </div>
           </div>
         )}
       </div>
