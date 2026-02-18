@@ -110,8 +110,8 @@ describe("Token Tracker", () => {
       outputTokens: 500,
     });
 
-    // Opus pricing: $15/M input + $75/M output
-    // Expected: (1000 * 15 + 500 * 75) / 1_000_000 = 0.0525
-    expect(record.costEstimate).toBeCloseTo(0.0525, 4);
+    // Opus pricing: $5/M input + $25/M output
+    // Expected: (1000 * 5 + 500 * 25) / 1_000_000 = 0.0175
+    expect(record.costEstimate).toBeCloseTo(0.0175, 4);
   });
 });

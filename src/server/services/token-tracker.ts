@@ -12,11 +12,16 @@ interface TrackTokensParams {
   apiKey: string;
   inputTokens: number;
   outputTokens: number;
+  projectId?: string;
+  projectName?: string;
+  chatTitle?: string;
 }
 
 export function trackTokenUsage(params: TrackTokensParams) {
   const totalTokens = params.inputTokens + params.outputTokens;
   const costEstimate = estimateCost(params.provider, params.model, params.inputTokens, params.outputTokens);
+  const now = Date.now();
+  const apiKeyHash = hashApiKey(params.apiKey);
 
   const record = {
     id: nanoid(),
@@ -25,15 +30,36 @@ export function trackTokenUsage(params: TrackTokensParams) {
     agentName: params.agentName,
     provider: params.provider,
     model: params.model,
-    apiKeyHash: hashApiKey(params.apiKey),
+    apiKeyHash,
     inputTokens: params.inputTokens,
     outputTokens: params.outputTokens,
     totalTokens,
     costEstimate,
-    createdAt: Date.now(),
+    createdAt: now,
   };
 
+  // Operational record (deleted with chat/project)
   db.insert(schema.tokenUsage).values(record).run();
+
+  // Permanent ledger record (never deleted)
+  db.insert(schema.billingLedger).values({
+    id: nanoid(),
+    projectId: params.projectId || null,
+    projectName: params.projectName || null,
+    chatId: params.chatId,
+    chatTitle: params.chatTitle || null,
+    executionId: params.executionId,
+    agentName: params.agentName,
+    provider: params.provider,
+    model: params.model,
+    apiKeyHash,
+    inputTokens: params.inputTokens,
+    outputTokens: params.outputTokens,
+    totalTokens,
+    costEstimate,
+    createdAt: now,
+  }).run();
+
   return record;
 }
 
@@ -54,17 +80,17 @@ export function getUsageByAgent(chatId: string) {
     .all();
 }
 
-// Cost estimation per 1M tokens (USD)
+// Cost estimation per 1M tokens (USD) — verified Feb 2026
 const PRICING: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-6": { input: 15, output: 75 },
+  "claude-opus-4-6": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-haiku-4-5-20251001": { input: 0.8, output: 4 },
-  "gpt-5.2": { input: 2.5, output: 10 },
-  "gpt-5.2-pro": { input: 15, output: 60 },
-  "gemini-2.5-flash": { input: 0.15, output: 0.6 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5 },
+  "gpt-5.2": { input: 1.75, output: 14 },
+  "gpt-5.2-pro": { input: 21, output: 168 },
+  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
 };
 
 function estimateCost(provider: string, model: string, inputTokens: number, outputTokens: number): number {
-  const pricing = PRICING[model] || { input: 1, output: 5 };
+  const pricing = PRICING[model] || { input: 3, output: 15 };
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
