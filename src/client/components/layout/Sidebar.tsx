@@ -6,7 +6,7 @@ import type { Project, Chat } from "../../../shared/types.ts";
 
 export function Sidebar() {
   const { projects, activeProject, setProjects, setActiveProject } = useProjectStore();
-  const { chats, activeChat, setChats, setActiveChat } = useChatStore();
+  const { chats, activeChat, setChats, setActiveChat, setMessages } = useChatStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +16,8 @@ export function Sidebar() {
   }, [setProjects]);
 
   useEffect(() => {
+    setActiveChat(null);
+    setMessages([]);
     if (!activeProject) {
       setChats([]);
       return;
@@ -24,7 +26,7 @@ export function Sidebar() {
       .get<Chat[]>(`/chats?projectId=${activeProject.id}`)
       .then(setChats)
       .catch(console.error);
-  }, [activeProject, setChats]);
+  }, [activeProject, setChats, setActiveChat, setMessages]);
 
   async function handleCreateProject() {
     const name = newProjectName.trim();

@@ -61,6 +61,8 @@ export function FileExplorer() {
   const [fileContent, setFileContent] = useState<string | null>(null);
 
   useEffect(() => {
+    setSelectedPath(null);
+    setFileContent(null);
     if (!activeProject) {
       setTree([]);
       return;
