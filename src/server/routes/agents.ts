@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
-import { runOrchestration, abortOrchestration } from "../agents/orchestrator.ts";
+import { runOrchestration, abortOrchestration, isOrchestrationRunning } from "../agents/orchestrator.ts";
 
 export const agentRoutes = new Hono();
 
@@ -66,6 +66,13 @@ agentRoutes.post("/run", async (c) => {
   });
 
   return c.json({ status: "started", chatId: body.chatId });
+});
+
+// Check if orchestration is running for a chat
+agentRoutes.get("/status", async (c) => {
+  const chatId = c.req.query("chatId");
+  if (!chatId) return c.json({ error: "chatId required" }, 400);
+  return c.json({ running: isOrchestrationRunning(chatId) });
 });
 
 // Stop orchestration

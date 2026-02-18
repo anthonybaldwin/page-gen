@@ -30,6 +30,14 @@ export function ChatWindow() {
         console.error("[chat] Failed to load messages:", err);
         setError("Failed to load messages. Is the backend server running?");
       });
+
+    // Check if orchestration is still running (e.g. after page refresh)
+    api
+      .get<{ running: boolean }>(`/agents/status?chatId=${activeChat.id}`)
+      .then(({ running }) => {
+        if (running) setThinking(true);
+      })
+      .catch(() => {});
   }, [activeChat, setMessages, resetThinking]);
 
   // Listen for agent messages and status updates via WebSocket

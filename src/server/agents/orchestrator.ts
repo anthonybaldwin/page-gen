@@ -24,6 +24,10 @@ export function abortOrchestration(chatId: string) {
   }
 }
 
+export function isOrchestrationRunning(chatId: string): boolean {
+  return abortControllers.has(chatId);
+}
+
 interface OrchestratorInput {
   chatId: string;
   projectId: string;

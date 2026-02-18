@@ -3,6 +3,7 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { mkdirSync, rmSync } from "fs";
+import { abortOrchestration } from "../agents/orchestrator.ts";
 
 export const projectRoutes = new Hono();
 
@@ -52,8 +53,9 @@ projectRoutes.delete("/:id", async (c) => {
     .where(eq(schema.chats.projectId, id))
     .all();
 
-  // Delete children for each chat: token_usage → agent_executions → messages
+  // Abort any active orchestrations and delete children for each chat
   for (const chat of projectChats) {
+    abortOrchestration(chat.id);
     await db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chat.id));
     await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, chat.id));
     await db.delete(schema.messages).where(eq(schema.messages.chatId, chat.id));
