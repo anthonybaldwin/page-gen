@@ -4,6 +4,7 @@ import { useSettingsStore } from "../../stores/settingsStore.ts";
 interface ProviderField {
   key: string;
   label: string;
+  headerKey: string;
   placeholder: string;
   proxyPlaceholder: string;
 }
@@ -12,18 +13,21 @@ const PROVIDERS: ProviderField[] = [
   {
     key: "anthropic",
     label: "Anthropic",
+    headerKey: "Anthropic",
     placeholder: "sk-ant-...",
     proxyPlaceholder: "https://api.anthropic.com",
   },
   {
     key: "openai",
     label: "OpenAI",
+    headerKey: "OpenAI",
     placeholder: "sk-...",
     proxyPlaceholder: "https://api.openai.com",
   },
   {
     key: "google",
     label: "Google AI",
+    headerKey: "Google",
     placeholder: "AIza...",
     proxyPlaceholder: "https://generativelanguage.googleapis.com",
   },
@@ -61,8 +65,8 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            [`X-Api-Key-${provider.label.replace(/\s/g, "")}`]: entry.apiKey,
-            ...(entry.proxyUrl ? { [`X-Proxy-Url-${provider.label.replace(/\s/g, "")}`]: entry.proxyUrl } : {}),
+            [`X-Api-Key-${provider.headerKey}`]: entry.apiKey,
+            ...(entry.proxyUrl ? { [`X-Proxy-Url-${provider.headerKey}`]: entry.proxyUrl } : {}),
           },
           body: JSON.stringify({ provider: provider.key }),
         });

@@ -26,7 +26,7 @@ settingsRoutes.post("/validate-key", async (c) => {
         await generateText({
           model: providers.anthropic("claude-haiku-4-5-20251001"),
           prompt: "Say hi",
-          maxOutputTokens: 5,
+          maxOutputTokens: 16,
         });
         return c.json({ valid: true, provider: "anthropic" });
       }
@@ -35,7 +35,7 @@ settingsRoutes.post("/validate-key", async (c) => {
         await generateText({
           model: providers.openai("gpt-5.2"),
           prompt: "Say hi",
-          maxOutputTokens: 5,
+          maxOutputTokens: 16,
         });
         return c.json({ valid: true, provider: "openai" });
       }
@@ -44,7 +44,7 @@ settingsRoutes.post("/validate-key", async (c) => {
         await generateText({
           model: providers.google("gemini-2.5-flash"),
           prompt: "Say hi",
-          maxOutputTokens: 5,
+          maxOutputTokens: 16,
         });
         return c.json({ valid: true, provider: "google" });
       }
