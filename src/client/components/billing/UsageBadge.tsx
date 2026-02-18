@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { useUsageStore } from "../../stores/usageStore.ts";
+import { api } from "../../lib/api.ts";
 
 function formatCost(cost: number): string {
   if (cost === 0) return "$0.00";
@@ -14,6 +16,15 @@ export function UsageBadge({ onClick }: Props) {
   const totalCost = useUsageStore((s) => s.totalCost);
   const chatCost = useUsageStore((s) => s.chatCost);
   const activeChatId = useUsageStore((s) => s.activeChatId);
+  const setLifetimeCost = useUsageStore((s) => s.setLifetimeCost);
+
+  // Seed lifetime total from billing_ledger on mount
+  useEffect(() => {
+    api
+      .get<{ totalCost: number }>("/usage/summary")
+      .then((summary) => setLifetimeCost(summary.totalCost))
+      .catch(() => {});
+  }, [setLifetimeCost]);
 
   return (
     <button

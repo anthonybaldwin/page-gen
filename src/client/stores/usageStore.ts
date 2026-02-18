@@ -11,6 +11,7 @@ interface UsageState {
   setRecords: (records: TokenUsage[]) => void;
   addRecord: (record: TokenUsage) => void;
   setActiveChatId: (chatId: string | null) => void;
+  setLifetimeCost: (cost: number) => void;
   addFromWs: (payload: {
     chatId: string;
     agentName: string;
@@ -50,6 +51,9 @@ export const useUsageStore = create<UsageState>((set) => ({
 
   setActiveChatId: (chatId) =>
     set({ activeChatId: chatId, chatTokens: 0, chatCost: 0 }),
+
+  setLifetimeCost: (cost) =>
+    set({ totalCost: cost }),
 
   addFromWs: (payload) =>
     set((state) => {

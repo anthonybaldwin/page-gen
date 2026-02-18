@@ -3,6 +3,7 @@ import { api } from "../../lib/api.ts";
 import { UsageByAgent } from "./UsageByAgent.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
 import { RequestLog } from "./RequestLog.tsx";
+import { BillingHistory } from "./BillingHistory.tsx";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -14,7 +15,7 @@ interface UsageSummary {
 
 export function UsageDashboard() {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "by-agent" | "by-provider" | "log">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "by-agent" | "by-provider" | "log" | "history">("overview");
 
   useEffect(() => {
     api.get<UsageSummary>("/usage/summary").then(setSummary).catch(console.error);
@@ -48,7 +49,7 @@ export function UsageDashboard() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-4 border-b border-zinc-800">
-        {(["overview", "by-agent", "by-provider", "log"] as const).map((tab) => (
+        {(["overview", "by-agent", "by-provider", "log", "history"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -58,7 +59,7 @@ export function UsageDashboard() {
                 : "text-zinc-500 hover:text-zinc-300"
             }`}
           >
-            {tab === "by-agent" ? "By Agent" : tab === "by-provider" ? "By Provider" : tab === "log" ? "Request Log" : "Overview"}
+            {tab === "by-agent" ? "By Agent" : tab === "by-provider" ? "By Provider" : tab === "log" ? "Request Log" : tab === "history" ? "History" : "Overview"}
           </button>
         ))}
       </div>
@@ -67,6 +68,7 @@ export function UsageDashboard() {
       {activeTab === "by-agent" && <UsageByAgent />}
       {activeTab === "by-provider" && <UsageByProvider />}
       {activeTab === "log" && <RequestLog />}
+      {activeTab === "history" && <BillingHistory />}
       {activeTab === "overview" && summary && (
         <p className="text-sm text-zinc-400">
           {summary.requestCount} API requests made across all sessions.
