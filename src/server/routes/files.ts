@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname, relative } from "path";
 import type { FileNode } from "../../shared/types.ts";
+import { startPreviewServer, getPreviewUrl } from "../preview/vite-server.ts";
 
 export const fileRoutes = new Hono();
 
@@ -68,4 +69,42 @@ fileRoutes.post("/write/:projectId", async (c) => {
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, body.content, "utf-8");
   return c.json({ ok: true, path: body.path });
+});
+
+// Delete file
+fileRoutes.delete("/delete/:projectId", async (c) => {
+  const projectId = c.req.param("projectId");
+  const body = await c.req.json<{ path: string }>();
+  const fullPath = join("./projects", projectId, body.path);
+
+  const resolved = join(process.cwd(), fullPath);
+  const projectRoot = join(process.cwd(), "projects", projectId);
+  if (!resolved.startsWith(projectRoot)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  if (existsSync(fullPath)) {
+    unlinkSync(fullPath);
+  }
+  return c.json({ ok: true });
+});
+
+// Start/get preview server for a project
+fileRoutes.post("/preview/:projectId", async (c) => {
+  const projectId = c.req.param("projectId");
+  const projectPath = `./projects/${projectId}`;
+
+  // Check if already running
+  const existingUrl = getPreviewUrl(projectId);
+  if (existingUrl) {
+    return c.json({ url: existingUrl });
+  }
+
+  try {
+    const { url } = await startPreviewServer(projectId, projectPath);
+    return c.json({ url });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to start preview";
+    return c.json({ error: message }, 500);
+  }
 });

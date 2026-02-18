@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChatWindow } from "../chat/ChatWindow.tsx";
+import { LivePreview } from "../preview/LivePreview.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 
 export function MainPanel() {
@@ -38,13 +39,7 @@ export function MainPanel() {
       </div>
 
       {/* Content */}
-      {activeTab === "chat" ? (
-        <ChatWindow />
-      ) : (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-zinc-500 text-sm">Preview will appear here when agents generate code.</p>
-        </div>
-      )}
+      {activeTab === "chat" ? <ChatWindow /> : <LivePreview />}
     </main>
   );
 }
