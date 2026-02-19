@@ -43,9 +43,9 @@ The system uses 9 specialized AI agents, coordinated by an orchestrator. Each ag
 
 ### 7. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Reviews code for bugs, type errors, and correctness; fixes issues directly
-- **Tools:** `write_file` only — finds AND fixes bugs by writing corrected files
-- **Output format:** `Code Review: Pass` or `Code Review: Fixed` with categorized findings (`[frontend]`, `[backend]`, `[styling]`)
+- **Role:** Reviews code for bugs, type errors, and correctness; reports issues for dev agents to fix
+- **Tools:** None — read-only, report only
+- **Output:** Structured JSON report with `status: "pass" | "fail"`, categorized findings (`[frontend]`, `[backend]`, `[styling]`)
 
 ### 8. QA Agent (Requirements Validator)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -103,9 +103,13 @@ After the initial code-review, security, and QA agents run, the orchestrator che
 
 Each cycle checks the cost limit before proceeding. The loop exits early if:
 - All issues are resolved (code-review passes + security passes + QA passes)
+- Issues are not improving between cycles (prevents ping-pong loops)
+- Total agent call limit reached (MAX_TOTAL_AGENT_CALLS = 30)
 - Cost limit is reached
 - The pipeline is aborted by the user
 - A remediation or re-review agent fails
+
+**Key design principle:** Only dev agents (frontend-dev, backend-dev, styling) write code. All review agents (code-review, security, qa) are read-only reporters. This prevents two agents from fighting over the same files.
 
 In the UI, re-review agents show their cycle number (e.g., "Code Reviewer (re-review #1)") so the user can track the iteration.
 
@@ -120,7 +124,7 @@ Agents don't write files directly to disk. Instead:
 
 ### Build Check Pipeline
 
-After each file-producing agent (frontend-dev, backend-dev, styling, code-review), the orchestrator:
+After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:
 1. Runs `bunx vite build --mode development` to check for compile errors
 2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 3. Only broadcasts `preview_ready` after a successful build
@@ -141,3 +145,5 @@ Every API call records:
 - Default limit: 500K tokens per session
 - Warning at 80% usage
 - Pause at 100% — user must confirm to continue
+- Hard cap: 30 agent calls per orchestration (prevents runaway costs regardless of logic)
+- Remediation improvement check: exits if issues aren't decreasing between cycles
