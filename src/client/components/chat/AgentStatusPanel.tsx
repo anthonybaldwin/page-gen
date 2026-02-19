@@ -198,7 +198,7 @@ export function AgentStatusPanel({ chatId }: Props) {
   return (
     <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
       {/* Pipeline progress bar */}
-      <div className="flex items-center gap-1 mb-2 overflow-x-auto">
+      <div className="flex items-center gap-1 mb-2 flex-wrap">
         {pipelineAgents.map((agent, i) => {
           const state = agents[agent.name];
           const status = state?.status || "pending";

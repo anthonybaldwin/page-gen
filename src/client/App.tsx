@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { ChatWindow } from "./components/chat/ChatWindow.tsx";
+import { AgentStatusPanel } from "./components/chat/AgentStatusPanel.tsx";
 import { LivePreview } from "./components/preview/LivePreview.tsx";
 import { FileExplorer } from "./components/layout/FileExplorer.tsx";
 import { ApiKeySetup } from "./components/settings/ApiKeySetup.tsx";
@@ -32,16 +33,12 @@ export function App() {
 
       {/* Chat column — narrow, fixed width */}
       <div className="w-96 flex flex-col border-r border-zinc-800 min-h-0">
-        {activeChat && (
-          <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900">
-            <span className="text-xs text-zinc-500">{activeChat.title}</span>
-          </div>
-        )}
         <ChatWindow />
       </div>
 
       {/* Preview column — fills remaining space */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <AgentStatusPanel chatId={activeChat?.id ?? null} />
         <LivePreview />
       </div>
 

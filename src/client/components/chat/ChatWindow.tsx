@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
-import { AgentStatusPanel } from "./AgentStatusPanel.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
@@ -197,7 +196,6 @@ export function ChatWindow() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <AgentStatusPanel chatId={activeChat?.id ?? null} />
       {error && (
         <div className="px-4 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs flex items-center justify-between">
           <span>{error}</span>
