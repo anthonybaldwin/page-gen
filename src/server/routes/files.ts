@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSy
 import { join, dirname, relative } from "path";
 import type { FileNode } from "../../shared/types.ts";
 import { startPreviewServer, getPreviewUrl } from "../preview/vite-server.ts";
+import { broadcastFilesChanged } from "../ws.ts";
 
 export const fileRoutes = new Hono();
 
@@ -102,6 +103,8 @@ fileRoutes.post("/preview/:projectId", async (c) => {
 
   try {
     const { url } = await startPreviewServer(projectId, projectPath);
+    // Notify FileExplorer about scaffold files created during preview setup
+    broadcastFilesChanged(projectId, ["__scaffold__"]);
     return c.json({ url });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start preview";

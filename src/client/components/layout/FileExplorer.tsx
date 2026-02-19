@@ -71,11 +71,15 @@ export function FileExplorer() {
     loadTree();
   }, [activeProject]);
 
-  // Auto-refresh tree when files change
+  // Auto-refresh tree when files change for this project
   useEffect(() => {
     connectWebSocket();
     const unsub = onWsMessage((msg) => {
-      if (msg.type === "files_changed" && activeProject) {
+      if (
+        msg.type === "files_changed" &&
+        activeProject &&
+        (msg.payload as { projectId?: string }).projectId === activeProject.id
+      ) {
         loadTree();
       }
     });

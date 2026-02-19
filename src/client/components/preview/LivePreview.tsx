@@ -4,12 +4,13 @@ import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
 import type { FileNode } from "../../../shared/types.ts";
 
-function hasSourceFiles(tree: FileNode[]): boolean {
-  for (const node of tree) {
-    if (node.type === "file") return true;
-    if (node.type === "directory" && node.children && hasSourceFiles(node.children)) return true;
-  }
-  return false;
+/** Check if the tree contains src/App.tsx or src/App.jsx — the scaffold imports ./App */
+function hasAppComponent(tree: FileNode[]): boolean {
+  const srcDir = tree.find((n) => n.name === "src" && n.type === "directory");
+  if (!srcDir?.children) return false;
+  return srcDir.children.some(
+    (n) => n.type === "file" && (n.name === "App.tsx" || n.name === "App.jsx" || n.name === "app.tsx"),
+  );
 }
 
 function EmptyProjectPlaceholder() {
@@ -62,20 +63,13 @@ export function LivePreview() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [projectHasFiles, setProjectHasFiles] = useState(false);
+  const [ready, setReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const checkFilesAndStartPreview = useCallback(async (projectId: string) => {
+  const startPreview = useCallback(async (projectId: string) => {
+    setLoading(true);
+    setError(null);
     try {
-      const tree = await api.get<FileNode[]>(`/files/tree/${projectId}`);
-      if (!hasSourceFiles(tree)) {
-        setProjectHasFiles(false);
-        return;
-      }
-      setProjectHasFiles(true);
-      setLoading(true);
-      setError(null);
-
       const res = await fetch(`/api/files/preview/${projectId}`, { method: "POST" });
       const data: { url?: string; error?: string } = await res.json();
       if (data.url) {
@@ -83,22 +77,35 @@ export function LivePreview() {
       } else if (data.error) {
         setError(data.error);
       }
-      setLoading(false);
     } catch {
       setError("Failed to start preview server");
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
 
-  useEffect(() => {
-    if (!activeProject) {
-      setPreviewUrl(null);
-      setProjectHasFiles(false);
-      return;
+  const checkAndMaybeStartPreview = useCallback(async (projectId: string) => {
+    try {
+      const tree = await api.get<FileNode[]>(`/files/tree/${projectId}`);
+      if (hasAppComponent(tree)) {
+        setReady(true);
+        await startPreview(projectId);
+      }
+    } catch {
+      // tree fetch failed — stay in placeholder
     }
+  }, [startPreview]);
 
-    checkFilesAndStartPreview(activeProject.id);
-  }, [activeProject, checkFilesAndStartPreview]);
+  // Reset ALL state when project changes, then check for files
+  useEffect(() => {
+    setPreviewUrl(null);
+    setLoading(false);
+    setError(null);
+    setReady(false);
+
+    if (!activeProject) return;
+
+    checkAndMaybeStartPreview(activeProject.id);
+  }, [activeProject, checkAndMaybeStartPreview]);
 
   // Listen for file changes — start preview if files appear, reload if already running
   useEffect(() => {
@@ -109,16 +116,16 @@ export function LivePreview() {
       if (msg.type === "files_changed" || msg.type === "preview_ready") {
         if (previewUrl && iframeRef.current) {
           setTimeout(() => {
-            if (iframeRef.current) iframeRef.current.src = previewUrl;
+            if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
           }, 1000);
-        } else if (!previewUrl) {
-          checkFilesAndStartPreview(activeProject.id);
+        } else if (!previewUrl && !loading) {
+          checkAndMaybeStartPreview(activeProject.id);
         }
       }
     });
 
     return unsub;
-  }, [previewUrl, activeProject, checkFilesAndStartPreview]);
+  }, [previewUrl, loading, activeProject, checkAndMaybeStartPreview]);
 
   if (!activeProject) {
     return (
@@ -128,7 +135,7 @@ export function LivePreview() {
     );
   }
 
-  if (!projectHasFiles && !loading && !error && !previewUrl) {
+  if (!ready && !loading && !error) {
     return <EmptyProjectPlaceholder />;
   }
 
@@ -149,7 +156,7 @@ export function LivePreview() {
         <div className="text-center">
           <p className="text-red-400 text-sm mb-2">{error}</p>
           <button
-            onClick={() => checkFilesAndStartPreview(activeProject.id)}
+            onClick={() => startPreview(activeProject.id)}
             className="text-blue-400 hover:text-blue-300 text-xs underline"
           >
             Retry
