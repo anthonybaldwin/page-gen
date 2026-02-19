@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
-import { getAgentConfig } from "./registry.ts";
+import { getAgentConfigResolved } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -87,7 +87,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   }
   callCounter.value++;
 
-  const config = getAgentConfig(step.agentName);
+  const config = getAgentConfigResolved(step.agentName);
   if (!config) {
     broadcastAgentError(chatId, "orchestrator", `Unknown agent: ${step.agentName}`);
     return null;
@@ -563,7 +563,7 @@ async function handleQuestion(ctx: {
   const { chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, providers, apiKeys } = ctx;
 
-  const orchestratorConfig = getAgentConfig("orchestrator");
+  const orchestratorConfig = getAgentConfigResolved("orchestrator");
   if (!orchestratorConfig) return "I couldn't process your question. Please try again.";
 
   const model = providers.anthropic?.(orchestratorConfig.model);
@@ -655,7 +655,7 @@ interface SummaryInput {
 async function generateSummary(input: SummaryInput): Promise<string> {
   const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys } = input;
 
-  const orchestratorConfig = getAgentConfig("orchestrator");
+  const orchestratorConfig = getAgentConfigResolved("orchestrator");
   if (!orchestratorConfig) {
     // Fallback: concatenate results if orchestrator config is missing
     return Array.from(agentResults.entries())
@@ -921,7 +921,7 @@ async function runFixAgent(
   }
   ctx.callCounter.value++;
 
-  const config = getAgentConfig(agentName);
+  const config = getAgentConfigResolved(agentName);
   if (!config) return null;
 
   const displayConfig = {
@@ -1037,7 +1037,7 @@ async function runReviewAgent(
   }
   ctx.callCounter.value++;
 
-  const config = getAgentConfig(agentName);
+  const config = getAgentConfigResolved(agentName);
   if (!config) return null;
 
   const costCheck = checkCostLimit(ctx.chatId);
@@ -1179,7 +1179,7 @@ export async function classifyIntent(
     return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
   }
 
-  const orchestratorConfig = getAgentConfig("orchestrator");
+  const orchestratorConfig = getAgentConfigResolved("orchestrator");
   if (!orchestratorConfig) {
     return { intent: "build", scope: "full", reasoning: "Fallback: no orchestrator config" };
   }
@@ -1564,7 +1564,7 @@ async function runBuildFix(params: {
   if (!costCheck.allowed) return null;
 
   const fixAgent = determineBuildFixAgent(buildErrors);
-  const config = getAgentConfig(fixAgent);
+  const config = getAgentConfigResolved(fixAgent);
   if (!config) return null;
 
   broadcastAgentStatus(chatId, fixAgent, "running", { phase: "build-fix" });

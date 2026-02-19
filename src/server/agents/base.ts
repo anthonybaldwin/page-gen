@@ -4,6 +4,8 @@ import type { AgentConfig, AgentName } from "../../shared/types.ts";
 import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking } from "../ws.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { db, schema } from "../db/index.ts";
+import { eq } from "drizzle-orm";
 
 export interface AgentInput {
   userMessage: string;
@@ -23,7 +25,12 @@ export interface AgentOutput {
   };
 }
 
-function loadSystemPrompt(agentName: AgentName): string {
+export function loadSystemPrompt(agentName: AgentName): string {
+  // Check DB override first
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${agentName}.prompt`)).get();
+  if (row?.value) return row.value;
+
+  // Fall back to .md file
   try {
     const promptPath = join(import.meta.dir, "prompts", `${agentName}.md`);
     return readFileSync(promptPath, "utf-8");

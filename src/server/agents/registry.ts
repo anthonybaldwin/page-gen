@@ -1,4 +1,6 @@
-import type { AgentConfig, AgentName } from "../../shared/types.ts";
+import type { AgentConfig, AgentName, ResolvedAgentConfig } from "../../shared/types.ts";
+import { db, schema } from "../db/index.ts";
+import { eq, like } from "drizzle-orm";
 
 export const AGENT_ROSTER: AgentConfig[] = [
   {
@@ -68,6 +70,38 @@ export const AGENT_ROSTER: AgentConfig[] = [
 
 export function getAgentConfig(name: AgentName): AgentConfig | undefined {
   return AGENT_ROSTER.find((a) => a.name === name);
+}
+
+/** Get agent config with DB overrides layered on top of AGENT_ROSTER defaults. */
+export function getAgentConfigResolved(name: AgentName): ResolvedAgentConfig | undefined {
+  const base = AGENT_ROSTER.find((a) => a.name === name);
+  if (!base) return undefined;
+
+  const providerRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.provider`)).get();
+  const modelRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.model`)).get();
+
+  const isOverridden = !!(providerRow || modelRow);
+
+  return {
+    ...base,
+    provider: providerRow?.value || base.provider,
+    model: modelRow?.value || base.model,
+    isOverridden,
+  };
+}
+
+/** Get all 9 agent configs with DB overrides applied. */
+export function getAllAgentConfigs(): ResolvedAgentConfig[] {
+  return AGENT_ROSTER.map((a) => getAgentConfigResolved(a.name)!);
+}
+
+/** Remove all DB overrides for an agent (provider, model, prompt). */
+export function resetAgentOverrides(name: AgentName): void {
+  const prefix = `agent.${name}.`;
+  const rows = db.select().from(schema.appSettings).where(like(schema.appSettings.key, `${prefix}%`)).all();
+  for (const row of rows) {
+    db.delete(schema.appSettings).where(eq(schema.appSettings.key, row.key)).run();
+  }
 }
 
 export function getModelId(provider: string, model: string): string {

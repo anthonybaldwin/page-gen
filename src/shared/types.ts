@@ -94,6 +94,10 @@ export interface AgentConfig {
   description: string;
 }
 
+export interface ResolvedAgentConfig extends AgentConfig {
+  isOverridden: boolean;
+}
+
 export type OrchestratorIntent = "build" | "fix" | "question";
 
 export type IntentScope = "frontend" | "backend" | "styling" | "full";

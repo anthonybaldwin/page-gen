@@ -3,6 +3,9 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
+import { getAllAgentConfigs, resetAgentOverrides } from "../agents/registry.ts";
+import { loadSystemPrompt } from "../agents/base.ts";
+import type { AgentName } from "../../shared/types.ts";
 
 export const LIMIT_DEFAULTS: Record<string, string> = {
   maxTokensPerChat: "500000",
@@ -62,6 +65,82 @@ settingsRoutes.put("/limits", async (c) => {
   }
 
   return c.json({ ok: true, limits: getAllLimits() });
+});
+
+const VALID_AGENT_NAMES = new Set<AgentName>([
+  "orchestrator", "research", "architect", "frontend-dev", "backend-dev",
+  "styling", "code-review", "qa", "security",
+]);
+
+// Get all agent configs (with DB overrides applied)
+settingsRoutes.get("/agents", (c) => {
+  return c.json(getAllAgentConfigs());
+});
+
+// Upsert agent provider/model override
+settingsRoutes.put("/agents/:name", async (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const body = await c.req.json<{ provider?: string; model?: string }>();
+
+  if (body.provider) {
+    const key = `agent.${name}.provider`;
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: body.provider }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value: body.provider }).run();
+    }
+  }
+
+  if (body.model) {
+    const key = `agent.${name}.model`;
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: body.model }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value: body.model }).run();
+    }
+  }
+
+  return c.json({ ok: true });
+});
+
+// Get agent prompt (DB override or file default)
+settingsRoutes.get("/agents/:name/prompt", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.prompt`)).get();
+  const prompt = loadSystemPrompt(name);
+  return c.json({ prompt, isCustom: !!row });
+});
+
+// Upsert agent prompt override
+settingsRoutes.put("/agents/:name/prompt", async (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const body = await c.req.json<{ prompt: string }>();
+  const key = `agent.${name}.prompt`;
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: body.prompt }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: body.prompt }).run();
+  }
+
+  return c.json({ ok: true });
+});
+
+// Reset all overrides for an agent
+settingsRoutes.delete("/agents/:name/overrides", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  resetAgentOverrides(name);
+  return c.json({ ok: true });
 });
 
 // Validate an API key by making a tiny request
