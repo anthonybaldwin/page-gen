@@ -9,14 +9,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     google: { apiKey: google?.apiKey || "", proxyUrl: google?.proxyUrl || "" },
   });
 
-  function handleSave() {
+  async function handleSave() {
     const toSave: Record<string, { apiKey: string; proxyUrl?: string }> = {};
     for (const [key, val] of Object.entries(keys)) {
       if (val.apiKey.trim()) {
         toSave[key] = { apiKey: val.apiKey, ...(val.proxyUrl ? { proxyUrl: val.proxyUrl } : {}) };
       }
     }
-    saveKeys(toSave);
+    await saveKeys(toSave);
     onClose();
   }
 

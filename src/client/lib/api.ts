@@ -1,21 +1,16 @@
+import { useSettingsStore } from "../stores/settingsStore.ts";
+
 const BASE_URL = "/api";
 
 function getApiKeyHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  const keys = localStorage.getItem("apiKeys");
-  if (keys) {
-    try {
-      const parsed = JSON.parse(keys);
-      if (parsed.anthropic?.apiKey) headers["X-Api-Key-Anthropic"] = parsed.anthropic.apiKey;
-      if (parsed.openai?.apiKey) headers["X-Api-Key-OpenAI"] = parsed.openai.apiKey;
-      if (parsed.google?.apiKey) headers["X-Api-Key-Google"] = parsed.google.apiKey;
-      if (parsed.anthropic?.proxyUrl) headers["X-Proxy-Url-Anthropic"] = parsed.anthropic.proxyUrl;
-      if (parsed.openai?.proxyUrl) headers["X-Proxy-Url-OpenAI"] = parsed.openai.proxyUrl;
-      if (parsed.google?.proxyUrl) headers["X-Proxy-Url-Google"] = parsed.google.proxyUrl;
-    } catch {
-      // ignore invalid JSON
-    }
-  }
+  const { anthropic, openai, google } = useSettingsStore.getState();
+  if (anthropic?.apiKey) headers["X-Api-Key-Anthropic"] = anthropic.apiKey;
+  if (openai?.apiKey) headers["X-Api-Key-OpenAI"] = openai.apiKey;
+  if (google?.apiKey) headers["X-Api-Key-Google"] = google.apiKey;
+  if (anthropic?.proxyUrl) headers["X-Proxy-Url-Anthropic"] = anthropic.proxyUrl;
+  if (openai?.proxyUrl) headers["X-Proxy-Url-OpenAI"] = openai.proxyUrl;
+  if (google?.proxyUrl) headers["X-Proxy-Url-Google"] = google.proxyUrl;
   return headers;
 }
 

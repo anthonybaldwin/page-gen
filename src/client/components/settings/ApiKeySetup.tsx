@@ -96,7 +96,7 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
       return;
     }
 
-    saveKeys(validKeys);
+    await saveKeys(validKeys);
     onComplete();
   }
 

@@ -9,7 +9,7 @@ import { useSettingsStore } from "./stores/settingsStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
 
 export function App() {
-  const { hasKeys, loadKeys } = useSettingsStore();
+  const { hasKeys, keysReady, loadKeys } = useSettingsStore();
   const [showSetup, setShowSetup] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const activeChat = useChatStore((s) => s.activeChat);
@@ -19,8 +19,8 @@ export function App() {
   }, [loadKeys]);
 
   useEffect(() => {
-    if (!hasKeys) setShowSetup(true);
-  }, [hasKeys]);
+    if (keysReady && !hasKeys) setShowSetup(true);
+  }, [keysReady, hasKeys]);
 
   return (
     <div className="flex h-full bg-zinc-950 text-zinc-100">
