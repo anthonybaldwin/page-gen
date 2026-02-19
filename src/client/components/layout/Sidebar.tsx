@@ -313,8 +313,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Usage dashboard modal */}
       {showUsage && (
-        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowUsage(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <UsageDashboard onClose={() => setShowUsage(false)} />
           </div>
         </div>
@@ -322,8 +322,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Settings modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowSettings(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <SettingsModal onClose={() => setShowSettings(false)} />
           </div>
         </div>
