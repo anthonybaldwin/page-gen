@@ -123,7 +123,7 @@ Update cost/usage limits. Accepts a partial object — only provided keys are up
 **Response:** `{ ok: true, limits: { ... } }`
 
 ### GET /settings/agents
-Get all 9 agent configs with DB overrides applied.
+Get all 10 agent configs with DB overrides applied.
 
 **Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
 
@@ -179,12 +179,17 @@ List agent executions for a chat.
 ### GET /agents/status?chatId={id}
 Check orchestration status and get execution history.
 
-**Response:** `{ running: boolean, executions: Array<{ agentName: string, status: string }> }`
+**Response:** `{ running: boolean, executions: Array<{ agentName: string, status: string }>, interruptedPipelineId: string | null }`
+
+`interruptedPipelineId` is present when a pipeline was interrupted by a server restart and can be resumed.
 
 ### POST /agents/run
-Trigger orchestration for a chat.
+Trigger orchestration for a chat, or resume an interrupted pipeline.
 
-**Body:** `{ chatId: string, message: string }`
+**Body:** `{ chatId: string, message: string, resume?: boolean }`
+
+- `resume: true` — Look for an interrupted pipeline for this chat and resume from the last completed agent. Falls back to a fresh start if no interrupted pipeline exists.
+- `resume: false` or omitted — Start a fresh pipeline from scratch.
 
 ### POST /agents/stop
 Stop a running orchestration pipeline.
@@ -204,3 +209,4 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
 - `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)
 - `files_changed` — Files written to disk (projectId, files[])
+- `test_results` — Test execution results from the testing agent (chatId, projectId, passed, failed, total, duration, failures[])

@@ -11,6 +11,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - [HMR Preview](HMR-Preview.md) - How live preview works
 - [Token Billing](Token-Billing.md) - Usage tracking and billing
 - [Snapshots](Snapshots.md) - Versioning and rollback
+- [Pipeline Resume](Pipeline-Resume.md) - Resume interrupted pipelines
 - [Security](Security.md) - Security model
 
 ## Getting Started

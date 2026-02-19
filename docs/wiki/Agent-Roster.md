@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system uses 9 specialized AI agents, coordinated by an orchestrator. Each agent has a specific role, model, and set of tools.
+The system uses 10 specialized AI agents, coordinated by an orchestrator. Each agent has a specific role, model, and set of tools.
 
 ## Agents
 
@@ -41,19 +41,28 @@ The system uses 9 specialized AI agents, coordinated by an orchestrator. Each ag
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file` only
 
-### 7. Code Reviewer
+### 7. Testing Agent
+- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Role:** Writes vitest unit/integration tests for generated React components
+- **Tools:** `write_file` only — writes test files and vitest config
+- **Output:** Test files using vitest + @testing-library/react + happy-dom
+- **Position:** After styling, before code-review (both build and fix modes)
+- **Post-step:** Orchestrator runs `bunx vitest run --reporter=json` after test files are written. If tests fail, routes failures to frontend-dev for one fix attempt, then re-runs tests.
+- **Test results:** Broadcast via `test_results` WebSocket event and displayed in a TestResultsBanner component
+
+### 8. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Reviews code for bugs, type errors, and correctness; reports issues for dev agents to fix
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, categorized findings (`[frontend]`, `[backend]`, `[styling]`)
 
-### 8. QA Agent (Requirements Validator)
+### 9. QA Agent (Requirements Validator)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Validates implementation against research requirements; reports gaps without fixing code
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, requirements coverage, and categorized issues (`[frontend]`, `[backend]`, `[styling]`)
 
-### 9. Security Reviewer
+### 10. Security Reviewer
 - **Model:** Claude Haiku 4.5 (Anthropic)
 - **Role:** Scans for XSS, injection, key exposure
 - **Output:** Security report (pass/fail with findings)
@@ -80,7 +89,7 @@ User → Orchestrator → classifyIntent() → "build"
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
       → Architect → Frontend Dev → [Backend Dev if needed] → [Build Check]
-      → Styling → Code Review (find+fix bugs) → Security (scan)
+      → Styling → Testing (write + run vitest) → Code Review → Security
       → QA (validate requirements)
   → Remediation Loop (max 2 cycles)
   → [Final Build Check] → Summary
@@ -96,7 +105,7 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
       backend  → backend-dev
       styling  → styling
       full     → frontend-dev + backend-dev
-  → Code Review → Security → QA
+  → Testing → Code Review → Security → QA
   → Remediation Loop (max 2 cycles)
   → [Final Build Check] → Summary
 ```
@@ -163,7 +172,7 @@ Agents don't write files directly to disk. Instead:
 
 ### Build Check Pipeline
 
-After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:
+After each file-producing agent (frontend-dev, backend-dev, styling, testing), the orchestrator:
 1. Runs `bunx vite build --mode development` to check for compile errors
 2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 3. Only broadcasts `preview_ready` after a successful build
