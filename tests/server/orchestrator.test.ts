@@ -156,6 +156,12 @@ describe("buildExecutionPlan", () => {
     expect(beIdx).toBeLessThan(stIdx);
   });
 
+  test("testing comes after styling in build mode", () => {
+    const plan = buildExecutionPlan("Build something");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names.indexOf("testing")).toBeGreaterThan(names.indexOf("styling"));
+  });
+
   test("code-review comes after testing", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
@@ -509,6 +515,13 @@ describe("buildExecutionPlan (fix mode)", () => {
     const names = plan.steps.map((s) => s.agentName);
     const lastFour = names.slice(-4);
     expect(lastFour).toEqual(["testing", "code-review", "security", "qa"]);
+  });
+
+  test("fix mode includes testing agent before code-review", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("testing");
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("code-review"));
   });
 
   test("fix mode includes user message in step inputs", () => {

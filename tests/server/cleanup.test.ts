@@ -36,6 +36,7 @@ describe("cleanupStaleExecutions", () => {
 
   afterAll(() => {
     // Clean up test data
+    db.delete(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, testChatId)).run();
     db.delete(schema.messages).where(eq(schema.messages.chatId, testChatId)).run();
     db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, testChatId)).run();
     db.delete(schema.chats).where(eq(schema.chats.id, testChatId)).run();
@@ -183,5 +184,41 @@ describe("cleanupStaleExecutions", () => {
     // All previous running/retrying execs are already cleaned up
     const count = await cleanupStaleExecutions();
     expect(count).toBe(0);
+  });
+
+  test("marks running pipeline_runs as interrupted", async () => {
+    const runId = `test-run-cleanup-${nanoid(6)}`;
+    db.insert(schema.pipelineRuns).values({
+      id: runId,
+      chatId: testChatId,
+      intent: "build",
+      scope: "full",
+      userMessage: "Build something",
+      plannedAgents: JSON.stringify(["research", "architect"]),
+      status: "running",
+      startedAt: Date.now(),
+      completedAt: null,
+    }).run();
+
+    // Need a stale execution to trigger cleanup
+    const execId = `test-exec-pipeline-${nanoid(6)}`;
+    db.insert(schema.agentExecutions).values({
+      id: execId,
+      chatId: testChatId,
+      agentName: "research",
+      status: "running",
+      input: JSON.stringify({ message: "test" }),
+      output: null,
+      error: null,
+      retryCount: 0,
+      startedAt: Date.now(),
+      completedAt: null,
+    }).run();
+
+    await cleanupStaleExecutions();
+
+    const run = db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.id, runId)).get();
+    expect(run?.status).toBe("interrupted");
+    expect(run?.completedAt).toBeDefined();
   });
 });
