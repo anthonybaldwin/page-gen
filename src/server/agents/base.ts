@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
+import { extractSummary } from "../../shared/summary.ts";
 
 export interface AgentInput {
   userMessage: string;
@@ -75,9 +76,7 @@ export async function runAgent(
 
     const usage = await result.usage;
 
-    // Build summary: first sentence, max 120 chars
-    const firstSentence = fullText.split(/[.!?\n]/)[0]?.trim() || "";
-    const summary = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+    const summary = extractSummary(fullText, config.name);
 
     broadcastAgentStatus(cid, config.name, "completed");
     broadcastAgentStream(cid, config.name, fullText);

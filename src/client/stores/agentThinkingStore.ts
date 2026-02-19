@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { extractSummary } from "../../shared/summary.ts";
 
 export interface ThinkingBlock {
   id: string;
@@ -84,9 +85,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           try {
             const parsed = JSON.parse(exec.output);
             content = parsed.content || "";
-            // Build summary: first sentence, max 120 chars
-            const firstSentence = content.split(/[.!?\n]/)[0]?.trim() || "";
-            summary = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+            summary = extractSummary(content, exec.agentName);
           } catch {
             // ignore
           }
