@@ -312,7 +312,7 @@ function PricingDisplay({
             setEditOutput(String(info.output));
             setEditing(true);
           }}
-          className="text-zinc-600 hover:text-zinc-400 transition-colors ml-0.5"
+          className="text-zinc-400 hover:text-zinc-200 transition-colors ml-0.5"
           title="Edit pricing"
         >
           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
