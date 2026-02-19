@@ -5,7 +5,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     name: "orchestrator",
     displayName: "Orchestrator",
     provider: "anthropic",
-    model: "claude-opus-4-6",
+    model: "claude-sonnet-4-6",
     description: "Creates execution plans, dispatches agents, merges results, handles errors",
   },
   {
@@ -26,21 +26,21 @@ export const AGENT_ROSTER: AgentConfig[] = [
     name: "frontend-dev",
     displayName: "Frontend Developer",
     provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-4-6",
     description: "Generates React/HTML/CSS/JS code",
   },
   {
     name: "backend-dev",
     displayName: "Backend Developer",
     provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-4-6",
     description: "Generates API routes, server logic, data handling",
   },
   {
     name: "styling",
     displayName: "Styling Agent",
     provider: "anthropic",
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-4-6",
     description: "Applies design system, responsive layout, theming",
   },
   {
