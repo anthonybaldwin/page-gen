@@ -94,8 +94,18 @@ export interface AgentConfig {
   description: string;
 }
 
+export type OrchestratorIntent = "build" | "fix" | "question";
+
+export type IntentScope = "frontend" | "backend" | "styling" | "full";
+
+export interface IntentClassification {
+  intent: OrchestratorIntent;
+  scope: IntentScope;
+  reasoning: string;
+}
+
 export interface WsMessage {
-  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready";
+  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan";
   payload: Record<string, unknown>;
 }
 

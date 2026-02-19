@@ -3,7 +3,7 @@ import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import type { AgentName } from "../../shared/types.ts";
+import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfig } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
@@ -11,7 +11,7 @@ import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking } from "../ws.ts";
 import { broadcast } from "../ws.ts";
-import { writeFile } from "../tools/file-ops.ts";
+import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 
 const MAX_RETRIES = 3;
@@ -927,6 +927,111 @@ export function needsBackend(researchOutput: string): boolean {
   }
   // Regex heuristic: look for backend-related keywords
   return /requires_backend['":\s]+true|api\s*route|server[\s-]*side|database|backend|express|endpoint/i.test(researchOutput);
+}
+
+// --- Intent classification ---
+
+const INTENT_SYSTEM_PROMPT = `You classify user messages for a page builder app.
+Respond with ONLY a JSON object: {"intent":"build"|"fix"|"question","scope":"frontend"|"backend"|"styling"|"full","reasoning":"<one sentence>"}
+
+Rules:
+- "build": New feature, new page, new project, or adding something that doesn't exist yet
+- "fix": Changing, fixing, or updating something that already exists in the project
+- "question": Asking about the project, how something works, or a non-code request
+- scope "frontend": UI components, React, layout, HTML
+- scope "backend": API routes, server logic, database
+- scope "styling": CSS, colors, fonts, spacing, visual polish
+- scope "full": Multiple areas or unclear`;
+
+/**
+ * Classify the user's intent using the orchestrator model.
+ * Fast-path: if no existing files, always returns "build" (skip API call).
+ * Fallback: any error returns "build" (safe default).
+ */
+export async function classifyIntent(
+  userMessage: string,
+  hasExistingFiles: boolean,
+  providers: ProviderInstance
+): Promise<IntentClassification> {
+  // Fast path: empty project → always build
+  if (!hasExistingFiles) {
+    return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
+  }
+
+  const orchestratorConfig = getAgentConfig("orchestrator");
+  if (!orchestratorConfig) {
+    return { intent: "build", scope: "full", reasoning: "Fallback: no orchestrator config" };
+  }
+
+  const model = providers.anthropic?.(orchestratorConfig.model);
+  if (!model) {
+    return { intent: "build", scope: "full", reasoning: "Fallback: no model available" };
+  }
+
+  try {
+    const result = await generateText({
+      model,
+      system: INTENT_SYSTEM_PROMPT,
+      prompt: userMessage,
+      maxOutputTokens: 100,
+    });
+
+    const parsed = JSON.parse(result.text.trim());
+    const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
+    const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
+
+    return { intent, scope, reasoning: parsed.reasoning || "" };
+  } catch (err) {
+    console.error("[orchestrator] Intent classification failed, defaulting to build:", err);
+    return { intent: "build", scope: "full", reasoning: "Fallback: classification error" };
+  }
+}
+
+const READ_EXCLUDE_PATTERNS = /node_modules|dist|\.git|bun\.lockb|package-lock\.json|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.ico|\.woff|\.ttf|\.eot/;
+const MAX_SOURCE_SIZE = 100_000; // 100KB cap
+
+/**
+ * Read all source files from a project directory into a formatted string.
+ * Excludes node_modules, dist, .git, lockfiles, and binary files.
+ * Returns empty string if project has no readable files.
+ */
+export function readProjectSource(projectPath: string): string {
+  const files = listFiles(projectPath);
+  if (files.length === 0) return "";
+
+  const parts: string[] = [];
+  let totalSize = 0;
+
+  function walkFiles(nodes: typeof files, prefix = "") {
+    for (const node of nodes) {
+      if (totalSize >= MAX_SOURCE_SIZE) return;
+      if (READ_EXCLUDE_PATTERNS.test(node.path)) continue;
+
+      if (node.type === "directory" && node.children) {
+        walkFiles(node.children, node.path);
+      } else if (node.type === "file") {
+        try {
+          const content = readFile(projectPath, node.path);
+          if (totalSize + content.length > MAX_SOURCE_SIZE) return;
+          parts.push(`### ${node.path}\n\`\`\`\n${content}\n\`\`\``);
+          totalSize += content.length;
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+  }
+
+  walkFiles(files);
+  return parts.join("\n\n");
+}
+
+/**
+ * Check whether a project has any existing source files.
+ */
+export function projectHasFiles(projectPath: string): boolean {
+  const files = listFiles(projectPath);
+  return files.length > 0;
 }
 
 export function buildExecutionPlan(userMessage: string, researchOutput?: string): ExecutionPlan {

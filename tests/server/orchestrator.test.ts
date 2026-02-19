@@ -7,6 +7,7 @@ import {
   determineFixAgents,
   determineBuildFixAgent,
   extractFilesFromOutput,
+  classifyIntent,
 } from "../../src/server/agents/orchestrator.ts";
 import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
 
@@ -459,5 +460,29 @@ describe("extractFilesFromOutput", () => {
 </tool_call>`;
     const files = extractFilesFromOutput(output);
     expect(files).toHaveLength(0);
+  });
+});
+
+// --- classifyIntent ---
+
+describe("classifyIntent", () => {
+  const emptyProviders = {} as Parameters<typeof classifyIntent>[2];
+
+  test("fast-path: no existing files always returns build", async () => {
+    const result = await classifyIntent("fix the button", false, emptyProviders);
+    expect(result.intent).toBe("build");
+    expect(result.scope).toBe("full");
+    expect(result.reasoning).toContain("no existing files");
+  });
+
+  test("fast-path: ignores message content when no files", async () => {
+    const result = await classifyIntent("how does the routing work?", false, emptyProviders);
+    expect(result.intent).toBe("build");
+  });
+
+  test("fallback: returns build when no providers available", async () => {
+    const result = await classifyIntent("fix the button", true, emptyProviders);
+    expect(result.intent).toBe("build");
+    expect(result.reasoning).toContain("Fallback");
   });
 });
