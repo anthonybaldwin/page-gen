@@ -191,6 +191,20 @@ Before pushing:
 
 ---
 
+## Test-With-Every-Commit Rule
+
+Every commit that changes logic (feat, fix, refactor) must include test analysis:
+
+1. **Assess testability:** Before committing, identify which pure functions, helpers, or behaviors changed.
+2. **Add or update tests:** If the change introduces new logic or modifies existing behavior, include tests in the same commit — not as a follow-up.
+3. **Export for testability:** If a function is non-trivial and worth testing, export it. Keep the export minimal (don't expose internal state, just pure functions).
+4. **Test what matters:** Focus on pure functions with clear inputs/outputs, edge cases in parsing/routing logic, and conditional branches. Don't test trivial getters or framework boilerplate.
+5. **Verify before committing:** Run `bun test` and confirm all tests pass before every commit — not just before pushing.
+
+If you skip tests for a logic-changing commit, you must justify why in the commit body.
+
+---
+
 ## Required Test Coverage Areas
 
 At minimum, tests must cover:
