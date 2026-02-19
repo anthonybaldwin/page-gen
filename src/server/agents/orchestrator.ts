@@ -1964,6 +1964,69 @@ export interface TestRunResult {
 }
 
 /**
+ * Parse vitest JSON reporter output into structured test results.
+ * Detects suite collection errors (status: "failed" with empty assertionResults)
+ * which occur when corrupted source files prevent test collection.
+ */
+export function parseVitestOutput(stdout: string, stderr: string, exitCode: number): TestRunResult {
+  try {
+    const jsonOutput = JSON.parse(stdout);
+    let passed = jsonOutput.numPassedTests ?? 0;
+    let failed = jsonOutput.numFailedTests ?? 0;
+    let total = jsonOutput.numTotalTests ?? (passed + failed);
+    const duration = jsonOutput.startTime
+      ? Date.now() - jsonOutput.startTime
+      : 0;
+
+    const failures: Array<{ name: string; error: string }> = [];
+    if (jsonOutput.testResults) {
+      for (const suite of jsonOutput.testResults) {
+        const suiteName = suite.name || suite.testFilePath || "unknown suite";
+
+        // Detect suite collection errors: suite failed but has no assertion results
+        if (suite.status === "failed" && (!suite.assertionResults || suite.assertionResults.length === 0)) {
+          const errorMsg = (suite.message || suite.failureMessage || "Suite failed to collect").slice(0, 500);
+          failures.push({
+            name: `[Collection Error] ${suiteName}`,
+            error: errorMsg,
+          });
+          failed++;
+          total++;
+          continue;
+        }
+
+        if (suite.assertionResults) {
+          for (const test of suite.assertionResults) {
+            if (test.status === "failed") {
+              failures.push({
+                name: test.fullName || test.title || "unknown test",
+                error: (test.failureMessages || []).join("\n").slice(0, 500),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return { passed, failed, total, duration, failures };
+  } catch {
+    // JSON parsing failed — create result from exit code
+    if (exitCode === 0) {
+      return { passed: 1, failed: 0, total: 1, duration: 0, failures: [] };
+    } else {
+      const errorSnippet = (stderr + "\n" + stdout).trim().slice(0, 500);
+      return {
+        passed: 0,
+        failed: 1,
+        total: 1,
+        duration: 0,
+        failures: [{ name: "Test suite", error: errorSnippet }],
+      };
+    }
+  }
+}
+
+/**
  * Run vitest tests in the project directory.
  * Parses JSON output for structured results and broadcasts them via WebSocket.
  * Returns structured results, or null if tests couldn't be run.
@@ -2011,49 +2074,11 @@ export default defineConfig({
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
 
-    // Try to parse JSON output from vitest
-    let result: TestRunResult;
-    try {
-      const jsonOutput = JSON.parse(stdout);
-      const passed = jsonOutput.numPassedTests ?? 0;
-      const failed = jsonOutput.numFailedTests ?? 0;
-      const total = jsonOutput.numTotalTests ?? (passed + failed);
-      const duration = jsonOutput.startTime
-        ? Date.now() - jsonOutput.startTime
-        : 0;
-
-      const failures: Array<{ name: string; error: string }> = [];
-      if (jsonOutput.testResults) {
-        for (const suite of jsonOutput.testResults) {
-          if (suite.assertionResults) {
-            for (const test of suite.assertionResults) {
-              if (test.status === "failed") {
-                failures.push({
-                  name: test.fullName || test.title || "unknown test",
-                  error: (test.failureMessages || []).join("\n").slice(0, 500),
-                });
-              }
-            }
-          }
-        }
-      }
-
-      result = { passed, failed, total, duration, failures };
-    } catch {
-      // JSON parsing failed — create result from exit code
-      if (exitCode === 0) {
-        result = { passed: 1, failed: 0, total: 1, duration: 0, failures: [] };
-      } else {
-        const errorSnippet = (stderr + "\n" + stdout).trim().slice(0, 500);
-        result = {
-          passed: 0,
-          failed: 1,
-          total: 1,
-          duration: 0,
-          failures: [{ name: "Test suite", error: errorSnippet }],
-        };
-      }
+    if (stderr.trim()) {
+      console.log("[orchestrator] Test stderr:", stderr.trim().slice(0, 2000));
     }
+
+    const result = parseVitestOutput(stdout, stderr, exitCode);
 
     broadcastTestResults({
       chatId,

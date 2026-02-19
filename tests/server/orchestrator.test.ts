@@ -8,6 +8,7 @@ import {
   determineBuildFixAgent,
   extractFilesFromOutput,
   classifyIntent,
+  parseVitestOutput,
 } from "../../src/server/agents/orchestrator.ts";
 import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
 
@@ -610,5 +611,128 @@ describe("classifyIntent", () => {
     const result = await classifyIntent("fix the button", true, emptyProviders);
     expect(result.intent).toBe("build");
     expect(result.reasoning).toContain("Fallback");
+  });
+});
+
+// --- parseVitestOutput ---
+
+describe("parseVitestOutput", () => {
+  test("parses normal vitest JSON output", () => {
+    const json = JSON.stringify({
+      numPassedTests: 5,
+      numFailedTests: 1,
+      numTotalTests: 6,
+      startTime: Date.now() - 1000,
+      testResults: [{
+        name: "src/App.test.tsx",
+        assertionResults: [
+          { status: "passed", fullName: "App renders", title: "renders", failureMessages: [] },
+          { status: "failed", fullName: "App handles click", title: "handles click", failureMessages: ["Expected true to be false"] },
+        ],
+      }],
+    });
+    const result = parseVitestOutput(json, "", 1);
+    expect(result.passed).toBe(5);
+    expect(result.failed).toBe(1);
+    expect(result.total).toBe(6);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.name).toBe("App handles click");
+  });
+
+  test("detects suite collection errors with empty assertionResults", () => {
+    const json = JSON.stringify({
+      numPassedTests: 0,
+      numFailedTests: 0,
+      numTotalTests: 0,
+      testResults: [{
+        name: "src/App.test.tsx",
+        status: "failed",
+        message: "Cannot find module './App'",
+        assertionResults: [],
+      }],
+    });
+    const result = parseVitestOutput(json, "", 1);
+    expect(result.failed).toBe(1);
+    expect(result.total).toBe(1);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.name).toContain("[Collection Error]");
+    expect(result.failures[0]!.error).toContain("Cannot find module");
+  });
+
+  test("counts collection failures as test failures", () => {
+    const json = JSON.stringify({
+      numPassedTests: 0,
+      numFailedTests: 0,
+      numTotalTests: 0,
+      testResults: [
+        { name: "a.test.tsx", status: "failed", message: "Import error", assertionResults: [] },
+        { name: "b.test.tsx", status: "failed", message: "Syntax error", assertionResults: [] },
+      ],
+    });
+    const result = parseVitestOutput(json, "", 1);
+    expect(result.failed).toBe(2);
+    expect(result.total).toBe(2);
+    expect(result.failures).toHaveLength(2);
+  });
+
+  test("handles mixed: some suites collected, some failed", () => {
+    const json = JSON.stringify({
+      numPassedTests: 3,
+      numFailedTests: 0,
+      numTotalTests: 3,
+      testResults: [
+        {
+          name: "good.test.tsx",
+          status: "passed",
+          assertionResults: [
+            { status: "passed", fullName: "works", title: "works", failureMessages: [] },
+          ],
+        },
+        {
+          name: "broken.test.tsx",
+          status: "failed",
+          message: "Cannot resolve import",
+          assertionResults: [],
+        },
+      ],
+    });
+    const result = parseVitestOutput(json, "", 1);
+    expect(result.passed).toBe(3);
+    expect(result.failed).toBe(1);
+    expect(result.total).toBe(4);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.name).toContain("[Collection Error]");
+  });
+
+  test("falls back to exit code when JSON parsing fails", () => {
+    const result = parseVitestOutput("not json", "some error", 1);
+    expect(result.failed).toBe(1);
+    expect(result.total).toBe(1);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]!.name).toBe("Test suite");
+  });
+
+  test("reports success on exit code 0 when JSON parsing fails", () => {
+    const result = parseVitestOutput("not json", "", 0);
+    expect(result.passed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.total).toBe(1);
+    expect(result.failures).toHaveLength(0);
+  });
+
+  test("uses failureMessage when message is absent on collection error", () => {
+    const json = JSON.stringify({
+      numPassedTests: 0,
+      numFailedTests: 0,
+      numTotalTests: 0,
+      testResults: [{
+        name: "src/Broken.test.tsx",
+        status: "failed",
+        failureMessage: "ReferenceError: foo is not defined",
+        assertionResults: [],
+      }],
+    });
+    const result = parseVitestOutput(json, "", 1);
+    expect(result.failures[0]!.error).toContain("ReferenceError");
   });
 });
