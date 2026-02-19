@@ -3,13 +3,14 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
-import { getAllAgentConfigs, resetAgentOverrides } from "../agents/registry.ts";
+import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
 import { GOOGLE_MODELS } from "../providers/google.ts";
-import type { AgentName } from "../../shared/types.ts";
+import type { AgentName, ToolName } from "../../shared/types.ts";
+import { ALL_TOOLS } from "../../shared/types.ts";
 
 export const LIMIT_DEFAULTS: Record<string, string> = {
   maxTokensPerChat: "500000",
@@ -75,6 +76,45 @@ const VALID_AGENT_NAMES = new Set<AgentName>([
   "orchestrator", "research", "architect", "frontend-dev", "backend-dev",
   "styling", "testing", "code-review", "qa", "security",
 ]);
+
+// --- Tool assignment endpoints (registered before /agents/:name to avoid param conflicts) ---
+
+// Get all agent tool configs
+settingsRoutes.get("/agents/tools", (c) => {
+  return c.json(getAllAgentToolConfigs());
+});
+
+// Upsert tool override for an agent
+settingsRoutes.put("/agents/:name/tools", async (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const body = await c.req.json<{ tools: ToolName[] }>();
+  if (!Array.isArray(body.tools)) return c.json({ error: "tools must be an array" }, 400);
+
+  const valid = body.tools.every((t) => ALL_TOOLS.includes(t));
+  if (!valid) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+
+  const key = `agent.${name}.tools`;
+  const value = JSON.stringify(body.tools);
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value }).run();
+  }
+
+  return c.json({ ok: true });
+});
+
+// Reset tool override for an agent (reverts to default)
+settingsRoutes.delete("/agents/:name/tools", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  resetAgentToolOverrides(name);
+  return c.json({ ok: true });
+});
 
 // Get all agent configs (with DB overrides applied)
 settingsRoutes.get("/agents", (c) => {

@@ -9,6 +9,7 @@ import {
   extractFilesFromOutput,
   classifyIntent,
   parseVitestOutput,
+  agentHasFileTools,
 } from "../../src/server/agents/orchestrator.ts";
 import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
 
@@ -817,5 +818,25 @@ describe("parseVitestOutput", () => {
     });
     const result = parseVitestOutput(json, "", 1);
     expect(result.failures[0]!.error).toContain("ReferenceError");
+  });
+});
+
+// --- agentHasFileTools ---
+
+describe("agentHasFileTools", () => {
+  test("returns true for dev agents with default tools", () => {
+    expect(agentHasFileTools("frontend-dev")).toBe(true);
+    expect(agentHasFileTools("backend-dev")).toBe(true);
+    expect(agentHasFileTools("styling")).toBe(true);
+  });
+
+  test("returns false for non-producing agents", () => {
+    expect(agentHasFileTools("orchestrator")).toBe(false);
+    expect(agentHasFileTools("research")).toBe(false);
+    expect(agentHasFileTools("architect")).toBe(false);
+    expect(agentHasFileTools("testing")).toBe(false);
+    expect(agentHasFileTools("code-review")).toBe(false);
+    expect(agentHasFileTools("qa")).toBe(false);
+    expect(agentHasFileTools("security")).toBe(false);
   });
 });

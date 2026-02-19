@@ -3,14 +3,16 @@ import { ApiKeySettings } from "../billing/ApiKeySettings.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { PromptEditor } from "./PromptEditor.tsx";
+import { ToolSettings } from "./ToolSettings.tsx";
 
-type Tab = "keys" | "limits" | "models" | "prompts";
+type Tab = "keys" | "limits" | "models" | "prompts" | "tools";
 
 const TAB_LABELS: Record<Tab, string> = {
   keys: "API Keys",
   limits: "Limits",
   models: "Models",
   prompts: "Prompts",
+  tools: "Tools",
 };
 
 interface SettingsModalProps {
@@ -60,6 +62,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         {activeTab === "limits" && <LimitsSettings />}
         {activeTab === "models" && <ModelSettings />}
         {activeTab === "prompts" && <PromptEditor />}
+        {activeTab === "tools" && <ToolSettings />}
       </div>
     </div>
   );

@@ -247,6 +247,23 @@ Each agent's provider, model, and system prompt can be overridden via **Settings
 - Resetting an agent removes all DB overrides, reverting to AGENT_ROSTER defaults
 - Changes take effect on the next pipeline run — no restart required
 
+### Tool Assignments
+
+Each agent's native tool access can be configured via **Settings → Tools**. The three available tools are `write_file`, `read_file`, and `list_files`.
+
+**Defaults:**
+| Agent | write_file | read_file | list_files |
+|-------|-----------|-----------|------------|
+| frontend-dev, backend-dev, styling | Yes | Yes | Yes |
+| All others | No | No | No |
+
+- Tool overrides are stored in `app_settings` (key: `agent.{name}.tools`, value: JSON array)
+- The orchestrator reads tool config at runtime via `getAgentTools()` and only passes enabled tools to each agent
+- Orchestrator is read-only — it never gets native tools
+- `extractAndWriteFiles()` also respects tool config: agents without `write_file` skip fallback file extraction
+- Resetting an agent's tools removes the DB override, reverting to the default
+- Build checks and test runs only trigger for agents that have `write_file` enabled
+
 ## Cost Safety
 
 - Default limit: 500K tokens per session

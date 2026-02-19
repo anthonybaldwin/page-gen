@@ -135,3 +135,15 @@ export interface FileNode {
   type: "file" | "directory";
   children?: FileNode[];
 }
+
+export type ToolName = "write_file" | "read_file" | "list_files";
+export const ALL_TOOLS: ToolName[] = ["write_file", "read_file", "list_files"];
+
+export interface AgentToolConfig {
+  name: AgentName;
+  displayName: string;
+  tools: ToolName[];
+  defaultTools: ToolName[];
+  isOverridden: boolean;
+  isReadOnly: boolean;
+}

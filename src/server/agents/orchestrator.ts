@@ -5,7 +5,7 @@ import { eq, inArray, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
-import { getAgentConfigResolved } from "./registry.ts";
+import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -193,12 +193,21 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         },
       };
 
-      // Create native tools for file-producing agents
-      const agentTools = FILE_PRODUCING_AGENTS.has(step.agentName)
-        ? createAgentTools(projectPath, projectId)
+      // Create native tools based on agent's tool config
+      const enabledToolNames = getAgentTools(step.agentName);
+      let agentTools: ReturnType<typeof createAgentTools> | undefined;
+      if (enabledToolNames.length > 0) {
+        agentTools = createAgentTools(projectPath, projectId);
+      }
+      const toolSubset = agentTools
+        ? Object.fromEntries(
+            enabledToolNames
+              .filter((t) => t in agentTools!.tools)
+              .map((t) => [t, agentTools!.tools[t as keyof typeof agentTools.tools]])
+          )
         : undefined;
 
-      result = await runAgent(config, providers, agentInput, agentTools?.tools, signal, chatId);
+      result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId);
 
       if (result.tokenUsage) {
         const providerKey = apiKeys[config.provider];
@@ -243,7 +252,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       }
       const filesWritten = [...nativeFiles, ...fallbackFiles];
 
-      if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
+      if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted) {
         // All file-producing agents get build check
         const buildErrors = await checkProjectBuild(projectPath);
         if (buildErrors && !signal.aborted) {
@@ -1722,8 +1731,11 @@ export function buildExecutionPlan(
   return { steps };
 }
 
-// Agents whose output may contain file code blocks
-const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling"]);
+/** Check whether an agent has the write_file tool enabled. */
+export function agentHasFileTools(name: string): boolean {
+  const tools = getAgentTools(name as import("../../shared/types.ts").AgentName);
+  return tools.includes("write_file");
+}
 
 /** Check if the project has any test files on disk (.test.tsx/.test.ts in src/) */
 function testFilesExist(projectPath: string): boolean {
@@ -1846,7 +1858,7 @@ function extractAndWriteFiles(
   projectId: string,
   alreadyWritten?: Set<string>
 ): string[] {
-  if (!FILE_PRODUCING_AGENTS.has(agentName)) return [];
+  if (!agentHasFileTools(agentName)) return [];
 
   const files = extractFilesFromOutput(agentOutput);
   if (files.length === 0) return [];

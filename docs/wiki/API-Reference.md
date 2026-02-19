@@ -147,6 +147,19 @@ Set a custom system prompt for an agent.
 ### DELETE /settings/agents/:name/overrides
 Remove all DB overrides for an agent (provider, model, prompt), reverting to defaults.
 
+### GET /settings/agents/tools
+Get tool assignments for all agents.
+
+**Response:** `AgentToolConfig[]` — each includes `name`, `displayName`, `tools` (active), `defaultTools`, `isOverridden`, `isReadOnly`
+
+### PUT /settings/agents/:name/tools
+Override tool assignments for an agent.
+
+**Body:** `{ tools: ToolName[] }` — valid values: `"write_file"`, `"read_file"`, `"list_files"`
+
+### DELETE /settings/agents/:name/tools
+Remove tool override for an agent, reverting to default assignments.
+
 ### POST /settings/validate-key
 Validate an API key.
 

@@ -1,4 +1,5 @@
-import type { AgentConfig, AgentName, ResolvedAgentConfig } from "../../shared/types.ts";
+import type { AgentConfig, AgentName, AgentToolConfig, ResolvedAgentConfig, ToolName } from "../../shared/types.ts";
+import { ALL_TOOLS } from "../../shared/types.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 
@@ -113,4 +114,66 @@ export function resetAgentOverrides(name: AgentName): void {
 
 export function getModelId(provider: string, model: string): string {
   return model;
+}
+
+// --- Tool configuration ---
+
+export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
+  orchestrator: [],
+  research: [],
+  architect: [],
+  "frontend-dev": [...ALL_TOOLS],
+  "backend-dev": [...ALL_TOOLS],
+  styling: [...ALL_TOOLS],
+  testing: [],
+  "code-review": [],
+  qa: [],
+  security: [],
+};
+
+export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator"]);
+
+/** Get the active tools for an agent (DB override or default). */
+export function getAgentTools(name: AgentName): ToolName[] {
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.tools`)).get();
+  if (row) {
+    try {
+      const parsed = JSON.parse(row.value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((t: string) => ALL_TOOLS.includes(t as ToolName)) as ToolName[];
+      }
+    } catch {
+      // Invalid JSON — fall through to default
+    }
+  }
+  return DEFAULT_AGENT_TOOLS[name] ?? [];
+}
+
+/** Get full tool config for a single agent (used by API). */
+export function getAgentToolConfig(name: AgentName): AgentToolConfig | undefined {
+  const base = AGENT_ROSTER.find((a) => a.name === name);
+  if (!base) return undefined;
+
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.tools`)).get();
+  const tools = getAgentTools(name);
+  const defaultTools = DEFAULT_AGENT_TOOLS[name] ?? [];
+
+  return {
+    name,
+    displayName: base.displayName,
+    tools,
+    defaultTools,
+    isOverridden: !!row,
+    isReadOnly: TOOLS_READONLY_AGENTS.has(name),
+  };
+}
+
+/** Get tool configs for all agents. */
+export function getAllAgentToolConfigs(): AgentToolConfig[] {
+  return AGENT_ROSTER.map((a) => getAgentToolConfig(a.name)!);
+}
+
+/** Remove the tool override for an agent (reverts to default). */
+export function resetAgentToolOverrides(name: AgentName): void {
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.tools`)).run();
 }
