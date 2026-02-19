@@ -48,6 +48,161 @@ interface ExecutionPlan {
   }>;
 }
 
+interface PipelineStepContext {
+  step: { agentName: AgentName; input: string };
+  chatId: string;
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  chatTitle: string;
+  userMessage: string;
+  chatHistory: Array<{ role: string; content: string }>;
+  agentResults: Map<string, string>;
+  completedAgents: string[];
+  providers: ProviderInstance;
+  apiKeys: Record<string, string>;
+  signal: AbortSignal;
+}
+
+/**
+ * Execute a single pipeline step with retries, token tracking, file extraction,
+ * and build checks. Returns the agent's output content, or null on failure/abort.
+ */
+async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
+  const { step, chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents,
+    providers, apiKeys, signal } = ctx;
+
+  if (signal.aborted) return null;
+
+  const config = getAgentConfig(step.agentName);
+  if (!config) {
+    broadcastAgentError("orchestrator", `Unknown agent: ${step.agentName}`);
+    return null;
+  }
+
+  const executionId = nanoid();
+  await db.insert(schema.agentExecutions).values({
+    id: executionId,
+    chatId,
+    agentName: step.agentName,
+    status: "running",
+    input: JSON.stringify({ message: step.input }),
+    output: null,
+    error: null,
+    retryCount: 0,
+    startedAt: Date.now(),
+    completedAt: null,
+  });
+
+  let result: AgentOutput | null = null;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (signal.aborted) break;
+
+    try {
+      const agentInput: AgentInput = {
+        userMessage: step.input,
+        chatHistory,
+        projectPath,
+        context: {
+          projectId,
+          originalRequest: userMessage,
+          upstreamOutputs: Object.fromEntries(agentResults),
+        },
+      };
+
+      result = await runAgent(config, providers, agentInput, undefined, signal);
+
+      if (result.tokenUsage) {
+        const providerKey = apiKeys[config.provider];
+        if (providerKey) {
+          const record = trackTokenUsage({
+            executionId, chatId,
+            agentName: step.agentName,
+            provider: config.provider,
+            model: config.model,
+            apiKey: providerKey,
+            inputTokens: result.tokenUsage.inputTokens,
+            outputTokens: result.tokenUsage.outputTokens,
+            projectId, projectName, chatTitle,
+          });
+          broadcastTokenUsage({
+            chatId,
+            agentName: step.agentName,
+            provider: config.provider,
+            model: config.model,
+            inputTokens: result.tokenUsage.inputTokens,
+            outputTokens: result.tokenUsage.outputTokens,
+            totalTokens: result.tokenUsage.totalTokens,
+            costEstimate: record.costEstimate,
+          });
+        }
+      }
+
+      await db.update(schema.agentExecutions)
+        .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
+        .where(eq(schema.agentExecutions.id, executionId));
+
+      agentResults.set(step.agentName, result.content);
+      completedAgents.push(step.agentName);
+
+      const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
+
+      if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
+        const buildErrors = await checkProjectBuild(projectPath);
+        if (buildErrors && !signal.aborted) {
+          const fixResult = await runBuildFix({
+            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+            userMessage, chatHistory, agentResults, providers, apiKeys, signal,
+          });
+          if (fixResult) {
+            agentResults.set(`${step.agentName}-build-fix`, fixResult);
+            completedAgents.push(`${step.agentName} (build fix)`);
+          }
+          const recheckErrors = await checkProjectBuild(projectPath);
+          if (!recheckErrors) {
+            broadcast({ type: "preview_ready", payload: { projectId } });
+          }
+        } else {
+          broadcast({ type: "preview_ready", payload: { projectId } });
+        }
+      }
+
+      break;
+    } catch (err) {
+      if (signal.aborted) break;
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_RETRIES) {
+        await db.update(schema.agentExecutions)
+          .set({ status: "retrying", retryCount: attempt + 1 })
+          .where(eq(schema.agentExecutions.id, executionId));
+        broadcastAgentStatus(step.agentName, "retrying", { attempt: attempt + 1 });
+      }
+    }
+  }
+
+  if (signal.aborted) return null;
+
+  if (!result) {
+    const errorMsg = lastError?.message || "Unknown error";
+    await db.update(schema.agentExecutions)
+      .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
+      .where(eq(schema.agentExecutions.id, executionId));
+    broadcastAgentError(step.agentName, errorMsg);
+    broadcastAgentError("orchestrator", `Pipeline halted: ${step.agentName} failed after ${MAX_RETRIES} retries`);
+    await db.insert(schema.messages).values({
+      id: nanoid(), chatId, role: "system",
+      content: `Agent ${step.agentName} failed: ${errorMsg}`,
+      agentName: step.agentName, metadata: null, createdAt: Date.now(),
+    });
+    return null;
+  }
+
+  return result.content;
+}
+
 export async function runOrchestration(input: OrchestratorInput): Promise<void> {
   const { chatId, projectId, projectPath, userMessage, providers, apiKeys } = input;
 
@@ -99,217 +254,74 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     content: m.content,
   }));
 
-  // Build execution plan
-  const plan = buildExecutionPlan(userMessage);
-
   broadcastAgentStatus("orchestrator", "running");
 
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
 
+  // --- Phase 1: Run research agent to determine requirements ---
+  const researchResult = await runPipelineStep({
+    step: {
+      agentName: "research",
+      input: `Analyze this request and produce structured requirements: ${userMessage}`,
+    },
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents,
+    providers, apiKeys, signal,
+  });
+  if (!researchResult || signal.aborted) {
+    if (signal.aborted) {
+      await db.insert(schema.messages).values({
+        id: nanoid(), chatId, role: "system",
+        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+      });
+      broadcastAgentStatus("orchestrator", "stopped");
+    }
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  // --- Phase 2: Build dynamic plan from research output, execute remaining steps ---
+  const researchOutput = agentResults.get("research") || "";
+  const plan = buildExecutionPlan(userMessage, researchOutput);
+
   // Execute each step sequentially
   for (const step of plan.steps) {
-    // Check if aborted before starting each agent
     if (signal.aborted) {
       await db.insert(schema.messages).values({
-        id: nanoid(),
-        chatId,
-        role: "system",
+        id: nanoid(), chatId, role: "system",
         content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-        agentName: "orchestrator",
-        metadata: null,
-        createdAt: Date.now(),
+        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
       broadcastAgentStatus("orchestrator", "stopped");
       abortControllers.delete(chatId);
       return;
     }
 
-    const config = getAgentConfig(step.agentName);
-    if (!config) {
-      broadcastAgentError("orchestrator", `Unknown agent: ${step.agentName}`);
-      abortControllers.delete(chatId);
-      return;
-    }
+    const stepResult = await runPipelineStep({
+      step, chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents,
+      providers, apiKeys, signal,
+    });
 
-    // Create execution record
-    const executionId = nanoid();
-    const execution = {
-      id: executionId,
-      chatId,
-      agentName: step.agentName,
-      status: "running",
-      input: JSON.stringify({ message: step.input }),
-      output: null,
-      error: null,
-      retryCount: 0,
-      startedAt: Date.now(),
-      completedAt: null,
-    };
-    await db.insert(schema.agentExecutions).values(execution);
-
-    // Run with retry
-    let result: AgentOutput | null = null;
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      // Check abort inside retry loop too
-      if (signal.aborted) break;
-
-      try {
-        const agentInput: AgentInput = {
-          userMessage: step.input,
-          chatHistory,
-          projectPath,
-          context: {
-            projectId,
-            originalRequest: userMessage,
-            upstreamOutputs: Object.fromEntries(agentResults),
-          },
-        };
-
-        result = await runAgent(config, providers, agentInput, undefined, signal);
-
-        // Track token usage
-        if (result.tokenUsage) {
-          const providerKey = apiKeys[config.provider];
-          if (providerKey) {
-            const record = trackTokenUsage({
-              executionId,
-              chatId,
-              agentName: step.agentName,
-              provider: config.provider,
-              model: config.model,
-              apiKey: providerKey,
-              inputTokens: result.tokenUsage.inputTokens,
-              outputTokens: result.tokenUsage.outputTokens,
-              projectId,
-              projectName,
-              chatTitle,
-            });
-
-            // Broadcast token usage to client
-            broadcastTokenUsage({
-              chatId,
-              agentName: step.agentName,
-              provider: config.provider,
-              model: config.model,
-              inputTokens: result.tokenUsage.inputTokens,
-              outputTokens: result.tokenUsage.outputTokens,
-              totalTokens: result.tokenUsage.totalTokens,
-              costEstimate: record.costEstimate,
-            });
-          }
-        }
-
-        // Update execution record
-        await db
-          .update(schema.agentExecutions)
-          .set({
-            status: "completed",
-            output: JSON.stringify(result),
-            completedAt: Date.now(),
-          })
-          .where(eq(schema.agentExecutions.id, executionId));
-
-        // Collect output internally
-        agentResults.set(step.agentName, result.content);
-        completedAgents.push(step.agentName);
-
-        // Extract and write files from agent output
-        const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
-
-        // Build check after file-producing agents — catch errors early
-        if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
-          const buildErrors = await checkProjectBuild(projectPath);
-          if (buildErrors && !signal.aborted) {
-            const fixResult = await runBuildFix({
-              buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-              userMessage, chatHistory, agentResults, providers, apiKeys, signal,
-            });
-            if (fixResult) {
-              agentResults.set(`${step.agentName}-build-fix`, fixResult);
-              completedAgents.push(`${step.agentName} (build fix)`);
-            }
-            // Re-check build after fix — if clean, enable preview
-            const recheckErrors = await checkProjectBuild(projectPath);
-            if (!recheckErrors) {
-              broadcast({ type: "preview_ready", payload: { projectId } });
-            }
-          } else {
-            // Build passed — enable preview
-            broadcast({ type: "preview_ready", payload: { projectId } });
-          }
-        }
-
-        break; // Success — exit retry loop
-      } catch (err) {
-        // Handle abort gracefully
-        if (signal.aborted) break;
-
-        lastError = err instanceof Error ? err : new Error(String(err));
-
-        if (attempt < MAX_RETRIES) {
-          // Update status to retrying
-          await db
-            .update(schema.agentExecutions)
-            .set({ status: "retrying", retryCount: attempt + 1 })
-            .where(eq(schema.agentExecutions.id, executionId));
-
-          broadcastAgentStatus(step.agentName, "retrying", { attempt: attempt + 1 });
-        }
-      }
-    }
-
-    // Check if aborted after agent run
     if (signal.aborted) {
       await db.insert(schema.messages).values({
-        id: nanoid(),
-        chatId,
-        role: "system",
+        id: nanoid(), chatId, role: "system",
         content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-        agentName: "orchestrator",
-        metadata: null,
-        createdAt: Date.now(),
+        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
       broadcastAgentStatus("orchestrator", "stopped");
       abortControllers.delete(chatId);
       return;
     }
 
-    if (!result) {
-      // All retries failed — HALT the orchestration chain
-      const errorMsg = lastError?.message || "Unknown error";
-
-      await db
-        .update(schema.agentExecutions)
-        .set({
-          status: "failed",
-          error: errorMsg,
-          completedAt: Date.now(),
-        })
-        .where(eq(schema.agentExecutions.id, executionId));
-
-      broadcastAgentError(step.agentName, errorMsg);
-      broadcastAgentError("orchestrator", `Pipeline halted: ${step.agentName} failed after ${MAX_RETRIES} retries`);
-
-      // Save error as system message
-      await db.insert(schema.messages).values({
-        id: nanoid(),
-        chatId,
-        role: "system",
-        content: `Agent ${step.agentName} failed: ${errorMsg}`,
-        agentName: step.agentName,
-        metadata: null,
-        createdAt: Date.now(),
-      });
-
+    if (!stepResult) {
       abortControllers.delete(chatId);
-      return; // HALT — do not continue to next step
+      return; // HALT — runPipelineStep already handled error broadcasting
     }
 
-    // Check cost between steps
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
       broadcastAgentStatus("orchestrator", "paused");
@@ -798,40 +810,71 @@ async function runReviewAgent(
   }
 }
 
-function buildExecutionPlan(userMessage: string): ExecutionPlan {
-  return {
-    steps: [
-      {
-        agentName: "research",
-        input: `Analyze this request and produce structured requirements: ${userMessage}`,
-      },
-      {
-        agentName: "architect",
-        input: `Design the component architecture based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["research"],
-      },
-      {
-        agentName: "frontend-dev",
-        input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["architect"],
-      },
-      {
-        agentName: "styling",
-        input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["frontend-dev"],
-      },
-      {
-        agentName: "qa",
-        input: `Review and fix all code generated by frontend-dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["styling"],
-      },
-      {
-        agentName: "security",
-        input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["qa"],
-      },
-    ],
-  };
+/**
+ * Check if the research output indicates backend requirements.
+ * Parses JSON for `requires_backend: true` features, falls back to regex heuristic.
+ */
+function needsBackend(researchOutput: string): boolean {
+  try {
+    const parsed = JSON.parse(researchOutput);
+    if (parsed.features && Array.isArray(parsed.features)) {
+      return parsed.features.some((f: { requires_backend?: boolean }) => f.requires_backend === true);
+    }
+  } catch {
+    // JSON parse failed — fall back to heuristic
+  }
+  // Regex heuristic: look for backend-related keywords
+  return /requires_backend['":\s]+true|api\s*route|server[\s-]*side|database|backend|express|endpoint/i.test(researchOutput);
+}
+
+function buildExecutionPlan(userMessage: string, researchOutput?: string): ExecutionPlan {
+  const includeBackend = researchOutput ? needsBackend(researchOutput) : false;
+
+  const steps: ExecutionPlan["steps"] = [
+    {
+      agentName: "architect",
+      input: `Design the component architecture based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["research"],
+    },
+    {
+      agentName: "frontend-dev",
+      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["architect"],
+    },
+  ];
+
+  if (includeBackend) {
+    steps.push({
+      agentName: "backend-dev",
+      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["architect"],
+    });
+  }
+
+  steps.push(
+    {
+      agentName: "styling",
+      input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["frontend-dev"],
+    },
+    {
+      agentName: "code-review",
+      input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["styling"],
+    },
+    {
+      agentName: "security",
+      input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["code-review"],
+    },
+    {
+      agentName: "qa",
+      input: `Validate the implementation against the research requirements (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["security"],
+    },
+  );
+
+  return { steps };
 }
 
 // Agents whose output may contain file code blocks
