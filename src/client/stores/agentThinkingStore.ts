@@ -1,5 +1,16 @@
 import { create } from "zustand";
 import { extractSummary } from "../../shared/summary.ts";
+import type { TestDetail } from "../../shared/types.ts";
+
+export interface TestResults {
+  passed: number;
+  failed: number;
+  total: number;
+  duration: number;
+  failures: Array<{ name: string; error: string }>;
+  testDetails?: TestDetail[];
+  streaming?: boolean;
+}
 
 export interface ThinkingBlock {
   id: string;
@@ -10,6 +21,8 @@ export interface ThinkingBlock {
   summary: string;
   expanded: boolean;
   startedAt: number;
+  blockType?: "agent" | "test-results";
+  testResults?: TestResults;
 }
 
 function generateId(): string {
@@ -48,6 +61,8 @@ interface AgentThinkingState {
     chunk?: string;
     summary?: string;
   }) => void;
+  addTestResults: (results: TestResults) => void;
+  updateTestResults: (results: TestResults) => void;
   toggleExpanded: (blockId: string) => void;
 }
 
@@ -189,6 +204,45 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       }
 
       return state;
+    }),
+
+  addTestResults: (results) =>
+    set((state) => {
+      const block: ThinkingBlock = {
+        id: generateId(),
+        agentName: "test-results",
+        displayName: "Test Results",
+        status: results.streaming ? "streaming" : "completed",
+        content: "",
+        summary: results.streaming
+          ? `Running tests... ${results.passed} passed${results.failed > 0 ? `, ${results.failed} failed` : ""}`
+          : results.failed === 0
+            ? `All ${results.total} tests passed`
+            : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
+        expanded: false,
+        startedAt: Date.now(),
+        blockType: "test-results",
+        testResults: results,
+      };
+      return { blocks: [...state.blocks, block] };
+    }),
+
+  updateTestResults: (results) =>
+    set((state) => {
+      const blocks = [...state.blocks];
+      const idx = blocks.findLastIndex((b) => b.blockType === "test-results");
+      if (idx === -1) return state;
+      blocks[idx] = {
+        ...blocks[idx]!,
+        status: results.streaming ? "streaming" : "completed",
+        summary: results.streaming
+          ? `Running tests... ${results.passed} passed${results.failed > 0 ? `, ${results.failed} failed` : ""}`
+          : results.failed === 0
+            ? `All ${results.total} tests passed`
+            : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
+        testResults: results,
+      };
+      return { blocks };
     }),
 
   toggleExpanded: (blockId) =>

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
-import { TestResultsBanner } from "./TestResultsBanner.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
@@ -14,19 +13,16 @@ import { nanoid } from "nanoid";
 
 export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage } = useChatStore();
-  const { blocks, reset: resetThinking, stopAll, handleThinking, toggleExpanded } = useAgentThinkingStore();
+  const { blocks, reset: resetThinking, stopAll, handleThinking, addTestResults, updateTestResults, toggleExpanded } = useAgentThinkingStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
   const [costLimitInterrupt, setCostLimitInterrupt] = useState(false);
   const [showLimitsInline, setShowLimitsInline] = useState(false);
-  const [testResults, setTestResults] = useState<{
-    passed: number; failed: number; total: number; duration: number;
-    failures: Array<{ name: string; error: string }>;
-    testDetails?: TestDetail[];
-    streaming?: boolean;
-  } | null>(null);
+
+  // Track whether we've created an incremental test results block
+  const hasStreamingTestBlock = useRef(false);
 
   useEffect(() => {
     if (!activeChat) return;
@@ -35,7 +31,7 @@ export function ChatWindow() {
     setInterrupted(false);
     setCostLimitInterrupt(false);
     setShowLimitsInline(false);
-    setTestResults(null);
+    hasStreamingTestBlock.current = false;
     resetThinking();
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
@@ -92,14 +88,20 @@ export function ChatWindow() {
         });
       }
 
-      // Incremental test results (streaming one-by-one)
+      // Incremental test results (streaming one-by-one) — inline as thinking block
       if (msg.type === "test_result_incremental") {
         const payload = msg.payload as unknown as TestDetail;
-        setTestResults((prev) => {
-          const details = [...(prev?.testDetails || []), payload];
+        const store = useAgentThinkingStore.getState();
+        const existingBlocks = store.blocks;
+        const lastTestBlock = existingBlocks.findLast((b) => b.blockType === "test-results");
+
+        if (!lastTestBlock || !lastTestBlock.testResults?.streaming) {
+          // First incremental result — create a new test results block
+          hasStreamingTestBlock.current = true;
+          const details = [payload];
           const passed = details.filter((d) => d.status === "passed").length;
           const failed = details.filter((d) => d.status === "failed").length;
-          return {
+          addTestResults({
             passed,
             failed,
             total: details.length,
@@ -107,18 +109,38 @@ export function ChatWindow() {
             failures: details.filter((d) => d.status === "failed").map((d) => ({ name: d.name, error: d.error || "" })),
             testDetails: details,
             streaming: true,
-          };
-        });
+          });
+        } else {
+          // Subsequent results — update existing streaming block
+          const prev = lastTestBlock.testResults!;
+          const details = [...(prev.testDetails || []), payload];
+          const passed = details.filter((d) => d.status === "passed").length;
+          const failed = details.filter((d) => d.status === "failed").length;
+          updateTestResults({
+            passed,
+            failed,
+            total: details.length,
+            duration: 0,
+            failures: details.filter((d) => d.status === "failed").map((d) => ({ name: d.name, error: d.error || "" })),
+            testDetails: details,
+            streaming: true,
+          });
+        }
       }
 
-      // Final test results (replaces streaming state)
+      // Final test results — update the streaming block or create new
       if (msg.type === "test_results") {
         const payload = msg.payload as {
           passed: number; failed: number; total: number; duration: number;
           failures: Array<{ name: string; error: string }>;
           testDetails?: TestDetail[];
         };
-        setTestResults({ ...payload, streaming: false });
+        if (hasStreamingTestBlock.current) {
+          updateTestResults({ ...payload, streaming: false });
+          hasStreamingTestBlock.current = false;
+        } else {
+          addTestResults({ ...payload, streaming: false });
+        }
       }
 
       // Orchestrator status changes
@@ -127,7 +149,7 @@ export function ChatWindow() {
         if (agentName === "orchestrator") {
           if (status === "running") {
             resetThinking();
-            setTestResults(null);
+            hasStreamingTestBlock.current = false;
           }
           if (status === "completed" || status === "failed") {
             setThinking(false);
@@ -182,7 +204,7 @@ export function ChatWindow() {
     });
 
     return unsub;
-  }, [activeChat, addMessage, resetThinking, stopAll, handleThinking]);
+  }, [activeChat, addMessage, resetThinking, stopAll, handleThinking, addTestResults, updateTestResults]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -366,7 +388,6 @@ export function ChatWindow() {
             onToggle={() => toggleExpanded(block.id)}
           />
         ))}
-        {testResults && <TestResultsBanner results={testResults} />}
         {thinking && blocks.length === 0 && <ThinkingIndicator />}
         <div ref={messagesEndRef} />
       </div>

@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.tsx";
+import { TestResultsBanner } from "./TestResultsBanner.tsx";
 import type { ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 
 interface Props {
@@ -183,6 +184,17 @@ function sanitizeThinking(raw: string): string {
 }
 
 export function AgentThinkingMessage({ block, onToggle }: Props) {
+  // Render test results blocks inline using TestResultsBanner
+  if (block.blockType === "test-results" && block.testResults) {
+    return (
+      <div className="flex justify-start px-4 py-1.5">
+        <div className="w-full max-w-[85%]">
+          <TestResultsBanner results={block.testResults} />
+        </div>
+      </div>
+    );
+  }
+
   const { displayName, status, content, summary, expanded } = block;
   const isActive = status === "started" || status === "streaming";
   const scrollRef = useRef<HTMLDivElement>(null);
