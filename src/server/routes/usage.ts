@@ -4,29 +4,46 @@ import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 
 export const usageRoutes = new Hono();
 
-// Get all usage records (from billing_ledger — survives deletions)
-usageRoutes.get("/", (c) => {
+/** Build WHERE conditions from common query params (chatId, from, to). */
+function buildFilters(c: { req: { query: (k: string) => string | undefined } }) {
   const chatId = c.req.query("chatId");
-  if (chatId) {
-    const usage = db
-      .select()
-      .from(schema.billingLedger)
-      .where(eq(schema.billingLedger.chatId, chatId))
-      .orderBy(desc(schema.billingLedger.createdAt))
-      .all();
-    return c.json(usage);
-  }
-  const all = db
-    .select()
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const conditions = [];
+  if (chatId) conditions.push(eq(schema.billingLedger.chatId, chatId));
+  if (from) conditions.push(gte(schema.billingLedger.createdAt, parseInt(from, 10)));
+  if (to) conditions.push(lte(schema.billingLedger.createdAt, parseInt(to, 10)));
+  return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+// Distinct chats from billing_ledger (for filter dropdown)
+usageRoutes.get("/chats", (c) => {
+  const results = db
+    .select({
+      chatId: schema.billingLedger.chatId,
+      chatTitle: schema.billingLedger.chatTitle,
+      projectName: schema.billingLedger.projectName,
+    })
     .from(schema.billingLedger)
-    .orderBy(desc(schema.billingLedger.createdAt))
+    .groupBy(schema.billingLedger.chatId)
+    .orderBy(desc(sql`max(${schema.billingLedger.createdAt})`))
     .all();
-  return c.json(all);
+  return c.json(results);
 });
 
-// Usage summary (lifetime totals from billing_ledger — survives deletions)
+// Get all usage records (from billing_ledger — survives deletions)
+usageRoutes.get("/", (c) => {
+  const where = buildFilters(c);
+  const results = where
+    ? db.select().from(schema.billingLedger).where(where).orderBy(desc(schema.billingLedger.createdAt)).all()
+    : db.select().from(schema.billingLedger).orderBy(desc(schema.billingLedger.createdAt)).all();
+  return c.json(results);
+});
+
+// Usage summary (from billing_ledger — survives deletions)
 usageRoutes.get("/summary", (c) => {
-  const result = db
+  const where = buildFilters(c);
+  const query = db
     .select({
       totalInputTokens: sql<number>`sum(${schema.billingLedger.inputTokens})`,
       totalOutputTokens: sql<number>`sum(${schema.billingLedger.outputTokens})`,
@@ -34,8 +51,9 @@ usageRoutes.get("/summary", (c) => {
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
-    .from(schema.billingLedger)
-    .get();
+    .from(schema.billingLedger);
+
+  const result = where ? query.where(where).get() : query.get();
 
   return c.json({
     totalInputTokens: result?.totalInputTokens || 0,
@@ -48,8 +66,8 @@ usageRoutes.get("/summary", (c) => {
 
 // Usage grouped by agent (from billing_ledger — survives deletions)
 usageRoutes.get("/by-agent", (c) => {
-  const chatId = c.req.query("chatId");
-  const baseQuery = db
+  const where = buildFilters(c);
+  const query = db
     .select({
       agentName: schema.billingLedger.agentName,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
@@ -58,21 +76,16 @@ usageRoutes.get("/by-agent", (c) => {
     })
     .from(schema.billingLedger);
 
-  if (chatId) {
-    const results = baseQuery
-      .where(eq(schema.billingLedger.chatId, chatId))
-      .groupBy(schema.billingLedger.agentName)
-      .all();
-    return c.json(results);
-  }
-
-  const results = baseQuery.groupBy(schema.billingLedger.agentName).all();
+  const results = where
+    ? query.where(where).groupBy(schema.billingLedger.agentName).all()
+    : query.groupBy(schema.billingLedger.agentName).all();
   return c.json(results);
 });
 
 // Usage grouped by provider (from billing_ledger — survives deletions)
 usageRoutes.get("/by-provider", (c) => {
-  const results = db
+  const where = buildFilters(c);
+  const query = db
     .select({
       provider: schema.billingLedger.provider,
       model: schema.billingLedger.model,
@@ -80,9 +93,11 @@ usageRoutes.get("/by-provider", (c) => {
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
-    .from(schema.billingLedger)
-    .groupBy(schema.billingLedger.provider, schema.billingLedger.model)
-    .all();
+    .from(schema.billingLedger);
+
+  const results = where
+    ? query.where(where).groupBy(schema.billingLedger.provider, schema.billingLedger.model).all()
+    : query.groupBy(schema.billingLedger.provider, schema.billingLedger.model).all();
   return c.json(results);
 });
 

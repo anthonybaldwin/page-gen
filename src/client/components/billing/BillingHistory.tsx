@@ -44,6 +44,7 @@ export function BillingHistory() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
       api.get<ProjectUsage[]>("/usage/by-project"),
       api.get<LedgerRecord[]>("/usage/history"),

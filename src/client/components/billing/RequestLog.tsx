@@ -25,12 +25,16 @@ function formatTime(ts: number): string {
   });
 }
 
-export function RequestLog() {
+interface Props {
+  filterQuery: string;
+}
+
+export function RequestLog({ filterQuery }: Props) {
   const [records, setRecords] = useState<LedgerRecord[]>([]);
 
   useEffect(() => {
-    api.get<LedgerRecord[]>("/usage").then(setRecords).catch(console.error);
-  }, []);
+    api.get<LedgerRecord[]>(`/usage${filterQuery}`).then(setRecords).catch(console.error);
+  }, [filterQuery]);
 
   if (records.length === 0) {
     return <p className="text-sm text-zinc-500">No requests recorded yet.</p>;

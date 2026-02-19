@@ -9,12 +9,16 @@ interface ProviderUsage {
   requestCount: number;
 }
 
-export function UsageByProvider() {
+interface Props {
+  filterQuery: string;
+}
+
+export function UsageByProvider({ filterQuery }: Props) {
   const [data, setData] = useState<ProviderUsage[]>([]);
 
   useEffect(() => {
-    api.get<ProviderUsage[]>("/usage/by-provider").then(setData).catch(console.error);
-  }, []);
+    api.get<ProviderUsage[]>(`/usage/by-provider${filterQuery}`).then(setData).catch(console.error);
+  }, [filterQuery]);
 
   if (data.length === 0) {
     return <p className="text-sm text-zinc-500">No usage data yet.</p>;

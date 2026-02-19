@@ -8,12 +8,16 @@ interface AgentUsage {
   requestCount: number;
 }
 
-export function UsageByAgent() {
+interface Props {
+  filterQuery: string;
+}
+
+export function UsageByAgent({ filterQuery }: Props) {
   const [data, setData] = useState<AgentUsage[]>([]);
 
   useEffect(() => {
-    api.get<AgentUsage[]>("/usage/by-agent").then(setData).catch(console.error);
-  }, []);
+    api.get<AgentUsage[]>(`/usage/by-agent${filterQuery}`).then(setData).catch(console.error);
+  }, [filterQuery]);
 
   if (data.length === 0) {
     return <p className="text-sm text-zinc-500">No usage data yet.</p>;
