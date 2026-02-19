@@ -46,6 +46,13 @@ export const AGENT_ROSTER: AgentConfig[] = [
     description: "Applies design system, responsive layout, theming",
   },
   {
+    name: "testing",
+    displayName: "Testing Agent",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    description: "Writes vitest tests for generated components and validates functionality",
+  },
+  {
     name: "code-review",
     displayName: "Code Reviewer",
     provider: "anthropic",

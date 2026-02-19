@@ -28,6 +28,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "frontend-dev": "Frontend Dev",
   "backend-dev": "Backend Dev",
   styling: "Styling",
+  testing: "Testing",
   "code-review": "Code Review",
   security: "Security",
   qa: "QA",

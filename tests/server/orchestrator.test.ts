@@ -118,6 +118,7 @@ describe("buildExecutionPlan", () => {
       "architect",
       "frontend-dev",
       "styling",
+      "testing",
       "code-review",
       "security",
       "qa",
@@ -155,10 +156,10 @@ describe("buildExecutionPlan", () => {
     expect(beIdx).toBeLessThan(stIdx);
   });
 
-  test("code-review comes after styling", () => {
+  test("code-review comes after testing", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names.indexOf("code-review")).toBeGreaterThan(names.indexOf("styling"));
+    expect(names.indexOf("code-review")).toBeGreaterThan(names.indexOf("testing"));
   });
 
   test("qa is the last step", () => {
@@ -503,11 +504,11 @@ describe("buildExecutionPlan (fix mode)", () => {
     expect(names).toContain("backend-dev");
   });
 
-  test("fix mode always ends with code-review, security, qa", () => {
+  test("fix mode always ends with testing, code-review, security, qa", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
-    const lastThree = names.slice(-3);
-    expect(lastThree).toEqual(["code-review", "security", "qa"]);
+    const lastFour = names.slice(-4);
+    expect(lastFour).toEqual(["testing", "code-review", "security", "qa"]);
   });
 
   test("fix mode includes user message in step inputs", () => {
@@ -517,16 +518,16 @@ describe("buildExecutionPlan (fix mode)", () => {
     }
   });
 
-  test("build mode with default params is unchanged", () => {
+  test("build mode with default params includes testing", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "testing", "code-review", "security", "qa"]);
   });
 
-  test("build mode with explicit intent param is unchanged", () => {
+  test("build mode with explicit intent param includes testing", () => {
     const plan = buildExecutionPlan("Build a landing page", undefined, "build");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "testing", "code-review", "security", "qa"]);
   });
 });
 

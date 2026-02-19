@@ -9,8 +9,9 @@ import { getAgentConfigResolved } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
-import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults } from "../ws.ts";
 import { broadcast } from "../ws.ts";
+import { existsSync, writeFileSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 
@@ -229,22 +230,44 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
 
       if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
-        const buildErrors = await checkProjectBuild(projectPath);
-        if (buildErrors && !signal.aborted) {
-          const fixResult = await runBuildFix({
-            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
-          });
-          if (fixResult) {
-            agentResults.set(`${step.agentName}-build-fix`, fixResult);
-            completedAgents.push(`${step.agentName} (build fix)`);
-          }
-          const recheckErrors = await checkProjectBuild(projectPath);
-          if (!recheckErrors) {
-            broadcast({ type: "preview_ready", payload: { projectId } });
+        // Testing agent: run tests after writing test files
+        if (step.agentName === "testing") {
+          const testResult = await runProjectTests(projectPath, chatId, projectId);
+          if (testResult && testResult.failed > 0 && !signal.aborted) {
+            // Route test failures to frontend-dev for one fix attempt
+            const testFixResult = await runBuildFix({
+              buildErrors: `Test failures:\n${testResult.failures.map((f) => `- ${f.name}: ${f.error}`).join("\n")}`,
+              chatId, projectId, projectPath, projectName, chatTitle,
+              userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+            });
+            if (testFixResult) {
+              agentResults.set("testing-fix", testFixResult);
+              completedAgents.push("frontend-dev (test fix)");
+            }
+            // Re-run tests once after fix
+            if (!signal.aborted) {
+              await runProjectTests(projectPath, chatId, projectId);
+            }
           }
         } else {
-          broadcast({ type: "preview_ready", payload: { projectId } });
+          // Non-testing file producers: run build check
+          const buildErrors = await checkProjectBuild(projectPath);
+          if (buildErrors && !signal.aborted) {
+            const fixResult = await runBuildFix({
+              buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+              userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+            });
+            if (fixResult) {
+              agentResults.set(`${step.agentName}-build-fix`, fixResult);
+              completedAgents.push(`${step.agentName} (build fix)`);
+            }
+            const recheckErrors = await checkProjectBuild(projectPath);
+            if (!recheckErrors) {
+              broadcast({ type: "preview_ready", payload: { projectId } });
+            }
+          } else {
+            broadcast({ type: "preview_ready", payload: { projectId } });
+          }
         }
       }
 
@@ -1530,12 +1553,20 @@ export function buildExecutionPlan(
       });
     }
 
+    // Testing agent before reviewers
+    const devAgentNames = steps.map((s) => s.agentName);
+    steps.push({
+      agentName: "testing",
+      input: `Write vitest tests for all components changed by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: devAgentNames,
+    });
+
     // Always append reviewers
     steps.push(
       {
         agentName: "code-review",
         input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: steps.map((s) => s.agentName),
+        dependsOn: ["testing"],
       },
       {
         agentName: "security",
@@ -1583,9 +1614,14 @@ export function buildExecutionPlan(
       dependsOn: ["frontend-dev"],
     },
     {
+      agentName: "testing",
+      input: `Write vitest tests for all components built by the dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: ["styling"],
+    },
+    {
       agentName: "code-review",
       input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["styling"],
+      dependsOn: ["testing"],
     },
     {
       agentName: "security",
@@ -1603,7 +1639,7 @@ export function buildExecutionPlan(
 }
 
 // Agents whose output may contain file code blocks
-const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling"]);
+const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "testing"]);
 
 /**
  * Sanitize a file path from agent output.
@@ -1892,6 +1928,120 @@ async function runBuildFix(params: {
       broadcastAgentError(chatId, fixAgent, `Build fix failed: ${errorMsg}`);
     }
     broadcastAgentStatus(chatId, fixAgent, "failed", { phase: "build-fix" });
+    return null;
+  }
+}
+
+export interface TestRunResult {
+  passed: number;
+  failed: number;
+  total: number;
+  duration: number;
+  failures: Array<{ name: string; error: string }>;
+}
+
+/**
+ * Run vitest tests in the project directory.
+ * Parses JSON output for structured results and broadcasts them via WebSocket.
+ * Returns structured results, or null if tests couldn't be run.
+ */
+export async function runProjectTests(
+  projectPath: string,
+  chatId: string,
+  projectId: string
+): Promise<TestRunResult | null> {
+  const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
+    ? projectPath
+    : join(process.cwd(), projectPath);
+
+  // Ensure vitest config exists
+  const vitestConfigPath = join(fullPath, "vitest.config.ts");
+  if (!existsSync(vitestConfigPath)) {
+    const config = `import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "happy-dom",
+    globals: true,
+  },
+});
+`;
+    writeFileSync(vitestConfigPath, config, "utf-8");
+  }
+
+  // Ensure deps are installed (vitest, happy-dom, etc.)
+  await prepareProjectForPreview(projectPath);
+
+  console.log(`[orchestrator] Running tests in ${fullPath}...`);
+
+  try {
+    const proc = Bun.spawn(["bunx", "vitest", "run", "--reporter=json"], {
+      cwd: fullPath,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, NODE_ENV: "test" },
+    });
+
+    const exitCode = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+
+    // Try to parse JSON output from vitest
+    let result: TestRunResult;
+    try {
+      const jsonOutput = JSON.parse(stdout);
+      const passed = jsonOutput.numPassedTests ?? 0;
+      const failed = jsonOutput.numFailedTests ?? 0;
+      const total = jsonOutput.numTotalTests ?? (passed + failed);
+      const duration = jsonOutput.startTime
+        ? Date.now() - jsonOutput.startTime
+        : 0;
+
+      const failures: Array<{ name: string; error: string }> = [];
+      if (jsonOutput.testResults) {
+        for (const suite of jsonOutput.testResults) {
+          if (suite.assertionResults) {
+            for (const test of suite.assertionResults) {
+              if (test.status === "failed") {
+                failures.push({
+                  name: test.fullName || test.title || "unknown test",
+                  error: (test.failureMessages || []).join("\n").slice(0, 500),
+                });
+              }
+            }
+          }
+        }
+      }
+
+      result = { passed, failed, total, duration, failures };
+    } catch {
+      // JSON parsing failed — create result from exit code
+      if (exitCode === 0) {
+        result = { passed: 1, failed: 0, total: 1, duration: 0, failures: [] };
+      } else {
+        const errorSnippet = (stderr + "\n" + stdout).trim().slice(0, 500);
+        result = {
+          passed: 0,
+          failed: 1,
+          total: 1,
+          duration: 0,
+          failures: [{ name: "Test suite", error: errorSnippet }],
+        };
+      }
+    }
+
+    broadcastTestResults({
+      chatId,
+      projectId,
+      ...result,
+    });
+
+    console.log(`[orchestrator] Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
+    return result;
+  } catch (err) {
+    console.error(`[orchestrator] Test runner error:`, err);
     return null;
   }
 }

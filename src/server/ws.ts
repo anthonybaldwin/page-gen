@@ -67,3 +67,18 @@ export function broadcastTokenUsage(payload: {
     payload,
   });
 }
+
+export function broadcastTestResults(payload: {
+  chatId: string;
+  projectId: string;
+  passed: number;
+  failed: number;
+  total: number;
+  duration: number;
+  failures: Array<{ name: string; error: string }>;
+}) {
+  broadcast({
+    type: "test_results",
+    payload,
+  });
+}

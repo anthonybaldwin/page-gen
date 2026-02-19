@@ -75,6 +75,11 @@ function ensureProjectHasPackageJson(projectPath: string) {
   if (!devDeps.tailwindcss) devDeps.tailwindcss = "^4.0.0";
   if (!devDeps["@types/react"]) devDeps["@types/react"] = "^19.0.0";
   if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = "^19.0.0";
+  // Testing deps for the testing agent
+  if (!devDeps.vitest) devDeps.vitest = "^2.0.0";
+  if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^15.0.0";
+  if (!devDeps["@testing-library/react"]) devDeps["@testing-library/react"] = "^16.0.0";
+  if (!devDeps["@testing-library/user-event"]) devDeps["@testing-library/user-event"] = "^14.0.0";
 
   const pkg = {
     name: (existing.name as string) || "preview-project",
