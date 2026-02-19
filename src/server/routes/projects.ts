@@ -42,6 +42,21 @@ projectRoutes.post("/", async (c) => {
   return c.json(project, 201);
 });
 
+// Rename project
+projectRoutes.patch("/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json<{ name: string }>();
+  const now = Date.now();
+  const updated = await db
+    .update(schema.projects)
+    .set({ name: body.name, updatedAt: now })
+    .where(eq(schema.projects.id, id))
+    .returning()
+    .get();
+  if (!updated) return c.json({ error: "Project not found" }, 404);
+  return c.json(updated);
+});
+
 // Delete project (cascade: all chats + children, snapshots, disk cleanup)
 projectRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");

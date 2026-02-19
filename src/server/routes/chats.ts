@@ -43,6 +43,21 @@ chatRoutes.post("/", async (c) => {
   return c.json(chat, 201);
 });
 
+// Rename chat
+chatRoutes.patch("/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json<{ title: string }>();
+  const now = Date.now();
+  const updated = await db
+    .update(schema.chats)
+    .set({ title: body.title, updatedAt: now })
+    .where(eq(schema.chats.id, id))
+    .returning()
+    .get();
+  if (!updated) return c.json({ error: "Chat not found" }, 404);
+  return c.json(updated);
+});
+
 // Delete chat (cascade: token_usage → agent_executions → messages, nullify snapshots)
 chatRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
