@@ -11,16 +11,27 @@ interface AgentState {
   phase?: string;
 }
 
-const PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
-  { name: "orchestrator", displayName: "Orchestrator" },
+const DEFAULT_PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
   { name: "research", displayName: "Research" },
   { name: "architect", displayName: "Architect" },
   { name: "frontend-dev", displayName: "Frontend Dev" },
   { name: "styling", displayName: "Styling" },
   { name: "code-review", displayName: "Code Review" },
-  { name: "qa", displayName: "QA" },
   { name: "security", displayName: "Security" },
+  { name: "qa", displayName: "QA" },
 ];
+
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  orchestrator: "Orchestrator",
+  research: "Research",
+  architect: "Architect",
+  "frontend-dev": "Frontend Dev",
+  "backend-dev": "Backend Dev",
+  styling: "Styling",
+  "code-review": "Code Review",
+  security: "Security",
+  qa: "QA",
+};
 
 const STATUS_ICONS: Record<string, string> = {
   pending: "\u25CB",   // ○
@@ -48,6 +59,7 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pipelineActive, setPipelineActive] = useState(false);
+  const [pipelineAgents, setPipelineAgents] = useState(DEFAULT_PIPELINE_AGENTS);
 
   // Reconstruct progress state from DB on mount / chat change
   useEffect(() => {
@@ -60,13 +72,11 @@ export function AgentStatusPanel({ chatId }: Props) {
       .then(({ running, executions }) => {
         if (executions.length === 0) return;
 
-        // Deduplicate: keep the latest status per agent (last entry wins)
         const agentMap: Record<string, AgentState> = {};
         for (const exec of executions) {
-          const display = PIPELINE_AGENTS.find((a) => a.name === exec.agentName)?.displayName || exec.agentName;
           agentMap[exec.agentName] = {
             name: exec.agentName,
-            displayName: display,
+            displayName: AGENT_DISPLAY_NAMES[exec.agentName] || exec.agentName,
             status: exec.status as AgentState["status"],
             stream: "",
           };
@@ -85,13 +95,30 @@ export function AgentStatusPanel({ chatId }: Props) {
       const msgChatId = (msg.payload as { chatId?: string }).chatId;
       if (msgChatId && chatId && msgChatId !== chatId) return;
 
+      // Dynamic pipeline plan — update which agents to display
+      if (msg.type === "pipeline_plan") {
+        const { agents: agentNames } = msg.payload as { agents: string[] };
+        if (agentNames.length === 0) {
+          // Question mode — hide the pipeline bar
+          setPipelineAgents([]);
+          return;
+        }
+        setPipelineAgents(
+          agentNames.map((name) => ({
+            name,
+            displayName: AGENT_DISPLAY_NAMES[name] || name,
+          }))
+        );
+        return;
+      }
+
       if (msg.type === "agent_status") {
         const { agentName, status, phase } = msg.payload as {
           agentName: string;
           status: string;
           phase?: string;
         };
-        const display = PIPELINE_AGENTS.find((a) => a.name === agentName)?.displayName || agentName;
+        const display = AGENT_DISPLAY_NAMES[agentName] || agentName;
 
         if (status === "running" || status === "retrying") {
           setPipelineActive(true);
@@ -104,6 +131,7 @@ export function AgentStatusPanel({ chatId }: Props) {
         if (agentName === "orchestrator" && status === "running") {
           setAgents({});
           setPipelineActive(true);
+          setPipelineAgents(DEFAULT_PIPELINE_AGENTS);
           return;
         }
 
@@ -133,7 +161,7 @@ export function AgentStatusPanel({ chatId }: Props) {
 
       if (msg.type === "agent_error") {
         const { agentName, error } = msg.payload as { agentName: string; error: string };
-        const display = PIPELINE_AGENTS.find((a) => a.name === agentName)?.displayName || agentName;
+        const display = AGENT_DISPLAY_NAMES[agentName] || agentName;
         setAgents((prev) => ({
           ...prev,
           [agentName]: {
@@ -153,13 +181,25 @@ export function AgentStatusPanel({ chatId }: Props) {
 
   if (!pipelineActive && Object.keys(agents).length === 0) return null;
 
+  // Question mode with empty pipeline — don't render the bar
+  if (pipelineAgents.length === 0) {
+    return pipelineActive ? (
+      <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+          <span className="text-zinc-200 font-medium">Thinking...</span>
+        </div>
+      </div>
+    ) : null;
+  }
+
   const currentAgent = Object.values(agents).find((a) => a.status === "running");
 
   return (
     <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
       {/* Pipeline progress bar */}
       <div className="flex items-center gap-1 mb-2 overflow-x-auto">
-        {PIPELINE_AGENTS.filter((a) => a.name !== "orchestrator").map((agent, i) => {
+        {pipelineAgents.map((agent, i) => {
           const state = agents[agent.name];
           const status = state?.status || "pending";
           const color = STATUS_COLORS[status] || STATUS_COLORS.pending;

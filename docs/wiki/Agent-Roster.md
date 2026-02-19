@@ -61,34 +61,73 @@ The system uses 9 specialized AI agents, coordinated by an orchestrator. Each ag
 
 ## Pipeline
 
+### Intent-Based Routing
+
+Before running the pipeline, the orchestrator classifies the user's message into one of three intents:
+
+| Intent | When | Pipeline |
+|--------|------|----------|
+| **build** | New feature, new project, adding something new | Full pipeline (research → architect → devs → reviewers) |
+| **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
+| **question** | Asking about the project or non-code request | Direct Opus answer with project context, no pipeline |
+
+Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
+
+### Build Pipeline (Full)
+
 ```
-User → Orchestrator
+User → Orchestrator → classifyIntent() → "build"
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
       → Architect → Frontend Dev → [Backend Dev if needed] → [Build Check]
       → Styling → Code Review (find+fix bugs) → Security (scan)
       → QA (validate requirements)
-  → Remediation Loop (max 2 cycles):
-      ├─ detectIssues(code-review + security + qa output)
-      ├─ if clean → break
-      ├─ Route findings to correct dev agent(s):
-      │     [frontend] issues → frontend-dev
-      │     [backend] issues  → backend-dev
-      │     [styling] issues  → styling
-      ├─ Re-run code-review, security, qa
-      └─ Loop
+  → Remediation Loop (max 2 cycles)
   → [Final Build Check] → Summary
 ```
+
+### Fix Pipeline (Scoped)
+
+```
+User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|styling|full)
+  → Read existing project source
+  → Route to dev agent(s) by scope:
+      frontend → frontend-dev
+      backend  → backend-dev
+      styling  → styling
+      full     → frontend-dev + backend-dev
+  → Code Review → Security → QA
+  → Remediation Loop (max 2 cycles)
+  → [Final Build Check] → Summary
+```
+
+### Question Mode
+
+```
+User → Orchestrator → classifyIntent() → "question"
+  → Read project source for context
+  → Single Opus call → Direct answer (no agents, no pipeline bar)
+```
+
+### Pipeline Plan Broadcasting
+
+The orchestrator broadcasts a `pipeline_plan` WebSocket message at the start of each pipeline. The client uses this to dynamically render only the relevant agents in the status bar:
+- Build mode: shows all agents in the plan
+- Fix mode: shows only the dev agent(s) + reviewers
+- Question mode: hides the pipeline bar entirely, shows a "Thinking..." indicator
+
+### General Pipeline Behavior
 
 - Each agent's output is collected internally by the orchestrator (not saved as a chat message).
 - Agent execution records are still saved to the `agentExecutions` table for debugging and the status panel.
 - After the pipeline completes, the orchestrator calls its own model to generate a single markdown summary.
 - Only this summary is saved as a chat message and shown to the user.
 - The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
+- All WebSocket messages include `chatId` so multiple chats can run simultaneously without cross-talk.
 
 ### Conditional Backend
 
-The research agent outputs `requires_backend: true/false` per feature in its JSON requirements. The orchestrator's `needsBackend()` function checks this flag (with a regex heuristic fallback) to decide whether to include backend-dev in the execution plan. When backend-dev is not included, it still appears in the pipeline bar but stays "pending" (gray).
+The research agent outputs `requires_backend: true/false` per feature in its JSON requirements. The orchestrator's `needsBackend()` function checks this flag (with a regex heuristic fallback) to decide whether to include backend-dev in the execution plan.
 
 ### Remediation Loop
 
