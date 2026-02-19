@@ -16,6 +16,13 @@ import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite
 
 const MAX_RETRIES = 3;
 
+// Hard cap on total agent calls per orchestration to prevent runaway costs.
+// Worst case: research(1) + architect(1) + frontend(1) + backend(1) + styling(1)
+//   + code-review(1) + security(1) + qa(1) = 8 pipeline
+//   + build fixes(~4) + remediation cycles(2 * ~6) = ~24
+// Cap at 30 gives breathing room while preventing true runaways.
+const MAX_TOTAL_AGENT_CALLS = 30;
+
 // Abort registry — keyed by chatId
 const abortControllers = new Map<string, AbortController>();
 
@@ -48,6 +55,9 @@ interface ExecutionPlan {
   }>;
 }
 
+// Shared mutable counter — passed by reference so all call sites share the same count
+interface CallCounter { value: number; }
+
 interface PipelineStepContext {
   step: { agentName: AgentName; input: string };
   chatId: string;
@@ -59,6 +69,7 @@ interface PipelineStepContext {
   chatHistory: Array<{ role: string; content: string }>;
   agentResults: Map<string, string>;
   completedAgents: string[];
+  callCounter: CallCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
@@ -70,10 +81,17 @@ interface PipelineStepContext {
  */
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
     providers, apiKeys, signal } = ctx;
 
   if (signal.aborted) return null;
+
+  // Hard cap — prevent runaway costs
+  if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
+    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping to prevent runaway costs.`);
+    return null;
+  }
+  callCounter.value++;
 
   const config = getAgentConfig(step.agentName);
   if (!config) {
@@ -155,7 +173,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, providers, apiKeys, signal,
+            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
           });
           if (fixResult) {
             agentResults.set(`${step.agentName}-build-fix`, fixResult);
@@ -259,6 +277,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
+  const callCounter: CallCounter = { value: 0 };
 
   // --- Phase 1: Run research agent to determine requirements ---
   const researchResult = await runPipelineStep({
@@ -267,7 +286,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       input: `Analyze this request and produce structured requirements: ${userMessage}`,
     },
     chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
     providers, apiKeys, signal,
   });
   if (!researchResult || signal.aborted) {
@@ -302,7 +321,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     const stepResult = await runPipelineStep({
       step, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
       providers, apiKeys, signal,
     });
 
@@ -341,7 +360,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   if (!signal.aborted) {
     await runRemediationLoop({
       chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
       providers, apiKeys, signal,
     });
   }
@@ -352,7 +371,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     if (finalBuildErrors && !signal.aborted) {
       const fixResult = await runBuildFix({
         buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-        userMessage, chatHistory, agentResults, providers, apiKeys, signal,
+        userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
       });
       if (fixResult) {
         agentResults.set("final-build-fix", fixResult);
@@ -533,21 +552,19 @@ function detectIssues(agentResults: Map<string, string>): ReviewFindings {
   const qaOutput = agentResults.get("qa") || "";
   const securityOutput = agentResults.get("security") || "";
 
-  // Code-review is a self-fixing agent (like old QA): if it found issues, it already wrote corrected files.
-  const crNoIssues = codeReviewOutput.includes("Code Review: Pass") || codeReviewOutput.trim() === "";
-  const crFixedIssues =
-    codeReviewOutput.includes("Code Review: Fixed") ||
-    /<tool_call>[\s\S]*?write_file[\s\S]*?<\/tool_call>/.test(codeReviewOutput);
-  const codeReviewClean = crNoIssues || crFixedIssues;
+  // All three review agents are report-only — check for pass signals.
+  const codeReviewClean =
+    codeReviewOutput.includes('"status": "pass"') ||
+    codeReviewOutput.includes('"status":"pass"') ||
+    codeReviewOutput.includes("Code Review: Pass") ||
+    codeReviewOutput.trim() === "";
 
-  // QA is now a read-only validator — check for structured JSON pass or text pass.
   const qaClean =
     qaOutput.includes('"status": "pass"') ||
     qaOutput.includes('"status":"pass"') ||
     qaOutput.includes("QA Review: Pass") ||
     qaOutput.trim() === "";
 
-  // Security agent only reports — check for pass signals.
   const securityClean =
     securityOutput.includes('"status": "pass"') ||
     securityOutput.includes('"status":"pass"') ||
@@ -556,7 +573,7 @@ function detectIssues(agentResults: Map<string, string>): ReviewFindings {
     securityOutput.includes("safe for production") ||
     securityOutput.trim() === "";
 
-  // Parse routing hints from categorized findings
+  // Parse routing hints from code-review and QA findings
   const allFindings = codeReviewOutput + "\n" + qaOutput;
   const routingHints = {
     frontendIssues: /\[frontend\]/i.test(allFindings),
@@ -615,6 +632,7 @@ interface RemediationContext {
   chatHistory: Array<{ role: string; content: string }>;
   agentResults: Map<string, string>;
   completedAgents: string[];
+  callCounter: CallCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
@@ -629,12 +647,25 @@ const MAX_REMEDIATION_CYCLES = 2;
  * MAX_REMEDIATION_CYCLES times or until all issues are resolved.
  */
 async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
+  let previousIssueCount = Infinity;
+
   for (let cycle = 0; cycle < MAX_REMEDIATION_CYCLES; cycle++) {
     if (ctx.signal.aborted) return;
 
     // 1. Check for issues in current code-review/QA/security output
     const findings = detectIssues(ctx.agentResults);
     if (!findings.hasIssues) return; // All clean — exit loop
+
+    // Count current issues — break if not improving (prevents ping-pong loops)
+    const currentIssueCount =
+      (findings.codeReviewFindings ? 1 : 0) +
+      (findings.qaFindings ? 1 : 0) +
+      (findings.securityFindings ? 1 : 0);
+    if (currentIssueCount >= previousIssueCount) {
+      console.log(`[orchestrator] Remediation not improving (${currentIssueCount} >= ${previousIssueCount}). Breaking loop.`);
+      return;
+    }
+    previousIssueCount = currentIssueCount;
 
     // 2. Check cost limit before each cycle
     const costCheck = checkCostLimit(ctx.chatId);
@@ -681,6 +712,12 @@ async function runFixAgent(
   findings: ReviewFindings,
   ctx: RemediationContext,
 ): Promise<string | null> {
+  if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
+    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping remediation.`);
+    return null;
+  }
+  ctx.callCounter.value++;
+
   const config = getAgentConfig(agentName);
   if (!config) return null;
 
@@ -790,6 +827,12 @@ async function runReviewAgent(
   cycle: number,
   ctx: RemediationContext,
 ): Promise<string | null> {
+  if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
+    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping re-review.`);
+    return null;
+  }
+  ctx.callCounter.value++;
+
   const config = getAgentConfig(agentName);
   if (!config) return null;
 
@@ -815,7 +858,7 @@ async function runReviewAgent(
   });
 
   const reviewPrompts: Record<string, string> = {
-    "code-review": `Re-review all code after remediation cycle #${cycle}. Dev agents have attempted to fix the issues you previously identified. Check if the fixes are correct, look for any new issues, and fix any remaining problems by outputting corrected files. Original request: ${ctx.userMessage}`,
+    "code-review": `Re-review all code after remediation cycle #${cycle}. Dev agents have attempted to fix the issues you previously identified. Check if the fixes are correct and report any remaining issues. Original request: ${ctx.userMessage}`,
     qa: `Re-validate the implementation after remediation cycle #${cycle}. Dev agents have attempted to fix the issues you previously identified. Check if requirements are now met and report any remaining gaps. Original request: ${ctx.userMessage}`,
     security: `Re-scan all code after remediation cycle #${cycle}. Dev agents have attempted to fix the security issues you previously identified. Check if the fixes are correct and scan for any new vulnerabilities. Original request: ${ctx.userMessage}`,
   };
@@ -868,11 +911,6 @@ async function runReviewAgent(
     await db.update(schema.agentExecutions)
       .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
-
-    // Code-review can produce file fixes — extract and write them
-    if (agentName === "code-review") {
-      extractAndWriteFiles("code-review", result.content, ctx.projectPath, ctx.projectId);
-    }
 
     // Overwrite the agent's entry so detectIssues() checks fresh output next cycle
     ctx.agentResults.set(agentName, result.content);
@@ -959,7 +997,7 @@ function buildExecutionPlan(userMessage: string, researchOutput?: string): Execu
 }
 
 // Agents whose output may contain file code blocks
-const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "code-review"]);
+const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling"]);
 
 /**
  * Sanitize a file path from agent output.
@@ -1146,12 +1184,19 @@ async function runBuildFix(params: {
   userMessage: string;
   chatHistory: Array<{ role: string; content: string }>;
   agentResults: Map<string, string>;
+  callCounter: CallCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
 }): Promise<string | null> {
   const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, providers, apiKeys, signal } = params;
+    userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal } = params;
+
+  if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
+    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Skipping build fix.`);
+    return null;
+  }
+  callCounter.value++;
 
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) return null;
