@@ -1,7 +1,7 @@
-import { streamText } from "ai";
+import { streamText, stepCountIs, type ToolSet } from "ai";
 import type { ProviderInstance } from "../providers/registry.ts";
 import type { AgentConfig, AgentName } from "../../shared/types.ts";
-import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking, broadcast } from "../ws.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
@@ -44,7 +44,7 @@ export async function runAgent(
   config: AgentConfig,
   providers: ProviderInstance,
   input: AgentInput,
-  tools?: Record<string, unknown>,
+  tools?: ToolSet,
   abortSignal?: AbortSignal,
   chatId?: string
 ): Promise<AgentOutput> {
@@ -64,7 +64,7 @@ export async function runAgent(
       model: provider,
       system: systemPrompt,
       prompt: buildPrompt(input),
-      ...(tools ? { tools: tools as Record<string, never> } : {}),
+      ...(tools ? { tools, stopWhen: stepCountIs(15) } : {}),
       ...(abortSignal ? { abortSignal } : {}),
     });
 
@@ -72,17 +72,49 @@ export async function runAgent(
     let pendingChunk = "";
     let lastBroadcast = 0;
     const THROTTLE_MS = 150;
+    const filesWritten: string[] = [];
 
-    for await (const chunk of result.textStream) {
-      fullText += chunk;
-      pendingChunk += chunk;
-      const now = Date.now();
-      if (now - lastBroadcast >= THROTTLE_MS) {
-        broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
-        pendingChunk = "";
-        lastBroadcast = now;
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "text-delta": {
+          fullText += part.text;
+          pendingChunk += part.text;
+          const now = Date.now();
+          if (now - lastBroadcast >= THROTTLE_MS) {
+            broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
+            pendingChunk = "";
+            lastBroadcast = now;
+          }
+          break;
+        }
+        case "tool-call": {
+          // Broadcast tool activity so UI can show what the agent is doing
+          broadcast({
+            type: "agent_thinking",
+            payload: {
+              chatId: cid,
+              agentName: config.name,
+              displayName: config.displayName,
+              status: "streaming",
+              toolCall: {
+                toolName: part.toolName,
+                input: part.toolName === "write_file" ? { path: (part.input as { path: string }).path } : part.input,
+              },
+            },
+          });
+          break;
+        }
+        case "tool-result": {
+          const output = part.output as Record<string, unknown>;
+          if (part.toolName === "write_file" && output?.success) {
+            filesWritten.push((part.input as { path: string }).path);
+          }
+          break;
+        }
       }
     }
+
+    // Flush remaining text
     if (pendingChunk) {
       broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
     }
@@ -97,6 +129,7 @@ export async function runAgent(
 
     return {
       content: fullText,
+      filesWritten: filesWritten.length > 0 ? filesWritten : undefined,
       tokenUsage: {
         inputTokens: usage?.inputTokens || 0,
         outputTokens: usage?.outputTokens || 0,
