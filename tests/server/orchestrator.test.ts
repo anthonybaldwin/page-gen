@@ -10,8 +10,10 @@ import {
   classifyIntent,
   parseVitestOutput,
   agentHasFileTools,
+  parseArchitectFilePlan,
+  buildParallelDevSteps,
 } from "../../src/server/agents/orchestrator.ts";
-import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
+import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
 
 // --- sanitizeFilePath ---
 
@@ -880,5 +882,237 @@ describe("agentHasFileTools", () => {
     expect(agentHasFileTools("code-review")).toBe(false);
     expect(agentHasFileTools("qa")).toBe(false);
     expect(agentHasFileTools("security")).toBe(false);
+  });
+});
+
+// --- parseArchitectFilePlan ---
+
+describe("parseArchitectFilePlan", () => {
+  function makeArchitectOutput(filePlan: Array<{ action: string; path: string; description?: string }>): string {
+    return JSON.stringify({
+      component_tree: { name: "App", file: "src/App.tsx", children: [] },
+      file_plan: filePlan,
+      dependencies: [],
+      shared_utilities: [],
+      test_plan: [],
+    });
+  }
+
+  test("parses valid JSON with file_plan", () => {
+    const output = makeArchitectOutput([
+      { action: "create", path: "src/components/Header.tsx", description: "Header component" },
+      { action: "create", path: "src/hooks/useTheme.ts", description: "Theme hook" },
+      { action: "modify", path: "src/App.tsx", description: "Root component" },
+    ]);
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.components).toHaveLength(1);
+    expect(result!.components[0]!.path).toBe("src/components/Header.tsx");
+    expect(result!.shared).toHaveLength(1);
+    expect(result!.shared[0]!.path).toBe("src/hooks/useTheme.ts");
+    expect(result!.app).toHaveLength(1);
+    expect(result!.app[0]!.path).toBe("src/App.tsx");
+  });
+
+  test("parses JSON embedded in markdown code block", () => {
+    const output = `Here is the architecture:
+
+\`\`\`json
+${makeArchitectOutput([
+      { action: "create", path: "src/components/Board.tsx" },
+      { action: "modify", path: "src/App.tsx" },
+    ])}
+\`\`\``;
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.components).toHaveLength(1);
+    expect(result!.app).toHaveLength(1);
+  });
+
+  test("returns null for invalid JSON", () => {
+    expect(parseArchitectFilePlan("not json at all")).toBeNull();
+  });
+
+  test("returns null for JSON without file_plan", () => {
+    expect(parseArchitectFilePlan(JSON.stringify({ component_tree: {} }))).toBeNull();
+  });
+
+  test("returns null for empty file_plan array", () => {
+    expect(parseArchitectFilePlan(makeArchitectOutput([]))).toBeNull();
+  });
+
+  test("categorizes shared files correctly", () => {
+    const output = makeArchitectOutput([
+      { action: "create", path: "src/hooks/useFoo.ts" },
+      { action: "create", path: "src/utils/helpers.ts" },
+      { action: "create", path: "src/types/game.ts" },
+      { action: "create", path: "src/lib/api.ts" },
+      { action: "create", path: "src/helpers/format.ts" },
+      { action: "create", path: "src/constants/config.ts" },
+      { action: "create", path: "src/context/ThemeContext.tsx" },
+    ]);
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.shared).toHaveLength(7);
+    expect(result!.components).toHaveLength(0);
+  });
+
+  test("categorizes component files correctly", () => {
+    const output = makeArchitectOutput([
+      { action: "create", path: "src/components/Tile.tsx" },
+      { action: "create", path: "src/components/Board.tsx" },
+      { action: "create", path: "src/pages/Home.tsx" },
+    ]);
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.components).toHaveLength(3);
+    expect(result!.shared).toHaveLength(0);
+  });
+
+  test("strips ./ prefix from paths", () => {
+    const output = makeArchitectOutput([
+      { action: "create", path: "./src/components/Tile.tsx" },
+    ]);
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.components[0]!.path).toBe("src/components/Tile.tsx");
+  });
+
+  test("skips entries without path", () => {
+    const output = JSON.stringify({
+      file_plan: [
+        { action: "create", path: "src/components/A.tsx" },
+        { action: "create" },
+        { action: "create", path: "" },
+      ],
+    });
+    const result = parseArchitectFilePlan(output);
+    expect(result).not.toBeNull();
+    expect(result!.components).toHaveLength(1);
+  });
+});
+
+// --- buildParallelDevSteps ---
+
+describe("buildParallelDevSteps", () => {
+  function makePlan(componentCount: number, sharedCount = 0, hasApp = true): GroupedFilePlan {
+    const components = Array.from({ length: componentCount }, (_, i) => ({
+      action: "create",
+      path: `src/components/Component${i + 1}.tsx`,
+    }));
+    const shared = Array.from({ length: sharedCount }, (_, i) => ({
+      action: "create",
+      path: `src/hooks/useHook${i + 1}.ts`,
+    }));
+    const app = hasApp ? [{ action: "modify", path: "src/App.tsx" }] : [];
+    return { components, shared, app };
+  }
+
+  test("creates shared step when shared files exist", () => {
+    const plan = makePlan(3, 2);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
+    expect(sharedStep).toBeDefined();
+    expect(sharedStep!.agentName).toBe("frontend-dev");
+    expect(sharedStep!.input).toContain("useHook1");
+    expect(sharedStep!.dependsOn).toEqual(["architect"]);
+  });
+
+  test("no shared step when no shared files", () => {
+    const plan = makePlan(3, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
+    expect(sharedStep).toBeUndefined();
+  });
+
+  test("single component batch for <= 4 components", () => {
+    const plan = makePlan(4, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.startsWith("frontend-dev-component"));
+    expect(componentSteps).toHaveLength(1);
+    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-components");
+  });
+
+  test("2 parallel batches for 5-8 components", () => {
+    const plan = makePlan(6, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(componentSteps).toHaveLength(2);
+    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-1");
+    expect(componentSteps[1]!.instanceId).toBe("frontend-dev-2");
+  });
+
+  test("3 parallel batches for 9-14 components", () => {
+    const plan = makePlan(10, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(componentSteps).toHaveLength(3);
+  });
+
+  test("4 parallel batches (cap) for 15+ components", () => {
+    const plan = makePlan(20, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(componentSteps).toHaveLength(4);
+  });
+
+  test("app step always comes last", () => {
+    const plan = makePlan(6, 2);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const lastStep = steps[steps.length - 1]!;
+    expect(lastStep.instanceId).toBe("frontend-dev-app");
+  });
+
+  test("app step depends on ALL prior steps", () => {
+    const plan = makePlan(6, 2);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const appStep = steps.find((s) => s.instanceId === "frontend-dev-app")!;
+    const priorIds = steps.filter((s) => s.instanceId !== "frontend-dev-app").map((s) => s.instanceId);
+    for (const id of priorIds) {
+      expect(appStep.dependsOn).toContain(id);
+    }
+  });
+
+  test("component batches depend on shared step when it exists", () => {
+    const plan = makePlan(6, 1);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    for (const step of componentSteps) {
+      expect(step.dependsOn).toContain("frontend-dev-shared");
+      expect(step.dependsOn).toContain("architect");
+    }
+  });
+
+  test("component batches depend only on architect when no shared step", () => {
+    const plan = makePlan(6, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    for (const step of componentSteps) {
+      expect(step.dependsOn).toEqual(["architect"]);
+    }
+  });
+
+  test("all steps have agentName 'frontend-dev'", () => {
+    const plan = makePlan(10, 3);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    for (const step of steps) {
+      expect(step.agentName).toBe("frontend-dev");
+    }
+  });
+
+  test("no instanceId collisions", () => {
+    const plan = makePlan(15, 3);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const ids = steps.map((s) => s.instanceId);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  test("user message appears in all step inputs", () => {
+    const plan = makePlan(3, 1);
+    const steps = buildParallelDevSteps(plan, "", "Build a Wordle clone");
+    for (const step of steps) {
+      expect(step.input).toContain("Build a Wordle clone");
+    }
   });
 });

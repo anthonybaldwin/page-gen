@@ -27,6 +27,9 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   research: "Research",
   architect: "Architect",
   "frontend-dev": "Frontend Dev",
+  "frontend-dev-shared": "Frontend Dev (Setup)",
+  "frontend-dev-components": "Frontend Dev",
+  "frontend-dev-app": "Frontend Dev (App)",
   "backend-dev": "Backend Dev",
   styling: "Styling",
   testing: "Test Planner",
@@ -34,6 +37,15 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   security: "Security",
   qa: "QA",
 };
+
+/** Resolve display name for an agent, including parallel frontend-dev instances. */
+function resolveDisplayName(name: string): string {
+  if (AGENT_DISPLAY_NAMES[name]) return AGENT_DISPLAY_NAMES[name];
+  // Match frontend-dev-N pattern (e.g., frontend-dev-1, frontend-dev-2)
+  const match = name.match(/^frontend-dev-(\d+)$/);
+  if (match) return `Frontend Dev ${match[1]}`;
+  return name;
+}
 
 const STATUS_ICONS: Record<string, string> = {
   pending: "\u25CB",   // ○
@@ -83,7 +95,7 @@ export function AgentStatusPanel({ chatId }: Props) {
         for (const exec of executions) {
           agentMap[exec.agentName] = {
             name: exec.agentName,
-            displayName: AGENT_DISPLAY_NAMES[exec.agentName] || exec.agentName,
+            displayName: resolveDisplayName(exec.agentName),
             status: exec.status as AgentState["status"],
             stream: "",
           };
@@ -114,7 +126,7 @@ export function AgentStatusPanel({ chatId }: Props) {
         setPipelineAgents(
           agentNames.map((name) => ({
             name,
-            displayName: AGENT_DISPLAY_NAMES[name] || name,
+            displayName: resolveDisplayName(name),
           }))
         );
         return;
@@ -126,7 +138,7 @@ export function AgentStatusPanel({ chatId }: Props) {
           status: string;
           phase?: string;
         };
-        const display = AGENT_DISPLAY_NAMES[agentName] || agentName;
+        const display = resolveDisplayName(agentName);
 
         if (status === "running" || status === "retrying") {
           setPipelineActive(true);
@@ -169,7 +181,7 @@ export function AgentStatusPanel({ chatId }: Props) {
 
       if (msg.type === "agent_error") {
         const { agentName, error } = msg.payload as { agentName: string; error: string };
-        const display = AGENT_DISPLAY_NAMES[agentName] || agentName;
+        const display = resolveDisplayName(agentName);
         setAgents((prev) => ({
           ...prev,
           [agentName]: {

@@ -112,7 +112,8 @@ export interface ExecutionPlan {
   steps: Array<{
     agentName: AgentName;
     input: string;
-    dependsOn?: AgentName[];
+    dependsOn?: string[];
+    instanceId?: string;
   }>;
 }
 
@@ -120,7 +121,7 @@ export interface ExecutionPlan {
 interface CallCounter { value: number; }
 
 interface PipelineStepContext {
-  step: { agentName: AgentName; input: string };
+  step: { agentName: AgentName; input: string; instanceId?: string };
   chatId: string;
   projectId: string;
   projectPath: string;
@@ -145,6 +146,9 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     userMessage, chatHistory, agentResults, completedAgents, callCounter,
     providers, apiKeys, signal } = ctx;
 
+  // Use instanceId for keying/broadcasting, base agentName for config lookup
+  const stepKey = step.instanceId ?? step.agentName;
+
   if (signal.aborted) return null;
 
   // Hard cap — prevent runaway costs
@@ -165,7 +169,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   await db.insert(schema.agentExecutions).values({
     id: executionId,
     chatId,
-    agentName: step.agentName,
+    agentName: stepKey,
     status: "running",
     input: JSON.stringify({ message: step.input }),
     output: null,
@@ -214,7 +218,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         if (providerKey) {
           const record = trackTokenUsage({
             executionId, chatId,
-            agentName: step.agentName,
+            agentName: stepKey,
             provider: config.provider,
             model: config.model,
             apiKey: providerKey,
@@ -224,7 +228,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           });
           broadcastTokenUsage({
             chatId,
-            agentName: step.agentName,
+            agentName: stepKey,
             provider: config.provider,
             model: config.model,
             inputTokens: result.tokenUsage.inputTokens,
@@ -239,8 +243,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
         .where(eq(schema.agentExecutions.id, executionId));
 
-      agentResults.set(step.agentName, result.content);
-      completedAgents.push(step.agentName);
+      agentResults.set(stepKey, result.content);
+      completedAgents.push(stepKey);
 
       // Hybrid file tracking: native tools write files mid-stream,
       // fallback extraction catches models that don't use tools properly
@@ -261,8 +265,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
             userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
           });
           if (fixResult) {
-            agentResults.set(`${step.agentName}-build-fix`, fixResult);
-            completedAgents.push(`${step.agentName} (build fix)`);
+            agentResults.set(`${stepKey}-build-fix`, fixResult);
+            completedAgents.push(`${stepKey} (build fix)`);
           }
           const recheckErrors = await checkProjectBuild(projectPath);
           if (!recheckErrors) {
@@ -285,8 +289,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
                 userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
               });
               if (testFixResult) {
-                agentResults.set(`${step.agentName}-test-fix`, testFixResult);
-                completedAgents.push(`${step.agentName} (test fix)`);
+                agentResults.set(`${stepKey}-test-fix`, testFixResult);
+                completedAgents.push(`${stepKey} (test fix)`);
               }
               // Re-run tests once after fix
               if (!signal.aborted) {
@@ -305,7 +309,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         await db.update(schema.agentExecutions)
           .set({ status: "retrying", retryCount: attempt + 1 })
           .where(eq(schema.agentExecutions.id, executionId));
-        broadcastAgentStatus(chatId, step.agentName, "retrying", { attempt: attempt + 1 });
+        broadcastAgentStatus(chatId, stepKey, "retrying", { attempt: attempt + 1 });
       }
     }
   }
@@ -317,12 +321,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     await db.update(schema.agentExecutions)
       .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
-    broadcastAgentError(chatId, step.agentName, errorMsg);
-    broadcastAgentError(chatId, "orchestrator", `Pipeline halted: ${step.agentName} failed after ${MAX_RETRIES} retries`);
+    broadcastAgentError(chatId, stepKey, errorMsg);
+    broadcastAgentError(chatId, "orchestrator", `Pipeline halted: ${stepKey} failed after ${MAX_RETRIES} retries`);
     await db.insert(schema.messages).values({
       id: nanoid(), chatId, role: "system",
-      content: `Agent ${step.agentName} failed: ${errorMsg}`,
-      agentName: step.agentName, metadata: null, createdAt: Date.now(),
+      content: `Agent ${stepKey} failed: ${errorMsg}`,
+      agentName: stepKey, metadata: null, createdAt: Date.now(),
     });
     return null;
   }
@@ -481,9 +485,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Build mode: full pipeline (research → plan → execute → remediate) ---
+  // --- Build mode: full pipeline (research → architect → parallel dev → styling → review) ---
 
-  // Phase 1: Run research agent
+  // Phase 1: Run research agent standalone
   const researchResult = await runPipelineStep({
     step: {
       agentName: "research",
@@ -506,19 +510,104 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // Phase 2: Build plan and broadcast it
+  // Phase 2: Run architect standalone (so we can parse its file_plan before building the rest of the pipeline)
   const researchOutput = agentResults.get("research") || "";
-  const plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+  const architectResult = await runPipelineStep({
+    step: {
+      agentName: "architect",
+      input: `Design the component architecture and test plan based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+    },
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
+  if (!architectResult || signal.aborted) {
+    if (signal.aborted) {
+      await db.insert(schema.messages).values({
+        id: nanoid(), chatId, role: "system",
+        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+      });
+      broadcastAgentStatus(chatId, "orchestrator", "stopped");
+    }
+    abortControllers.delete(chatId);
+    return;
+  }
 
-  // Persist pipeline run (after plan is built so we know the full agent list)
+  // Phase 3: Parse architect output and build parallel dev steps (or fall back to single frontend-dev)
+  const architectOutput = agentResults.get("architect") || "";
+  const groupedPlan = parseArchitectFilePlan(architectOutput);
+
+  const includeBackend = classification.scope === "frontend" || classification.scope === "styling"
+    ? false
+    : researchOutput ? needsBackend(researchOutput) : false;
+
+  let plan: ExecutionPlan;
+  if (groupedPlan && (groupedPlan.components.length + groupedPlan.shared.length + groupedPlan.app.length) > 0) {
+    // Parallel dev pipeline
+    const devSteps = buildParallelDevSteps(groupedPlan, architectOutput, userMessage);
+    const lastDevId = devSteps[devSteps.length - 1]?.instanceId ?? "frontend-dev";
+
+    const postDevSteps: ExecutionPlan["steps"] = [];
+
+    if (includeBackend) {
+      postDevSteps.push({
+        agentName: "backend-dev",
+        input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your server code following the plan. Original request: ${userMessage}`,
+        dependsOn: [lastDevId],
+      });
+    }
+
+    const stylingDeps = includeBackend ? [lastDevId, "backend-dev"] : [lastDevId];
+    postDevSteps.push(
+      {
+        agentName: "styling",
+        input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: stylingDeps,
+      },
+      {
+        agentName: "code-review",
+        input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: ["styling"],
+      },
+      {
+        agentName: "security",
+        input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: ["styling"],
+      },
+      {
+        agentName: "qa",
+        input: `Validate the implementation against the research requirements (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: ["styling"],
+      },
+    );
+
+    plan = { steps: [...devSteps, ...postDevSteps] };
+    console.log(`[orchestrator] Parallel dev pipeline: ${devSteps.length} frontend-dev instances (${groupedPlan.components.length} component files)`);
+  } else {
+    // Fallback: single frontend-dev (current behavior)
+    console.log(`[orchestrator] Using single frontend-dev (architect file_plan not parseable or empty)`);
+    plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+    // Remove architect step since it already ran
+    plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+    // Rewrite deps that pointed to "architect" to point to nothing (already completed)
+    for (const step of plan.steps) {
+      if (step.dependsOn) {
+        step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
+      }
+    }
+  }
+
+  // Persist pipeline run
   const pipelineRunId = nanoid();
+  const allStepIds = plan.steps.map((s) => s.instanceId ?? s.agentName);
   await db.insert(schema.pipelineRuns).values({
     id: pipelineRunId,
     chatId,
     intent: "build",
     scope: classification.scope,
     userMessage,
-    plannedAgents: JSON.stringify(["research", ...plan.steps.map((s) => s.agentName)]),
+    plannedAgents: JSON.stringify(["research", "architect", ...allStepIds]),
     status: "running",
     startedAt: Date.now(),
     completedAt: null,
@@ -526,10 +615,10 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   broadcast({
     type: "pipeline_plan",
-    payload: { chatId, agents: ["research", ...plan.steps.map((s) => s.agentName)] },
+    payload: { chatId, agents: ["research", "architect", ...allStepIds] },
   });
 
-  // Execute build pipeline
+  // Execute build pipeline (research + architect already completed)
   const pipelineOk = await executePipelineSteps({
     plan, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter,
@@ -640,9 +729,6 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
 
   // Rebuild execution plan
   const researchOutput = agentResults.get("research") || "";
-  const plan = intent === "fix"
-    ? buildExecutionPlan(originalMessage, undefined, "fix", scope)
-    : buildExecutionPlan(originalMessage, researchOutput, "build", scope);
 
   // For build mode, if research hasn't completed, we can't resume — start fresh
   if (intent === "build" && !agentResults.has("research")) {
@@ -652,18 +738,58 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     return runOrchestration(input);
   }
 
-  // Filter plan to only remaining steps
+  let plan: ExecutionPlan;
+  if (intent === "fix") {
+    plan = buildExecutionPlan(originalMessage, undefined, "fix", scope);
+  } else {
+    // Build mode: try parallel dev if architect completed
+    const architectOutput = agentResults.get("architect") || "";
+    const groupedPlan = architectOutput ? parseArchitectFilePlan(architectOutput) : null;
+    const includeBackend = scope === "frontend" || scope === "styling"
+      ? false : researchOutput ? needsBackend(researchOutput) : false;
+
+    if (groupedPlan && (groupedPlan.components.length + groupedPlan.shared.length + groupedPlan.app.length) > 0) {
+      const devSteps = buildParallelDevSteps(groupedPlan, architectOutput, originalMessage);
+      const lastDevId = devSteps[devSteps.length - 1]?.instanceId ?? "frontend-dev";
+      const postDevSteps: ExecutionPlan["steps"] = [];
+      if (includeBackend) {
+        postDevSteps.push({
+          agentName: "backend-dev",
+          input: `Implement the backend API routes and server logic defined in the architect's plan. Original request: ${originalMessage}`,
+          dependsOn: [lastDevId],
+        });
+      }
+      const stylingDeps = includeBackend ? [lastDevId, "backend-dev"] : [lastDevId];
+      postDevSteps.push(
+        { agentName: "styling", input: `Apply design polish. Original request: ${originalMessage}`, dependsOn: stylingDeps },
+        { agentName: "code-review", input: `Review all code. Original request: ${originalMessage}`, dependsOn: ["styling"] },
+        { agentName: "security", input: `Security review. Original request: ${originalMessage}`, dependsOn: ["styling"] },
+        { agentName: "qa", input: `Validate implementation. Original request: ${originalMessage}`, dependsOn: ["styling"] },
+      );
+      plan = { steps: [...devSteps, ...postDevSteps] };
+    } else {
+      plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+      // Remove architect step since it already ran
+      plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+      for (const step of plan.steps) {
+        if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
+      }
+    }
+  }
+
+  // Filter plan to only remaining steps (using instanceId for matching)
   const completedAgentNames = new Set(completedAgents);
-  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
+  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.instanceId ?? s.agentName));
 
   if (remainingSteps.length === 0) {
     // All agents completed — just run finish pipeline
     console.log("[orchestrator] All agents already completed — running finish pipeline");
   } else {
     // Broadcast pipeline plan showing all agents (completed + remaining)
+    const allStepIds = plan.steps.map((s) => s.instanceId ?? s.agentName);
     const allAgentNames = intent === "build"
-      ? ["research", ...plan.steps.map((s) => s.agentName)]
-      : plan.steps.map((s) => s.agentName);
+      ? ["research", "architect", ...allStepIds]
+      : allStepIds;
     broadcast({ type: "pipeline_plan", payload: { chatId, agents: allAgentNames } });
 
     // Broadcast completed status for already-done agents
@@ -764,7 +890,7 @@ async function executePipelineSteps(ctx: {
 
     if (ready.length === 0) {
       // Deadlock — remaining steps have unmet deps that will never resolve
-      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.agentName).join(", ")} have unmet dependencies`);
+      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet dependencies`);
       return false;
     }
 
@@ -775,7 +901,7 @@ async function executePipelineSteps(ctx: {
           step, chatId, projectId, projectPath, projectName, chatTitle,
           userMessage, chatHistory, agentResults, completedAgents, callCounter,
           providers, apiKeys, signal,
-        }).then((result) => ({ agentName: step.agentName, result }))
+        }).then((result) => ({ stepKey: step.instanceId ?? step.agentName, result }))
       )
     );
 
@@ -797,7 +923,7 @@ async function executePipelineSteps(ctx: {
 
     // Mark completed
     for (const r of results) {
-      completedSet.add(r.agentName);
+      completedSet.add(r.stepKey);
     }
 
     // Cost check after each batch
@@ -809,7 +935,7 @@ async function executePipelineSteps(ctx: {
         payload: {
           chatId,
           agentName: "orchestrator",
-          error: `Token limit reached mid-pipeline. Completed through batch: ${ready.map((s) => s.agentName).join(", ")}.`,
+          error: `Token limit reached mid-pipeline. Completed through batch: ${ready.map((s) => s.instanceId ?? s.agentName).join(", ")}.`,
           errorType: "cost_limit",
         },
       });
@@ -1606,6 +1732,137 @@ export function readProjectSource(projectPath: string): string {
 export function projectHasFiles(projectPath: string): boolean {
   const files = listFiles(projectPath);
   return files.length > 0;
+}
+
+// --- Parallel frontend-dev helpers ---
+
+export interface FilePlanEntry {
+  action: string;
+  path: string;
+  description?: string;
+}
+
+export interface GroupedFilePlan {
+  shared: FilePlanEntry[];
+  components: FilePlanEntry[];
+  app: FilePlanEntry[];
+}
+
+/**
+ * Parse the architect's file_plan from its output.
+ * Extracts the JSON block, separates files into shared/components/app groups.
+ * Returns null if parsing fails (caller should fall back to single frontend-dev).
+ */
+export function parseArchitectFilePlan(architectOutput: string): GroupedFilePlan | null {
+  let parsed: { file_plan?: FilePlanEntry[] };
+  try {
+    parsed = JSON.parse(architectOutput);
+  } catch {
+    // Try extracting JSON from markdown code block
+    const jsonMatch = architectOutput.match(/```(?:json)?\s*\n([\s\S]*?)\n\s*```/);
+    if (!jsonMatch) return null;
+    try {
+      parsed = JSON.parse(jsonMatch[1]!);
+    } catch {
+      return null;
+    }
+  }
+
+  const filePlan = parsed?.file_plan;
+  if (!Array.isArray(filePlan) || filePlan.length === 0) return null;
+
+  const shared: FilePlanEntry[] = [];
+  const components: FilePlanEntry[] = [];
+  const app: FilePlanEntry[] = [];
+
+  const SHARED_PATTERNS = /^src\/(hooks|utils|types|lib|helpers|constants|context)\//i;
+  const APP_PATTERN = /^src\/App\.tsx$/i;
+
+  for (const entry of filePlan) {
+    if (!entry.path) continue;
+    const path = entry.path.replace(/^\.\//, "");
+
+    if (APP_PATTERN.test(path)) {
+      app.push({ ...entry, path });
+    } else if (SHARED_PATTERNS.test(path)) {
+      shared.push({ ...entry, path });
+    } else {
+      components.push({ ...entry, path });
+    }
+  }
+
+  return { shared, components, app };
+}
+
+/**
+ * Build parallel frontend-dev steps from a parsed file plan.
+ * Uses a parallelism heuristic based on component count.
+ * Returns steps with instanceIds and proper dependency chains.
+ */
+export function buildParallelDevSteps(
+  groupedPlan: GroupedFilePlan,
+  architectOutput: string,
+  userMessage: string,
+): ExecutionPlan["steps"] {
+  const steps: ExecutionPlan["steps"] = [];
+  const componentDeps: string[] = [];
+
+  // Step 1: Shared files (hooks, utils, types) — if any
+  if (groupedPlan.shared.length > 0) {
+    const fileList = groupedPlan.shared.map((f) => f.path).join(", ");
+    steps.push({
+      agentName: "frontend-dev",
+      instanceId: "frontend-dev-shared",
+      input: `Implement ONLY these shared utility/hook files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create component files or App.tsx. Original request: ${userMessage}`,
+      dependsOn: ["architect"],
+    });
+    componentDeps.push("frontend-dev-shared");
+  }
+
+  // Step 2: Component files — split into parallel batches
+  const componentFiles = groupedPlan.components;
+  const batchCount = componentFiles.length <= 4 ? 1
+    : componentFiles.length <= 8 ? 2
+    : componentFiles.length <= 14 ? 3
+    : 4;
+
+  if (componentFiles.length > 0) {
+    const batches: FilePlanEntry[][] = Array.from({ length: batchCount }, () => []);
+    for (let i = 0; i < componentFiles.length; i++) {
+      batches[i % batchCount]!.push(componentFiles[i]!);
+    }
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]!;
+      if (batch.length === 0) continue;
+
+      const instanceId = batchCount === 1 ? "frontend-dev-components" : `frontend-dev-${i + 1}`;
+      const fileList = batch.map((f) => f.path).join(", ");
+      const deps: string[] = ["architect"];
+      if (groupedPlan.shared.length > 0) deps.push("frontend-dev-shared");
+
+      steps.push({
+        agentName: "frontend-dev",
+        instanceId,
+        input: `Implement ONLY these component files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create App.tsx or shared utility files. Each component should export its default component and any needed types. Original request: ${userMessage}`,
+        dependsOn: deps,
+      });
+      componentDeps.push(instanceId);
+    }
+  }
+
+  // Step 3: App.tsx — depends on ALL above
+  const allPriorIds = steps.map((s) => s.instanceId!);
+  if (allPriorIds.length === 0) allPriorIds.push("architect");
+
+  steps.push({
+    agentName: "frontend-dev",
+    instanceId: "frontend-dev-app",
+    input: `Implement ONLY src/App.tsx: import and compose all components created by other dev agents (their files are listed in Previous Agent Outputs). Wire up routing if needed. Original request: ${userMessage}`,
+    dependsOn: allPriorIds,
+  });
+
+  return steps;
 }
 
 export function buildExecutionPlan(
