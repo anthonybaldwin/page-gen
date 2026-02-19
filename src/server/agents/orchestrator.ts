@@ -838,6 +838,18 @@ function buildExecutionPlan(userMessage: string): ExecutionPlan {
 const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "qa", "security"]);
 
 /**
+ * Sanitize a file path from agent output.
+ * Strips leading/trailing quotes, backticks, whitespace, and normalizes separators.
+ */
+function sanitizeFilePath(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^['"` ]+|['"` ]+$/g, "") // strip leading/trailing quotes, backticks, spaces
+    .replace(/^\.\//, "")               // strip ./
+    .replace(/\\/g, "/");               // normalize Windows paths
+}
+
+/**
  * Extract files from agent text output. Agents primarily use:
  *   <tool_call>{"name":"write_file","parameters":{"path":"...","content":"..."}}</tool_call>
  * Fallback patterns for markdown-style output also supported.
@@ -847,7 +859,7 @@ function extractFilesFromOutput(agentOutput: string): Array<{ path: string; cont
   const seen = new Set<string>();
 
   function addFile(filePath: string, content: string) {
-    const normalized = filePath.replace(/^\.\//, "");
+    const normalized = sanitizeFilePath(filePath);
     if (normalized && content && !seen.has(normalized)) {
       seen.add(normalized);
       files.push({ path: normalized, content });
