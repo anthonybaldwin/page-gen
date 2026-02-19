@@ -5,6 +5,10 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { getAllAgentConfigs, resetAgentOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
+import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING } from "../services/pricing.ts";
+import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
+import { OPENAI_MODELS } from "../providers/openai.ts";
+import { GOOGLE_MODELS } from "../providers/google.ts";
 import type { AgentName } from "../../shared/types.ts";
 
 export const LIMIT_DEFAULTS: Record<string, string> = {
@@ -95,6 +99,11 @@ settingsRoutes.put("/agents/:name", async (c) => {
   }
 
   if (body.model) {
+    // Reject unknown models that don't have pricing configured
+    if (!getModelPricing(body.model)) {
+      return c.json({ error: "Unknown model requires pricing configuration", requiresPricing: true }, 400);
+    }
+
     const key = `agent.${name}.model`;
     const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
     if (existing) {
@@ -185,4 +194,62 @@ settingsRoutes.post("/validate-key", async (c) => {
     const message = err instanceof Error ? err.message : "Validation failed";
     return c.json({ error: message }, 401);
   }
+});
+
+// --- Pricing endpoints ---
+
+// Get all effective pricing (defaults + overrides)
+settingsRoutes.get("/pricing", (c) => {
+  return c.json(getAllPricing());
+});
+
+// Upsert pricing override for a model
+settingsRoutes.put("/pricing/:model", async (c) => {
+  const model = c.req.param("model");
+  const body = await c.req.json<{ input: number; output: number }>();
+
+  if (typeof body.input !== "number" || typeof body.output !== "number") {
+    return c.json({ error: "input and output must be numbers" }, 400);
+  }
+  if (body.input < 0 || body.output < 0) {
+    return c.json({ error: "Pricing values must be non-negative" }, 400);
+  }
+
+  upsertPricing(model, body.input, body.output);
+  return c.json({ ok: true });
+});
+
+// Delete pricing override (reverts known model to default, rejects unknown)
+settingsRoutes.delete("/pricing/:model", (c) => {
+  const model = c.req.param("model");
+  deletePricingOverride(model);
+  return c.json({ ok: true });
+});
+
+// Get known models grouped by provider with pricing info
+settingsRoutes.get("/models", (c) => {
+  const providers = [
+    {
+      provider: "anthropic",
+      models: Object.values(ANTHROPIC_MODELS).map((id) => ({
+        id,
+        pricing: DEFAULT_PRICING[id] || null,
+      })),
+    },
+    {
+      provider: "openai",
+      models: Object.values(OPENAI_MODELS).map((id) => ({
+        id,
+        pricing: DEFAULT_PRICING[id] || null,
+      })),
+    },
+    {
+      provider: "google",
+      models: Object.values(GOOGLE_MODELS).map((id) => ({
+        id,
+        pricing: DEFAULT_PRICING[id] || null,
+      })),
+    },
+  ];
+  return c.json(providers);
 });
