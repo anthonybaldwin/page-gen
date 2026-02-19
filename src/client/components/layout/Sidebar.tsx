@@ -13,12 +13,14 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
-  const { projects, activeProject, setProjects, setActiveProject } = useProjectStore();
-  const { chats, activeChat, setChats, setActiveChat, setMessages } = useChatStore();
+  const { projects, activeProject, setProjects, setActiveProject, renameProject } = useProjectStore();
+  const { chats, activeChat, setChats, setActiveChat, setMessages, renameChat } = useChatStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUsage, setShowUsage] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
 
   // Sync active chat id to usage store
   const setActiveChatId = useUsageStore((s) => s.setActiveChatId);
@@ -71,6 +73,30 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       console.error("[sidebar] Failed to create chat:", err);
       setError("Failed to create chat. Is the backend server running?");
     }
+  }
+
+  async function handleRenameProject(id: string) {
+    const name = editingValue.trim();
+    if (!name) { setEditingId(null); return; }
+    try {
+      await api.patch(`/projects/${id}`, { name });
+      renameProject(id, name);
+    } catch (err) {
+      console.error("[sidebar] Failed to rename project:", err);
+    }
+    setEditingId(null);
+  }
+
+  async function handleRenameChat(id: string) {
+    const title = editingValue.trim();
+    if (!title) { setEditingId(null); return; }
+    try {
+      await api.patch(`/chats/${id}`, { title });
+      renameChat(id, title);
+    } catch (err) {
+      console.error("[sidebar] Failed to rename chat:", err);
+    }
+    setEditingId(null);
   }
 
   if (collapsed) {
@@ -143,16 +169,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             key={project.id}
             className="group flex items-center rounded transition-colors"
           >
-            <button
-              onClick={() => setActiveProject(project)}
-              className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
-                activeProject?.id === project.id
-                  ? "bg-zinc-800 text-white"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-              }`}
-            >
-              {project.name}
-            </button>
+            {editingId === project.id ? (
+              <input
+                type="text"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRenameProject(project.id);
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                onBlur={() => handleRenameProject(project.id)}
+                className="flex-1 rounded-l bg-zinc-800 border border-blue-500 px-2 py-1 text-sm text-white focus:outline-none"
+                autoFocus
+              />
+            ) : (
+              <button
+                onClick={() => setActiveProject(project)}
+                onDoubleClick={() => { setEditingId(project.id); setEditingValue(project.name); }}
+                className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                  activeProject?.id === project.id
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                }`}
+              >
+                {project.name}
+              </button>
+            )}
             <button
               onClick={async (e) => {
                 e.stopPropagation();
@@ -203,16 +245,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 key={chat.id}
                 className="group flex items-center rounded transition-colors"
               >
-                <button
-                  onClick={() => setActiveChat(chat)}
-                  className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
-                    activeChat?.id === chat.id
-                      ? "bg-zinc-800 text-white"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-                  }`}
-                >
-                  {chat.title}
-                </button>
+                {editingId === chat.id ? (
+                  <input
+                    type="text"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameChat(chat.id);
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    onBlur={() => handleRenameChat(chat.id)}
+                    className="flex-1 rounded-l bg-zinc-800 border border-blue-500 px-2 py-1 text-sm text-white focus:outline-none"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    onClick={() => setActiveChat(chat)}
+                    onDoubleClick={() => { setEditingId(chat.id); setEditingValue(chat.title); }}
+                    className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                      activeChat?.id === chat.id
+                        ? "bg-zinc-800 text-white"
+                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                    }`}
+                  >
+                    {chat.title}
+                  </button>
+                )}
                 <button
                   onClick={async (e) => {
                     e.stopPropagation();

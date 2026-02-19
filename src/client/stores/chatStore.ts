@@ -9,6 +9,7 @@ interface ChatState {
   setActiveChat: (chat: Chat | null) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
+  renameChat: (id: string, title: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -19,4 +20,12 @@ export const useChatStore = create<ChatState>((set) => ({
   setActiveChat: (chat) => set({ activeChat: chat }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
+  renameChat: (id, title) =>
+    set((state) => ({
+      chats: state.chats.map((c) => (c.id === id ? { ...c, title } : c)),
+      activeChat:
+        state.activeChat?.id === id
+          ? { ...state.activeChat, title }
+          : state.activeChat,
+    })),
 }));
