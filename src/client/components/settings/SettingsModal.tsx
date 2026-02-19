@@ -21,7 +21,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>("keys");
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Pinned header */}
       <div className="shrink-0 border-b border-zinc-800">
         <div className="flex items-center justify-between px-4 py-3">
