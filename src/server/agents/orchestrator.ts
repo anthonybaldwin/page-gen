@@ -508,7 +508,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // Phase 2: Build plan and broadcast it
   const researchOutput = agentResults.get("research") || "";
-  const plan = buildExecutionPlan(userMessage, researchOutput, "build");
+  const plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
 
   // Persist pipeline run (after plan is built so we know the full agent list)
   const pipelineRunId = nanoid();
@@ -642,7 +642,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   const researchOutput = agentResults.get("research") || "";
   const plan = intent === "fix"
     ? buildExecutionPlan(originalMessage, undefined, "fix", scope)
-    : buildExecutionPlan(originalMessage, researchOutput, "build");
+    : buildExecutionPlan(originalMessage, researchOutput, "build", scope);
 
   // For build mode, if research hasn't completed, we can't resume — start fresh
   if (intent === "build" && !agentResults.has("research")) {
@@ -1499,8 +1499,8 @@ export function needsBackend(researchOutput: string): boolean {
   } catch {
     // JSON parse failed — fall back to heuristic
   }
-  // Regex heuristic: look for backend-related keywords
-  return /requires_backend['":\s]+true|api\s*route|server[\s-]*side|database|backend|express|endpoint/i.test(researchOutput);
+  // Regex heuristic: look for backend-related keywords (avoid broad terms like "backend" or "endpoint" that cause false positives)
+  return /requires_backend['":\s]+true|api\s*route|server[\s-]*side|database|express/i.test(researchOutput);
 }
 
 // --- Intent classification ---
@@ -1633,10 +1633,11 @@ export function buildExecutionPlan(
       });
     }
     if (scope === "backend" || scope === "full") {
+      const backendDeps: AgentName[] = scope === "full" ? ["frontend-dev"] : ["testing"];
       steps.push({
         agentName: "backend-dev",
         input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
-        dependsOn: ["testing"],
+        dependsOn: backendDeps,
       });
     }
     if (scope === "styling") {
@@ -1672,32 +1673,29 @@ export function buildExecutionPlan(
     return { steps };
   }
 
-  // --- Build mode: TDD pipeline (testing from spec, before dev) ---
-  const includeBackend = researchOutput ? needsBackend(researchOutput) : false;
+  // --- Build mode: architect (with test plan) → dev → styling → review ---
+  const includeBackend = scope === "frontend" || scope === "styling"
+    ? false  // Classifier said frontend/styling-only — skip backend
+    : researchOutput ? needsBackend(researchOutput) : false;
 
   const steps: ExecutionPlan["steps"] = [
     {
       agentName: "architect",
-      input: `Design the component architecture based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      input: `Design the component architecture and test plan based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: ["research"],
     },
     {
-      agentName: "testing",
-      input: `Create a JSON test plan from the architect's plan and research requirements (provided in Previous Agent Outputs). Define expected behavior for each component — dev agents will write the test files. Original request: ${userMessage}`,
-      dependsOn: ["architect"],
-    },
-    {
       agentName: "frontend-dev",
-      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). A test plan has been created — write test files alongside your components following the plan. Original request: ${userMessage}`,
-      dependsOn: ["testing"],
+      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your components following the plan. Original request: ${userMessage}`,
+      dependsOn: ["architect"],
     },
   ];
 
   if (includeBackend) {
     steps.push({
       agentName: "backend-dev",
-      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan has been created — write test files alongside your server code following the plan. Original request: ${userMessage}`,
-      dependsOn: ["testing"],
+      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your server code following the plan. Original request: ${userMessage}`,
+      dependsOn: ["frontend-dev"],
     });
   }
 

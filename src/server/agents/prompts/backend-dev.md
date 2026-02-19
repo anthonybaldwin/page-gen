@@ -87,7 +87,7 @@ export default router;
 
 ## Test Files
 
-If a test plan is provided in Previous Agent Outputs (from the testing agent), write test files alongside your server code using vitest.
+If a test plan is provided in Previous Agent Outputs (from the architect agent's `test_plan` section, or from the testing agent in fix mode), write test files alongside your server code using vitest.
 
 - Follow the test plan's structure: one test file per module at the specified path.
 - Import from `vitest` (`describe`, `it`, `expect`, `vi`).

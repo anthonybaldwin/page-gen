@@ -62,7 +62,7 @@ If the architecture specifies additional npm dependencies, add them to `package.
 
 ## Test Files
 
-If a test plan is provided in Previous Agent Outputs (from the testing agent), write test files alongside your components using vitest + @testing-library/react.
+If a test plan is provided in Previous Agent Outputs (from the architect agent's `test_plan` section, or from the testing agent in fix mode), write test files alongside your components using vitest + @testing-library/react.
 
 - Follow the test plan's structure: one test file per component at the specified path.
 - Import from `vitest` (`describe`, `it`, `expect`, `vi`).

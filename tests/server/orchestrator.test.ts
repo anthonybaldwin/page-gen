@@ -97,8 +97,16 @@ describe("needsBackend", () => {
     expect(needsBackend("needs a database for users")).toBe(true);
   });
 
-  test("regex detects endpoint keyword", () => {
-    expect(needsBackend("REST endpoint for authentication")).toBe(true);
+  test("regex does not match bare 'endpoint' (too broad)", () => {
+    expect(needsBackend("REST endpoint for authentication")).toBe(false);
+  });
+
+  test("regex does not match 'no backend needed' (false positive guard)", () => {
+    expect(needsBackend("This is a frontend-only page, no backend needed")).toBe(false);
+  });
+
+  test("regex detects express keyword", () => {
+    expect(needsBackend("uses express for the server")).toBe(true);
   });
 
   test("returns false for frontend-only text", () => {
@@ -113,12 +121,11 @@ describe("needsBackend", () => {
 // --- buildExecutionPlan ---
 
 describe("buildExecutionPlan", () => {
-  test("includes core pipeline agents without backend (TDD order)", () => {
+  test("includes core pipeline agents without backend (no separate testing step)", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const agentNames = plan.steps.map((s) => s.agentName);
     expect(agentNames).toEqual([
       "architect",
-      "testing",
       "frontend-dev",
       "styling",
       "code-review",
@@ -145,30 +152,29 @@ describe("buildExecutionPlan", () => {
     expect(agentNames).not.toContain("backend-dev");
   });
 
-  test("backend-dev comes after testing and before styling", () => {
+  test("backend-dev comes after architect and before styling", () => {
     const research = JSON.stringify({
       features: [{ name: "api", requires_backend: true }],
     });
     const plan = buildExecutionPlan("Build app", research);
     const names = plan.steps.map((s) => s.agentName);
-    const testIdx = names.indexOf("testing");
+    const archIdx = names.indexOf("architect");
     const beIdx = names.indexOf("backend-dev");
     const stIdx = names.indexOf("styling");
-    expect(beIdx).toBeGreaterThan(testIdx);
+    expect(beIdx).toBeGreaterThan(archIdx);
     expect(beIdx).toBeLessThan(stIdx);
   });
 
-  test("testing comes after architect in build mode", () => {
+  test("no separate testing step in build mode (merged into architect)", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names.indexOf("testing")).toBeGreaterThan(names.indexOf("architect"));
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
+    expect(names).not.toContain("testing");
   });
 
-  test("build mode: testing step input mentions test plan", () => {
+  test("build mode: architect step input mentions test plan", () => {
     const plan = buildExecutionPlan("Build something");
-    const testStep = plan.steps.find((s) => s.agentName === "testing");
-    expect(testStep?.input).toContain("test plan");
+    const archStep = plan.steps.find((s) => s.agentName === "architect");
+    expect(archStep?.input).toContain("test plan");
   });
 
   test("build mode: frontend-dev step input mentions test plan", () => {
@@ -177,10 +183,10 @@ describe("buildExecutionPlan", () => {
     expect(feStep?.input).toContain("test plan");
   });
 
-  test("code-review comes after testing", () => {
+  test("code-review comes after architect", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names.indexOf("code-review")).toBeGreaterThan(names.indexOf("testing"));
+    expect(names.indexOf("code-review")).toBeGreaterThan(names.indexOf("architect"));
   });
 
   test("qa is the last step", () => {
@@ -607,22 +613,22 @@ describe("buildExecutionPlan (fix mode)", () => {
     }
   });
 
-  test("build mode with default params: TDD order", () => {
+  test("build mode with default params: architect+dev pipeline", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "testing", "frontend-dev", "styling", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
   });
 
-  test("build mode with explicit intent param: TDD order", () => {
+  test("build mode with explicit intent param: architect+dev pipeline", () => {
     const plan = buildExecutionPlan("Build a landing page", undefined, "build");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "testing", "frontend-dev", "styling", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
   });
 
-  test("build mode: frontend-dev depends on testing", () => {
+  test("build mode: frontend-dev depends on architect", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
-    expect(feStep?.dependsOn).toContain("testing");
+    expect(feStep?.dependsOn).toContain("architect");
   });
 
   test("build mode: review agents all depend on styling (parallel with each other)", () => {
@@ -651,15 +657,51 @@ describe("buildExecutionPlan (fix mode)", () => {
     expect(styling?.dependsOn).toEqual(["frontend-dev"]);
   });
 
-  test("build mode: frontend-dev and backend-dev both depend only on testing (parallel)", () => {
+  test("build mode: backend-dev depends on frontend-dev (sequential to avoid file conflicts)", () => {
     const research = JSON.stringify({
       features: [{ name: "api", requires_backend: true }],
     });
     const plan = buildExecutionPlan("Build app", research);
     const fe = plan.steps.find((s) => s.agentName === "frontend-dev");
     const be = plan.steps.find((s) => s.agentName === "backend-dev");
-    expect(fe?.dependsOn).toEqual(["testing"]);
-    expect(be?.dependsOn).toEqual(["testing"]);
+    expect(fe?.dependsOn).toEqual(["architect"]);
+    expect(be?.dependsOn).toEqual(["frontend-dev"]);
+  });
+
+  test("build mode: scope 'frontend' skips backend even when research says backend", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research, "build", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("backend-dev");
+  });
+
+  test("build mode: scope 'styling' skips backend even when research says backend", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research, "build", "styling");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("backend-dev");
+  });
+
+  test("build mode: scope 'full' includes backend when research says backend", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research, "build", "full");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("backend-dev");
+  });
+
+  test("build mode: scope 'backend' includes backend when research says backend", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research, "build", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("backend-dev");
   });
 
   test("fix mode: review agents all depend on last dev agent (parallel with each other)", () => {
