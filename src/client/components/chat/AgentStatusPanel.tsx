@@ -81,6 +81,10 @@ export function AgentStatusPanel({ chatId }: Props) {
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
+      // Filter by chatId — ignore messages from other chats
+      const msgChatId = (msg.payload as { chatId?: string }).chatId;
+      if (msgChatId && chatId && msgChatId !== chatId) return;
+
       if (msg.type === "agent_status") {
         const { agentName, status, phase } = msg.payload as {
           agentName: string;
@@ -94,6 +98,13 @@ export function AgentStatusPanel({ chatId }: Props) {
         }
         if (agentName === "orchestrator" && (status === "completed" || status === "stopped")) {
           setPipelineActive(false);
+        }
+
+        // Reset all agent states when a new pipeline starts
+        if (agentName === "orchestrator" && status === "running") {
+          setAgents({});
+          setPipelineActive(true);
+          return;
         }
 
         setAgents((prev) => ({
@@ -138,22 +149,7 @@ export function AgentStatusPanel({ chatId }: Props) {
     });
 
     return unsub;
-  }, []);
-
-  // Reset pipeline when user sends a new message
-  useEffect(() => {
-    const unsub = onWsMessage((msg) => {
-      if (msg.type === "agent_status") {
-        const { agentName, status } = msg.payload as { agentName: string; status: string };
-        if (agentName === "orchestrator" && status === "running") {
-          // New pipeline run — reset all agent states
-          setAgents({});
-          setPipelineActive(true);
-        }
-      }
-    });
-    return unsub;
-  }, []);
+  }, [chatId]);
 
   if (!pipelineActive && Object.keys(agents).length === 0) return null;
 

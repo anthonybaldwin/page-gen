@@ -54,20 +54,22 @@ export function ChatWindow() {
     const unsub = onWsMessage((msg) => {
       if (!activeChat) return;
 
+      // Filter by chatId — ignore messages from other chats
+      const msgChatId = (msg.payload as { chatId?: string }).chatId;
+      if (msgChatId && msgChatId !== activeChat.id) return;
+
       // Agent completed and produced a chat message
       if (msg.type === "chat_message") {
         const payload = msg.payload as { chatId: string; agentName: string; content: string };
-        if (payload.chatId === activeChat.id) {
-          addMessage({
-            id: nanoid(),
-            chatId: payload.chatId,
-            role: "assistant",
-            content: payload.content,
-            agentName: payload.agentName,
-            metadata: null,
-            createdAt: Date.now(),
-          });
-        }
+        addMessage({
+          id: nanoid(),
+          chatId: payload.chatId,
+          role: "assistant",
+          content: payload.content,
+          agentName: payload.agentName,
+          metadata: null,
+          createdAt: Date.now(),
+        });
       }
 
       // Orchestrator status changes
