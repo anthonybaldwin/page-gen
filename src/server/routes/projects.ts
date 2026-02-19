@@ -72,6 +72,7 @@ projectRoutes.delete("/:id", async (c) => {
   for (const chat of projectChats) {
     abortOrchestration(chat.id);
     await db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chat.id));
+    await db.delete(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, chat.id));
     await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, chat.id));
     await db.delete(schema.messages).where(eq(schema.messages.chatId, chat.id));
   }

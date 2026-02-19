@@ -58,11 +58,12 @@ chatRoutes.patch("/:id", async (c) => {
   return c.json(updated);
 });
 
-// Delete chat (cascade: token_usage → agent_executions → messages, nullify snapshots)
+// Delete chat (cascade: token_usage → agent_executions → pipeline_runs → messages, nullify snapshots)
 chatRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
   abortOrchestration(id);
   await db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, id));
+  await db.delete(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, id));
   await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, id));
   await db.delete(schema.messages).where(eq(schema.messages.chatId, id));
   await db
