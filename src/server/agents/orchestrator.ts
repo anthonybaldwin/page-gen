@@ -14,6 +14,7 @@ import { broadcast } from "../ws.ts";
 import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
+import { createAgentTools } from "./tools.ts";
 
 const MAX_RETRIES = 3;
 
@@ -192,7 +193,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         },
       };
 
-      result = await runAgent(config, providers, agentInput, undefined, signal, chatId);
+      // Create native tools for file-producing agents
+      const agentTools = FILE_PRODUCING_AGENTS.has(step.agentName)
+        ? createAgentTools(projectPath, projectId)
+        : undefined;
+
+      result = await runAgent(config, providers, agentInput, agentTools?.tools, signal, chatId);
 
       if (result.tokenUsage) {
         const providerKey = apiKeys[config.provider];
@@ -227,7 +233,15 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       agentResults.set(step.agentName, result.content);
       completedAgents.push(step.agentName);
 
-      const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
+      // Hybrid file tracking: native tools write files mid-stream,
+      // fallback extraction catches models that don't use tools properly
+      const nativeFiles = result.filesWritten || [];
+      const alreadyWritten = new Set(nativeFiles);
+      const fallbackFiles = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId, alreadyWritten);
+      if (fallbackFiles.length > 0) {
+        console.warn(`[orchestrator] ${step.agentName} used text fallback for ${fallbackFiles.length} files`);
+      }
+      const filesWritten = [...nativeFiles, ...fallbackFiles];
 
       if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
         // All file-producing agents get build check
@@ -1295,7 +1309,8 @@ async function runFixAgent(
       },
     };
 
-    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal, ctx.chatId);
+    const remediationTools = createAgentTools(ctx.projectPath, ctx.projectId);
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationTools.tools, ctx.signal, ctx.chatId);
 
     if (result.tokenUsage) {
       const providerKey = ctx.apiKeys[config.provider];
@@ -1333,8 +1348,9 @@ async function runFixAgent(
     ctx.agentResults.set(`${agentName}-remediation`, result.content);
     ctx.completedAgents.push(`${agentName} (remediation #${cycle})`);
 
-    // Extract and write remediated files
-    extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId);
+    // Extract and write remediated files (hybrid: native + fallback)
+    const nativeRemediation = result.filesWritten || [];
+    extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId, new Set(nativeRemediation));
 
     return result.content;
   } catch (err) {
@@ -1827,7 +1843,8 @@ function extractAndWriteFiles(
   agentName: string,
   agentOutput: string,
   projectPath: string,
-  projectId: string
+  projectId: string,
+  alreadyWritten?: Set<string>
 ): string[] {
   if (!FILE_PRODUCING_AGENTS.has(agentName)) return [];
 
@@ -1838,6 +1855,8 @@ function extractAndWriteFiles(
   const hasPackageJson = files.some((f) => f.path === "package.json" || f.path.endsWith("/package.json"));
 
   for (const file of files) {
+    // Skip files already written by native tools
+    if (alreadyWritten?.has(file.path)) continue;
     try {
       writeFile(projectPath, file.path, file.content);
       written.push(file.path);
@@ -1988,7 +2007,8 @@ async function runBuildFix(params: {
       },
     };
 
-    const result = await runAgent(config, providers, fixInput, undefined, signal, chatId);
+    const fixTools = createAgentTools(projectPath, projectId);
+    const result = await runAgent(config, providers, fixInput, fixTools.tools, signal, chatId);
 
     if (result.tokenUsage) {
       const providerKey = apiKeys[config.provider];
@@ -2023,7 +2043,8 @@ async function runBuildFix(params: {
       .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, execId));
 
-    extractAndWriteFiles(fixAgent, result.content, projectPath, projectId);
+    const nativeFix = result.filesWritten || [];
+    extractAndWriteFiles(fixAgent, result.content, projectPath, projectId, new Set(nativeFix));
 
     broadcastAgentStatus(chatId, fixAgent, "completed", { phase: "build-fix" });
     return result.content;
