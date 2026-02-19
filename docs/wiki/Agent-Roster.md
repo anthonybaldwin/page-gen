@@ -27,27 +27,29 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 
 ### 4. Frontend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Generates React/HTML/CSS/JS code
-- **Tools:** `write_file` only — code is extracted from output and written to disk by the orchestrator
+- **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
+- **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
+- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the Test Planner
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Generates API routes, server logic
-- **Tools:** `write_file` only
+- **Role:** Generates API routes, server logic, and writes test files alongside server code
+- **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
+- **Test responsibility:** Writes vitest test files alongside server modules, following the test plan
 - **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`)
 
 ### 6. Styling Agent
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Applies design polish, responsive layout, theming
-- **Tools:** `write_file` only
+- **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 
-### 7. Testing Agent (TDD)
+### 7. Test Planner (formerly Testing Agent)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Writes vitest tests **from requirements and architecture** BEFORE dev agents implement code (test-driven development)
-- **Tools:** `write_file` only — writes test files and vitest config
-- **Output:** Test files using vitest + @testing-library/react + happy-dom
-- **Position (build mode):** After architect, before frontend-dev — tests define expected behavior before implementation
-- **Position (fix mode):** First step — writes tests that verify the fix before dev agents make changes
+- **Role:** Creates a JSON test plan that defines expected behavior — dev agents use this to write test files alongside their code
+- **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code (fix mode)
+- **Output:** Structured JSON test plan with component-to-test mapping, behavior descriptions, and setup notes
+- **Position (build mode):** After architect, before frontend-dev — test plan defines expected behavior before implementation
+- **Position (fix mode):** First step — creates test plan that defines expected behavior for the fix
 - **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
 - **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
 
@@ -83,15 +85,15 @@ Before running the pipeline, the orchestrator classifies the user's message into
 
 Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
 
-### Build Pipeline (TDD, Parallelized)
+### Build Pipeline (Parallelized)
 
 ```
 User → Orchestrator → classifyIntent() → "build"
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
-      → Architect → Testing (write tests from spec)
-      → Frontend Dev ─┬─ [run tests]    (parallel if backend needed)
-      → Backend Dev  ─┘─ [run tests]
+      → Architect → Test Planner (creates test plan)
+      → Frontend Dev ─┬─ [write tests + code] → [run tests]    (parallel if backend needed)
+      → Backend Dev  ─┘─ [write tests + code] → [run tests]
       → Styling (waits for all dev agents)
       → Code Review ─┐
       → Security     ├─ (parallel, all depend on Styling)
@@ -100,17 +102,17 @@ User → Orchestrator → classifyIntent() → "build"
   → [Final Build Check] → Summary
 ```
 
-### Fix Pipeline (TDD, Parallelized)
+### Fix Pipeline (Parallelized)
 
 ```
 User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|styling|full)
   → Read existing project source
-  → Testing (write/update tests for the fix)
+  → Test Planner (create test plan for the fix)
   → Route to dev agent(s) by scope:
-      frontend → frontend-dev → [run tests]
-      backend  → backend-dev → [run tests]
+      frontend → frontend-dev → [write tests + code] → [run tests]
+      backend  → backend-dev → [write tests + code] → [run tests]
       styling  → styling → [run tests]
-      full     → frontend-dev + backend-dev → [run tests]
+      full     → frontend-dev + backend-dev → [write tests + code] → [run tests]
   → Code Review ─┐
   → Security     ├─ (parallel, all depend on last dev agent)
   → QA           ─┘
@@ -192,9 +194,23 @@ Blocks are identified by unique IDs. The `toggleExpanded` action targets blocks 
 
 Test results appear **inline in the thinking block timeline** at the point where tests ran, rather than as a separate banner at the bottom. This makes it clear which dev agent's output triggered the test run. The `TestResultsBanner` component is rendered inside `AgentThinkingMessage` when a block has `blockType: "test-results"`.
 
-### File Extraction (Hardened)
+### Native Tool Use
 
-Agents don't write files directly to disk. Instead:
+Agents use the Vercel AI SDK's native `tool()` definitions instead of text-based `<tool_call>` XML. This enables:
+
+- **Mid-stream file writes:** `write_file` executes during generation — files hit disk immediately, Vite HMR picks up changes
+- **File reading:** `read_file` lets agents inspect existing code (especially useful in fix mode)
+- **Project exploration:** `list_files` lets agents discover the project structure
+- **Clean thinking blocks:** Agent reasoning text contains only thoughts, not code dumps
+- **Cross-provider compatibility:** Works identically across Anthropic, OpenAI, and Gemini via AI SDK abstraction
+
+**Fallback extraction:** If an agent outputs `<tool_call>` XML in its text instead of using native tools, `extractAndWriteFiles()` still parses and writes those files. Files already written natively are skipped (tracked via `alreadyWritten` set). A warning is logged when fallback extraction is triggered.
+
+**Tool-use loop limit:** `stopWhen: stepCountIs(15)` prevents runaway tool-use loops.
+
+### File Extraction (Hardened, Fallback)
+
+The fallback extraction pipeline handles agents that don't use native tools:
 1. Agents include `<tool_call>` blocks with `write_file` in their text output
 2. The orchestrator's `extractAndWriteFiles()` parses these tool calls from the output
 3. **JSON repair step:** When `JSON.parse` fails, the extractor first attempts to repair common issues (literal newlines, tabs, BOM characters) before falling back to regex. Warnings are logged for debugging.
@@ -205,7 +221,7 @@ Agents don't write files directly to disk. Instead:
 
 ### Build Check Pipeline
 
-After each file-producing agent (frontend-dev, backend-dev, styling, testing), the orchestrator:
+After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:
 1. Runs `bunx vite build --mode development` to check for compile errors
 2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 3. Only broadcasts `preview_ready` after a successful build
@@ -241,4 +257,4 @@ Each agent's provider, model, and system prompt can be overridden via **Settings
 
 ## Streaming Optimization
 
-Agent output is streamed to the client via WebSocket, but broadcasts are **throttled to ~7 messages/sec** (150ms batching) to reduce noise and client re-renders. Chunks are accumulated and sent in batches. The final remaining chunk is always flushed.
+Agent output is streamed to the client via WebSocket using the AI SDK's `fullStream` API, which provides a unified event stream for text chunks, tool calls, and tool results. Broadcasts are **throttled to ~7 messages/sec** (150ms batching) to reduce noise and client re-renders. Chunks are accumulated and sent in batches. The final remaining chunk is always flushed.
