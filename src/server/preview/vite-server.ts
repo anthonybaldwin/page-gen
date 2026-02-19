@@ -65,16 +65,16 @@ function ensureProjectHasPackageJson(projectPath: string) {
   const devDeps = (existing.devDependencies || {}) as Record<string, string>;
 
   // Ensure core React deps
-  if (!deps.react) deps.react = "^19.0.0";
-  if (!deps["react-dom"]) deps["react-dom"] = "^19.0.0";
+  if (!deps.react) deps.react = "^19.2.0";
+  if (!deps["react-dom"]) deps["react-dom"] = "^19.2.0";
 
   // Ensure Vite + React plugin + Tailwind in devDeps
-  if (!devDeps.vite) devDeps.vite = "^6.0.0";
-  if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = "^4.3.0";
-  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = "^4.0.0";
-  if (!devDeps.tailwindcss) devDeps.tailwindcss = "^4.0.0";
-  if (!devDeps["@types/react"]) devDeps["@types/react"] = "^19.0.0";
-  if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = "^19.0.0";
+  if (!devDeps.vite) devDeps.vite = "^7.3.0";
+  if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = "^5.1.0";
+  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = "^4.2.0";
+  if (!devDeps.tailwindcss) devDeps.tailwindcss = "^4.2.0";
+  if (!devDeps["@types/react"]) devDeps["@types/react"] = "^19.2.0";
+  if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = "^19.2.0";
   // Testing deps for the testing agent
   if (!devDeps.vitest) devDeps.vitest = "^2.0.0";
   if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^15.0.0";
