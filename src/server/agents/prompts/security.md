@@ -66,3 +66,4 @@ Return a structured security report:
 - Do not modify source code. Report only. The orchestrator handles remediation.
 - If no issues are found, return status `pass` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed findings.
+- Be concise. Report only actual findings. Do not pad the report with boilerplate or restated scan patterns.

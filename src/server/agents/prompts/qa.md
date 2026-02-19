@@ -66,3 +66,4 @@ Return a structured JSON report:
 - If every requirement is met, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed gaps.
 - Focus on functional completeness, not code style.
+- Be concise. Report only actual gaps. Do not pad the report with boilerplate or restated requirements.

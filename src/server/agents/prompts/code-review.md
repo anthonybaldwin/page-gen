@@ -69,3 +69,4 @@ Return a structured JSON report:
 - Do not report styling or visual appearance issues — that's the styling agent's job.
 - If no issues are found, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed bugs.
+- Be concise. Report only actual issues. Do not pad the report with boilerplate or restated requirements.

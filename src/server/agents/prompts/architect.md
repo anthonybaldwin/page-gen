@@ -97,3 +97,4 @@ Return a JSON architecture document:
   ```
 - List only dependencies not already in the scaffold (react, react-dom, vite, tailwindcss are already present).
 - Flag any architectural risk (circular deps, prop drilling beyond 2 levels, large bundle additions).
+- Return ONLY the JSON. No explanatory prose before or after.

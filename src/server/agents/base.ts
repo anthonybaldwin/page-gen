@@ -69,9 +69,22 @@ export async function runAgent(
     });
 
     let fullText = "";
+    let pendingChunk = "";
+    let lastBroadcast = 0;
+    const THROTTLE_MS = 150;
+
     for await (const chunk of result.textStream) {
       fullText += chunk;
-      broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk });
+      pendingChunk += chunk;
+      const now = Date.now();
+      if (now - lastBroadcast >= THROTTLE_MS) {
+        broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
+        pendingChunk = "";
+        lastBroadcast = now;
+      }
+    }
+    if (pendingChunk) {
+      broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
     }
 
     const usage = await result.usage;

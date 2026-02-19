@@ -68,3 +68,4 @@ Return a JSON requirements document:
 - Keep component names PascalCase and descriptive.
 - Do not generate code. Your job is analysis only.
 - Be specific. "A button" is too vague. "Primary CTA button with hover state, linking to signup" is correct.
+- Return ONLY the JSON. No explanatory prose before or after.
