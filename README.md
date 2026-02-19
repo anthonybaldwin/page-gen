@@ -5,14 +5,14 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 ## Features
 
 - **Chat-based UI** — Describe pages naturally, agents build them
-- **8 specialized AI agents** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, QA, Security
+- **9 specialized AI agents** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, QA, Code Review, Security
 - **Real-time agent thinking** — Expandable per-agent thinking messages stream in chat as agents work
 - **Stop & continue** — Interrupt a running pipeline and resume from where it stopped
 - **Live HMR preview** — See changes side-by-side as agents write code
 - **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
 - **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar and permanent billing history that survives deletions
 - **Snapshots** — Version your project, rollback to any point
-- **Local-first** — All data in SQLite, API keys in localStorage, no cloud dependency
+- **Local-first** — All data in SQLite, API keys encrypted at rest in localStorage, no cloud dependency
 
 ## Tech Stack
 
@@ -81,7 +81,7 @@ React Frontend ←→ Hono Backend ←→ AI Providers
 ```
 
 - **4-column layout:** Collapsible sidebar (projects/chats) → Chat (fixed width) → Live Preview (flex) → File Explorer
-- **Agent pipeline:** Research → Architect → Frontend Dev → Styling → QA → Security
+- **Agent pipeline:** Research → Architect → Frontend Dev → Styling → QA → Code Review → Security
 - **Orchestrator summary:** Agent outputs are persisted per-agent and the orchestrator synthesizes a single markdown response shown in chat
 - **File extraction:** Agents produce code in their output; the orchestrator parses code blocks and writes files to disk automatically
 - **HMR preview:** Files extracted from agent output → Vite detects changes → iframe updates live
