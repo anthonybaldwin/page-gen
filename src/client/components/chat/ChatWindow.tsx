@@ -183,6 +183,7 @@ export function ChatWindow() {
             status: "started" | "streaming" | "completed" | "failed";
             chunk?: string;
             summary?: string;
+            toolCall?: { toolName: string; input: Record<string, unknown> };
           }
         );
       }

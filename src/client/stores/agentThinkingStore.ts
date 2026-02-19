@@ -12,6 +12,12 @@ export interface TestResults {
   streaming?: boolean;
 }
 
+export interface ToolCallEntry {
+  toolName: string;
+  input: Record<string, unknown>;
+  timestamp: number;
+}
+
 export interface ThinkingBlock {
   id: string;
   agentName: string;
@@ -23,6 +29,7 @@ export interface ThinkingBlock {
   startedAt: number;
   blockType?: "agent" | "test-results";
   testResults?: TestResults;
+  toolCalls?: ToolCallEntry[];
 }
 
 function generateId(): string {
@@ -37,7 +44,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "frontend-dev": "Frontend Developer",
   "backend-dev": "Backend Developer",
   styling: "Styling Agent",
-  testing: "Testing Agent",
+  testing: "Test Planner",
   "code-review": "Code Reviewer",
   qa: "QA Agent",
   security: "Security Reviewer",
@@ -60,6 +67,7 @@ interface AgentThinkingState {
     status: "started" | "streaming" | "completed" | "failed";
     chunk?: string;
     summary?: string;
+    toolCall?: { toolName: string; input: Record<string, unknown> };
   }) => void;
   addTestResults: (results: TestResults) => void;
   updateTestResults: (results: TestResults) => void;
@@ -127,7 +135,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
 
   handleThinking: (payload) =>
     set((state) => {
-      const { agentName, displayName, status, chunk, summary } = payload;
+      const { agentName, displayName, status, chunk, summary, toolCall } = payload;
       const blocks = [...state.blocks];
       const idx = blocks.findIndex((b) => b.agentName === agentName);
 
@@ -176,11 +184,18 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       const existing = blocks[lastIdx]!;
 
       if (status === "streaming") {
-        blocks[lastIdx] = {
+        const updatedBlock = {
           ...existing,
-          status: "streaming",
+          status: "streaming" as const,
           content: existing.content + (chunk || ""),
         };
+        if (toolCall) {
+          updatedBlock.toolCalls = [
+            ...(existing.toolCalls || []),
+            { ...toolCall, timestamp: Date.now() },
+          ];
+        }
+        blocks[lastIdx] = updatedBlock;
         return { blocks };
       }
 

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 import { TestResultsBanner } from "./TestResultsBanner.tsx";
-import type { ThinkingBlock } from "../../stores/agentThinkingStore.ts";
+import type { ThinkingBlock, ToolCallEntry } from "../../stores/agentThinkingStore.ts";
 
 interface Props {
   block: ThinkingBlock;
@@ -183,6 +183,16 @@ function sanitizeThinking(raw: string): string {
   return cleaned;
 }
 
+function formatToolCall(tc: ToolCallEntry): string {
+  const input = tc.input as Record<string, string>;
+  switch (tc.toolName) {
+    case "write_file": return `Writing ${input.path || "file"}`;
+    case "read_file": return `Reading ${input.path || "file"}`;
+    case "list_files": return `Listing ${input.directory || "."}`;
+    default: return `${tc.toolName}(${input.path || ""})`;
+  }
+}
+
 export function AgentThinkingMessage({ block, onToggle }: Props) {
   // Render test results blocks inline using TestResultsBanner
   if (block.blockType === "test-results" && block.testResults) {
@@ -195,8 +205,9 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
     );
   }
 
-  const { displayName, status, content, summary, expanded } = block;
+  const { displayName, status, content, summary, expanded, toolCalls } = block;
   const isActive = status === "started" || status === "streaming";
+  const lastToolCall = toolCalls?.length ? toolCalls[toolCalls.length - 1] : undefined;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -232,7 +243,9 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
           </span>
 
           {isActive && (
-            <span className="text-xs text-zinc-500 italic">thinking...</span>
+            <span className="text-xs text-zinc-500 italic truncate">
+              {lastToolCall ? formatToolCall(lastToolCall) : "thinking..."}
+            </span>
           )}
 
           {status === "completed" && summary && (
@@ -275,6 +288,22 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
                 <span className="inline-block w-1.5 h-3 bg-zinc-500 animate-pulse rounded-sm align-middle ml-0.5" />
               )}
             </div>
+            {/* Tool call log */}
+            {toolCalls && toolCalls.length > 0 && (
+              <div className="px-4 pb-2 flex flex-wrap gap-1.5">
+                {toolCalls.map((tc, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 text-zinc-400 border border-zinc-700/50"
+                  >
+                    <span className="text-zinc-600 font-mono">
+                      {tc.toolName === "write_file" ? "W" : tc.toolName === "read_file" ? "R" : "L"}
+                    </span>
+                    {(tc.input as Record<string, string>).path || (tc.input as Record<string, string>).directory || tc.toolName}
+                  </span>
+                ))}
+              </div>
+            )}
             {/* Toggle raw output */}
             {hasRawContent && !isActive && (
               <div className="px-4 pb-2">
