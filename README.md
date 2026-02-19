@@ -18,7 +18,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 - [ ] **Snapshots UI** — Snapshot API + DB schema exist, but no UI is wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` are orphaned components. Need to add snapshot panel to sidebar and connect create/rollback actions.
 - [ ] **Auto-snapshot after pipeline** — Wiki claims snapshots are created automatically after each orchestration run. `finishPipeline()` does not call `createSnapshot()`.
-- [ ] **Agent Roster wiki accuracy** — Build pipeline section says Test Planner runs as a separate step; it's now merged into architect in build mode (only separate in fix mode).
+- [x] ~~**Agent Roster wiki accuracy** — Build pipeline section says Test Planner runs as a separate step; it's now merged into architect in build mode (only separate in fix mode).~~
 
 ## Tech Stack
 

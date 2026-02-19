@@ -51,7 +51,7 @@
 
 ## Key Decisions
 
-- See [ADR-001: Tech Stack](../adr/001-tech-stack.md)
+- See [ADR-001: Tech Stack](https://github.com/anthonybaldwin/page-gen/blob/main/docs/adr/001-tech-stack.md)
 - API keys stored in browser localStorage, sent per-request via headers
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency

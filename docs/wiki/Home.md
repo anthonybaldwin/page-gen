@@ -4,15 +4,15 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 ## Quick Links
 
-- [Architecture](Architecture.md) - System architecture overview
-- [Agent Roster](Agent-Roster.md) - All agents, roles, models, prompts
-- [Data Model](Data-Model.md) - Schema reference
-- [API Reference](API-Reference.md) - Backend routes
-- [HMR Preview](HMR-Preview.md) - How live preview works
-- [Token Billing](Token-Billing.md) - Usage tracking and billing
-- [Snapshots](Snapshots.md) - Versioning and rollback
-- [Pipeline Resume](Pipeline-Resume.md) - Resume interrupted pipelines
-- [Security](Security.md) - Security model
+- [Architecture](Architecture) - System architecture overview
+- [Agent Roster](Agent-Roster) - All agents, roles, models, prompts
+- [Data Model](Data-Model) - Schema reference
+- [API Reference](API-Reference) - Backend routes
+- [HMR Preview](HMR-Preview) - How live preview works
+- [Token Billing](Token-Billing) - Usage tracking and billing
+- [Snapshots](Snapshots) - Versioning and rollback
+- [Pipeline Resume](Pipeline-Resume) - Resume interrupted pipelines
+- [Security](Security) - Security model
 
 ## Getting Started
 

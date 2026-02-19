@@ -21,15 +21,15 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 
 ### 3. Architect Agent
 - **Model:** Claude Opus 4.6 (Anthropic)
-- **Role:** Designs component tree, file structure, data flow
-- **Output:** Component hierarchy, file plan, dependency list
-- **Tools:** None — receives research output, produces architecture doc
+- **Role:** Designs component tree, file structure, data flow, and test plan
+- **Output:** Component hierarchy, file plan, dependency list, and `test_plan` section (build mode only)
+- **Tools:** None — receives research output, produces architecture doc with embedded test specs
 
 ### 4. Frontend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
-- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the Test Planner
+- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -43,13 +43,13 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 
-### 7. Test Planner (formerly Testing Agent)
+### 7. Test Planner (fix mode only)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Creates a JSON test plan that defines expected behavior — dev agents use this to write test files alongside their code
-- **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code (fix mode)
+- **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code
 - **Output:** Structured JSON test plan with component-to-test mapping, behavior descriptions, and setup notes
-- **Position (build mode):** After architect, before frontend-dev — test plan defines expected behavior before implementation
-- **Position (fix mode):** First step — creates test plan that defines expected behavior for the fix
+- **Position (build mode):** Not used as a separate step — the architect includes a `test_plan` section in its output, saving one API call and one pipeline stage
+- **Position (fix mode):** First step — creates test plan that defines expected behavior for the fix (no architect in fix mode, so test planner runs independently)
 - **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
 - **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
 
@@ -88,12 +88,12 @@ Classification uses a ~50-token Opus call. Fast-path: empty projects always get 
 ### Build Pipeline (Parallelized)
 
 ```
-User → Orchestrator → classifyIntent() → "build"
+User → Orchestrator → classifyIntent() → "build" (scope used for backend gating)
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
-      → Architect → Test Planner (creates test plan)
-      → Frontend Dev ─┬─ [write tests + code] → [run tests]    (parallel if backend needed)
-      → Backend Dev  ─┘─ [write tests + code] → [run tests]
+      → Architect (architecture + test plan)
+      → Frontend Dev → [write tests + code] → [run tests]
+      → Backend Dev → [write tests + code] → [run tests]  (only if scope + research require it)
       → Styling (waits for all dev agents)
       → Code Review ─┐
       → Security     ├─ (parallel, all depend on Styling)
@@ -101,6 +101,8 @@ User → Orchestrator → classifyIntent() → "build"
   → Remediation Loop (max 2 cycles, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
+
+**Stage count:** 5 stages without backend, 6 with backend.
 
 ### Fix Pipeline (Parallelized)
 
@@ -137,7 +139,7 @@ The pipeline executor uses dependency-aware batch scheduling:
 - Cost limit checked after each batch completes
 
 **Parallel groups in build mode:**
-- `frontend-dev` and `backend-dev` both depend on `testing` → run in parallel
+- `frontend-dev` depends on `architect`; `backend-dev` depends on `frontend-dev` (sequential to avoid file conflicts)
 - `styling` depends on all dev agents → waits for both to complete
 - `code-review`, `security`, and `qa` all depend on `styling` → run in parallel
 
@@ -161,7 +163,12 @@ The orchestrator broadcasts a `pipeline_plan` WebSocket message at the start of 
 
 ### Conditional Backend
 
-The research agent outputs `requires_backend: true/false` per feature in its JSON requirements. The orchestrator's `needsBackend()` function checks this flag (with a regex heuristic fallback) to decide whether to include backend-dev in the execution plan.
+Backend-dev inclusion is gated by two checks:
+
+1. **Scope gate:** If the intent classifier sets scope to `frontend` or `styling`, backend-dev is skipped regardless of research output. This prevents false positives like "no backend needed" triggering the backend agent.
+2. **Research gate:** The research agent outputs `requires_backend: true/false` per feature in its JSON requirements. The orchestrator's `needsBackend()` function checks this flag (with a regex heuristic fallback) to decide whether to include backend-dev.
+
+Both must agree — scope must allow it AND research must indicate it.
 
 ### Remediation Loop
 
