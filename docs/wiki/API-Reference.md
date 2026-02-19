@@ -204,9 +204,14 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `agent_status` — Agent status change (pending, running, completed, failed, stopped)
 - `agent_stream` — Agent output stream (full text after completion)
 - `agent_complete` — Agent finished execution
-- `agent_error` — Agent encountered an error
+- `agent_error` — Agent encountered an error. Payload includes optional `errorType` field:
+  - `errorType: "cost_limit"` — Token limit reached mid-pipeline. Client shows amber banner with inline settings instead of red error.
 - `chat_message` — New chat message
 - `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
 - `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)
 - `files_changed` — Files written to disk (projectId, files[])
-- `test_results` — Test execution results from the testing agent (chatId, projectId, passed, failed, total, duration, failures[])
+- `test_results` — Final test execution results (chatId, projectId, passed, failed, total, duration, failures[], testDetails[])
+  - `testDetails` — Array of per-test results: `{ suite, name, status, error?, duration? }`
+- `test_result_incremental` — Individual test result streamed as vitest runs (chatId, projectId, suite, name, status, error?, duration?)
+- `pipeline_plan` — Broadcast at pipeline start with the list of agent names to display in the status bar
+- `preview_ready` — Broadcast after a successful build check, triggers preview iframe reload

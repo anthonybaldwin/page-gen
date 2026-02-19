@@ -41,14 +41,15 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file` only
 
-### 7. Testing Agent
+### 7. Testing Agent (TDD)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Writes vitest unit/integration tests for generated React components
+- **Role:** Writes vitest tests **from requirements and architecture** BEFORE dev agents implement code (test-driven development)
 - **Tools:** `write_file` only — writes test files and vitest config
 - **Output:** Test files using vitest + @testing-library/react + happy-dom
-- **Position:** After styling, before code-review (both build and fix modes)
-- **Post-step:** Orchestrator runs `bunx vitest run --reporter=json` after test files are written. If tests fail, routes failures to frontend-dev for one fix attempt, then re-runs tests.
-- **Test results:** Broadcast via `test_results` WebSocket event and displayed in a TestResultsBanner component
+- **Position (build mode):** After architect, before frontend-dev — tests define expected behavior before implementation
+- **Position (fix mode):** First step — writes tests that verify the fix before dev agents make changes
+- **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
+- **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed in a per-test checklist UI with streaming results.
 
 ### 8. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -82,30 +83,32 @@ Before running the pipeline, the orchestrator classifies the user's message into
 
 Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
 
-### Build Pipeline (Full)
+### Build Pipeline (TDD)
 
 ```
 User → Orchestrator → classifyIntent() → "build"
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
-      → Architect → Frontend Dev → [Backend Dev if needed] → [Build Check]
-      → Styling → Testing (write + run vitest) → Code Review → Security
+      → Architect → Testing (write tests from spec)
+      → Frontend Dev → [run tests] → [Backend Dev if needed] → [run tests]
+      → Styling → [run tests] → Code Review → Security
       → QA (validate requirements)
   → Remediation Loop (max 2 cycles)
   → [Final Build Check] → Summary
 ```
 
-### Fix Pipeline (Scoped)
+### Fix Pipeline (TDD)
 
 ```
 User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|styling|full)
   → Read existing project source
+  → Testing (write/update tests for the fix)
   → Route to dev agent(s) by scope:
-      frontend → frontend-dev
-      backend  → backend-dev
-      styling  → styling
-      full     → frontend-dev + backend-dev
-  → Testing → Code Review → Security → QA
+      frontend → frontend-dev → [run tests]
+      backend  → backend-dev → [run tests]
+      styling  → styling → [run tests]
+      full     → frontend-dev + backend-dev → [run tests]
+  → Code Review → Security → QA
   → Remediation Loop (max 2 cycles)
   → [Final Build Check] → Summary
 ```
@@ -161,14 +164,16 @@ Each cycle checks the cost limit before proceeding. The loop exits early if:
 
 In the UI, re-review agents show their cycle number (e.g., "Code Reviewer (re-review #1)") so the user can track the iteration.
 
-### File Extraction
+### File Extraction (Hardened)
 
 Agents don't write files directly to disk. Instead:
 1. Agents include `<tool_call>` blocks with `write_file` in their text output
 2. The orchestrator's `extractAndWriteFiles()` parses these tool calls from the output
-3. File paths are sanitized (strip leading quotes/backticks, normalize separators)
-4. Files are written to the project directory via `file-ops.ts`
-5. A `files_changed` WebSocket event is broadcast so the UI updates
+3. **JSON repair step:** When `JSON.parse` fails, the extractor first attempts to repair common issues (literal newlines, tabs, BOM characters) before falling back to regex. Warnings are logged for debugging.
+4. **Content normalization:** All extracted content is cleaned (BOM stripped, CRLF→LF, CR→LF)
+5. File paths are sanitized (strip leading quotes/backticks, normalize separators)
+6. Files are written to the project directory via `file-ops.ts`
+7. A `files_changed` WebSocket event is broadcast so the UI updates
 
 ### Build Check Pipeline
 

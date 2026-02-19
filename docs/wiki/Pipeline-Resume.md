@@ -26,8 +26,8 @@ Every pipeline execution creates a row in the `pipeline_runs` table:
 
 ```
 running → completed   (pipeline finished successfully)
-running → failed      (agent error or cost limit)
-running → interrupted (server restart — set by cleanupStaleExecutions)
+running → failed      (agent error, not cost-related)
+running → interrupted (server restart OR cost limit reached mid-pipeline)
 interrupted → running (user clicks Resume)
 ```
 
@@ -55,13 +55,35 @@ On server startup, `cleanupStaleExecutions()` now also marks all `running` pipel
 - **Research not completed (build mode):** Cannot resume — falls back to a fresh start
 - **No interrupted pipeline found:** Falls back to a fresh start (same as `resume: false`)
 - **All agents completed:** Skips straight to the finish pipeline (remediation + summary)
+- **Cost limit still exceeded on resume:** Aborts immediately with `errorType: "cost_limit"` message telling user to increase limits first
+
+### Cost Limit Resume Flow
+
+When the token limit is reached mid-pipeline:
+
+1. `executePipelineSteps()` broadcasts an `agent_error` with `errorType: "cost_limit"`
+2. Pipeline is marked as `"interrupted"` (not `"failed"`) so it's resumable
+3. Client shows an **amber banner** (not red error) with "Token limit reached. Pipeline paused."
+4. User clicks **"Increase limit & resume"** → inline `LimitsSettings` panel appears
+5. After adjusting limits and clicking **"Resume pipeline"**, the existing resume flow kicks in
+6. `resumeOrchestration()` re-checks the cost limit — if still over, aborts with a clear message
 
 ## Client UX
 
-When a pipeline is interrupted, the chat shows an amber banner with three options:
+### Server Restart Interruption
+
+When a pipeline is interrupted by a server restart, the chat shows an amber banner with three options:
 
 1. **Resume** (primary, amber button) — Picks up from the last completed agent
 2. **Retry from scratch** (secondary, subtle link) — Runs a fresh pipeline
+3. **Dismiss** — Hides the banner
+
+### Cost Limit Interruption
+
+When the token limit is reached mid-pipeline, the chat shows an amber banner with:
+
+1. **"Increase limit & resume"** — Toggles an inline LimitsSettings panel
+2. **"Resume pipeline"** (green button, appears after adjusting limits) — Triggers the resume flow
 3. **Dismiss** — Hides the banner
 
 The `/agents/status` endpoint now returns `interruptedPipelineId` so the client can detect interrupted pipelines on load.

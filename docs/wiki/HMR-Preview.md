@@ -49,7 +49,16 @@ After each file-producing agent completes (`frontend-dev`, `backend-dev`, `styli
 - When agents write/modify files via the `file-ops` tool, Vite's built-in file watcher detects the change
 - Vite sends HMR updates over WebSocket to the iframe
 - The iframe re-renders with updated code — no full page reload needed
-- As a fallback, the client also listens for `files_changed` WS events and reloads the iframe
+
+### Pipeline-Aware Preview Gating
+
+The preview component tracks whether the pipeline is running via `agent_status` WS events:
+
+- **Pipeline running:** `files_changed` events are **ignored** — preview does NOT reload. This prevents showing broken/corrupted state while agents are mid-write and build hasn't passed yet.
+- **Pipeline idle:** `files_changed` events reload the preview as a fallback (HMR should handle most cases).
+- **`preview_ready` events** always trigger a reload regardless of pipeline state. These are only sent after a successful build check.
+
+This prevents the preview from flashing broken content when agents write files that haven't been build-checked yet.
 
 ### Preview Iframe Security
 - iframe uses `sandbox="allow-scripts allow-same-origin allow-forms"`
