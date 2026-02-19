@@ -45,10 +45,19 @@ Unknown models fall back to Sonnet-tier pricing ($3/$15).
 
 ## Safety Limits
 
-- **Default limit:** 500,000 tokens per session
-- **Warning:** Shown at 80% of limit
-- **Pause:** At 100%, orchestration pauses and user must confirm to continue
-- Limits are configurable per-session
+All limits are stored in the `app_settings` table and configurable from the Usage Dashboard → Limits tab.
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| Max tokens per chat | 500,000 | Token ceiling per chat session (0 = unlimited) |
+| Max agent calls per run | 30 | Hard cap on agent invocations per pipeline |
+| Max cost per day | $0 | Daily spending cap across all projects (0 = unlimited) |
+| Max cost per project | $0 | Per-project lifetime spending cap (0 = unlimited) |
+
+- **Warning:** Shown at 80% of token limit
+- **Pause:** At 100%, orchestration pauses with a clear error message
+- Daily cost is summed from `billing_ledger` records with `created_at >= start of day`
+- Project cost is summed from `billing_ledger` records matching the project ID
 
 ## API Endpoints
 
@@ -77,3 +86,5 @@ Clicking the badge opens the full usage dashboard as a modal overlay.
 3. **By Provider** — Token usage per provider/model
 4. **Request Log** — Per-request detail table
 5. **History** — Lifetime billing history with per-project and per-chat breakdown (includes deleted entities)
+6. **Limits** — Configure spending guardrails (max tokens, agent calls, daily/project cost caps)
+7. **API Keys** — Edit or clear provider API keys and proxy URLs

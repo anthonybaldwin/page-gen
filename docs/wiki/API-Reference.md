@@ -111,7 +111,16 @@ Get full billing history from `billing_ledger` (never deleted).
 ## Settings
 
 ### GET /settings
-Get server-side settings.
+Get server-side settings, including configurable limits from `app_settings`.
+
+**Response:** `{ maxSnapshotsPerProject: number, defaultTokenLimit: number, warningThreshold: number, limits: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject } }`
+
+### PUT /settings/limits
+Update cost/usage limits. Accepts a partial object — only provided keys are updated.
+
+**Body:** `{ maxTokensPerChat?: number, maxAgentCallsPerRun?: number, maxCostPerDay?: number, maxCostPerProject?: number }`
+
+**Response:** `{ ok: true, limits: { ... } }`
 
 ### POST /settings/validate-key
 Validate an API key.

@@ -84,6 +84,22 @@ Permanent, append-only table with **no foreign keys**. Records survive chat/proj
 | cost_estimate | REAL | Estimated cost in USD |
 | created_at | INTEGER | Unix timestamp (ms) |
 
+### app_settings
+Key-value store for persistent application configuration (e.g., cost limits).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| key | TEXT PK | Setting name (e.g., maxTokensPerChat) |
+| value | TEXT | Setting value (stored as string, parsed as number) |
+
+Default keys seeded on first read:
+| Key | Default | Description |
+|-----|---------|-------------|
+| maxTokensPerChat | 500000 | Token ceiling per chat session |
+| maxAgentCallsPerRun | 30 | Max agent invocations per pipeline run |
+| maxCostPerDay | 0 | Daily $ cap (0 = unlimited) |
+| maxCostPerProject | 0 | Per-project $ cap (0 = unlimited) |
+
 ### snapshots
 | Column | Type | Description |
 |--------|------|-------------|
