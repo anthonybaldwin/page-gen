@@ -9,7 +9,7 @@ import { getAgentConfigResolved } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
-import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults, broadcastTestResultIncremental } from "../ws.ts";
 import { broadcast } from "../ws.ts";
 import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
@@ -2002,6 +2002,7 @@ export interface TestRunResult {
   total: number;
   duration: number;
   failures: Array<{ name: string; error: string }>;
+  testDetails?: Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>;
 }
 
 /**
@@ -2020,6 +2021,8 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
       : 0;
 
     const failures: Array<{ name: string; error: string }> = [];
+    const testDetails: TestRunResult["testDetails"] = [];
+
     if (jsonOutput.testResults) {
       for (const suite of jsonOutput.testResults) {
         const suiteName = suite.name || suite.testFilePath || "unknown suite";
@@ -2031,6 +2034,12 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
             name: `[Collection Error] ${suiteName}`,
             error: errorMsg,
           });
+          testDetails.push({
+            suite: suiteName,
+            name: "[Collection Error]",
+            status: "failed",
+            error: errorMsg,
+          });
           failed++;
           total++;
           continue;
@@ -2038,10 +2047,26 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
 
         if (suite.assertionResults) {
           for (const test of suite.assertionResults) {
+            const testName = test.fullName || test.title || "unknown test";
+            const testStatus = test.status === "passed" ? "passed"
+              : test.status === "failed" ? "failed"
+              : "skipped";
+            const testError = test.status === "failed"
+              ? (test.failureMessages || []).join("\n").slice(0, 500)
+              : undefined;
+
+            testDetails.push({
+              suite: suiteName,
+              name: testName,
+              status: testStatus,
+              error: testError,
+              duration: test.duration,
+            });
+
             if (test.status === "failed") {
               failures.push({
-                name: test.fullName || test.title || "unknown test",
-                error: (test.failureMessages || []).join("\n").slice(0, 500),
+                name: testName,
+                error: testError || "",
               });
             }
           }
@@ -2049,7 +2074,7 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
       }
     }
 
-    return { passed, failed, total, duration, failures };
+    return { passed, failed, total, duration, failures, testDetails };
   } catch {
     // JSON parsing failed — create result from exit code
     if (exitCode === 0) {
@@ -2104,22 +2129,60 @@ export default defineConfig({
   console.log(`[orchestrator] Running tests in ${fullPath}...`);
 
   try {
-    const proc = Bun.spawn(["bunx", "vitest", "run", "--reporter=json"], {
-      cwd: fullPath,
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...process.env, NODE_ENV: "test" },
-    });
+    const jsonOutputFile = join(fullPath, "vitest-results.json");
+    const proc = Bun.spawn(
+      ["bunx", "vitest", "run", "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile],
+      {
+        cwd: fullPath,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, NODE_ENV: "test" },
+      },
+    );
+
+    // Stream verbose output line-by-line for incremental results
+    const verboseStdout = await new Response(proc.stdout).text();
+    const lines = verboseStdout.split("\n");
+    for (const line of lines) {
+      // Vitest verbose format: " ✓ Suite > test name 3ms" or " × Suite > test name"
+      const passMatch = line.match(/^\s*[✓✔]\s+(.+?)\s+>\s+(.+?)(?:\s+(\d+)ms)?$/);
+      const failMatch = line.match(/^\s*[×✗]\s+(.+?)\s+>\s+(.+?)(?:\s+(\d+)ms)?$/);
+      if (passMatch) {
+        broadcastTestResultIncremental({
+          chatId, projectId,
+          suite: passMatch[1]!.trim(),
+          name: passMatch[2]!.trim(),
+          status: "passed",
+          duration: passMatch[3] ? parseInt(passMatch[3]) : undefined,
+        });
+      } else if (failMatch) {
+        broadcastTestResultIncremental({
+          chatId, projectId,
+          suite: failMatch[1]!.trim(),
+          name: failMatch[2]!.trim(),
+          status: "failed",
+          duration: failMatch[3] ? parseInt(failMatch[3]) : undefined,
+        });
+      }
+    }
 
     const exitCode = await proc.exited;
-    const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
 
     if (stderr.trim()) {
       console.log("[orchestrator] Test stderr:", stderr.trim().slice(0, 2000));
     }
 
-    const result = parseVitestOutput(stdout, stderr, exitCode);
+    // Read JSON output from file (json reporter writes to outputFile)
+    let jsonStdout = "";
+    try {
+      jsonStdout = await Bun.file(jsonOutputFile).text();
+    } catch {
+      // JSON file might not exist if vitest failed early — use verbose output
+      jsonStdout = verboseStdout;
+    }
+
+    const result = parseVitestOutput(jsonStdout, stderr, exitCode);
 
     broadcastTestResults({
       chatId,

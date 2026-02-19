@@ -9,7 +9,7 @@ import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
 import { api } from "../../lib/api.ts";
 import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
-import type { Message } from "../../../shared/types.ts";
+import type { Message, TestDetail } from "../../../shared/types.ts";
 import { nanoid } from "nanoid";
 
 export function ChatWindow() {
@@ -24,6 +24,8 @@ export function ChatWindow() {
   const [testResults, setTestResults] = useState<{
     passed: number; failed: number; total: number; duration: number;
     failures: Array<{ name: string; error: string }>;
+    testDetails?: TestDetail[];
+    streaming?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -90,13 +92,33 @@ export function ChatWindow() {
         });
       }
 
-      // Test results from test runner
+      // Incremental test results (streaming one-by-one)
+      if (msg.type === "test_result_incremental") {
+        const payload = msg.payload as unknown as TestDetail;
+        setTestResults((prev) => {
+          const details = [...(prev?.testDetails || []), payload];
+          const passed = details.filter((d) => d.status === "passed").length;
+          const failed = details.filter((d) => d.status === "failed").length;
+          return {
+            passed,
+            failed,
+            total: details.length,
+            duration: 0,
+            failures: details.filter((d) => d.status === "failed").map((d) => ({ name: d.name, error: d.error || "" })),
+            testDetails: details,
+            streaming: true,
+          };
+        });
+      }
+
+      // Final test results (replaces streaming state)
       if (msg.type === "test_results") {
         const payload = msg.payload as {
           passed: number; failed: number; total: number; duration: number;
           failures: Array<{ name: string; error: string }>;
+          testDetails?: TestDetail[];
         };
-        setTestResults(payload);
+        setTestResults({ ...payload, streaming: false });
       }
 
       // Orchestrator status changes

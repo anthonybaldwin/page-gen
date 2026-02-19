@@ -117,8 +117,16 @@ export interface IntentClassification {
 }
 
 export interface WsMessage {
-  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "test_results";
+  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "test_results" | "test_result_incremental";
   payload: Record<string, unknown>;
+}
+
+export interface TestDetail {
+  suite: string;
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  error?: string;
+  duration?: number;
 }
 
 export interface FileNode {

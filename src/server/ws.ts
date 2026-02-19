@@ -76,9 +76,25 @@ export function broadcastTestResults(payload: {
   total: number;
   duration: number;
   failures: Array<{ name: string; error: string }>;
+  testDetails?: Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>;
 }) {
   broadcast({
     type: "test_results",
+    payload,
+  });
+}
+
+export function broadcastTestResultIncremental(payload: {
+  chatId: string;
+  projectId: string;
+  suite: string;
+  name: string;
+  status: "passed" | "failed" | "skipped";
+  error?: string;
+  duration?: number;
+}) {
+  broadcast({
+    type: "test_result_incremental",
     payload,
   });
 }
