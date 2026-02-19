@@ -314,7 +314,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Usage dashboard modal */}
       {showUsage && (
         <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
             <UsageDashboard onClose={() => setShowUsage(false)} />
           </div>
         </div>
@@ -323,7 +323,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Settings modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
             <SettingsModal onClose={() => setShowSettings(false)} />
           </div>
         </div>
