@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -8,7 +9,7 @@ import { getAgentConfig } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit } from "../services/cost-limiter.ts";
-import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking } from "../ws.ts";
 import { broadcast } from "../ws.ts";
 import { writeFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
@@ -217,7 +218,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         completedAgents.push(step.agentName);
 
         // Extract and write files from agent output
-        extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
+        const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
+
+        // Build check after file-producing agents — catch errors early
+        if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
+          const buildErrors = await checkProjectBuild(projectPath);
+          if (buildErrors && !signal.aborted) {
+            const fixResult = await runBuildFix({
+              buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+              userMessage, chatHistory, agentResults, providers, apiKeys, signal,
+            });
+            if (fixResult) {
+              agentResults.set(`${step.agentName}-build-fix`, fixResult);
+              completedAgents.push(`${step.agentName} (build fix)`);
+            }
+          }
+        }
 
         break; // Success — exit retry loop
       } catch (err) {
@@ -400,6 +416,21 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
             broadcastAgentError(remediationAgent, `Remediation failed: ${errorMsg}`);
           }
         }
+      }
+    }
+  }
+
+  // --- Final build check: catch any remaining compile errors ---
+  if (!signal.aborted) {
+    const finalBuildErrors = await checkProjectBuild(projectPath);
+    if (finalBuildErrors && !signal.aborted) {
+      const fixResult = await runBuildFix({
+        buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+        userMessage, chatHistory, agentResults, providers, apiKeys, signal,
+      });
+      if (fixResult) {
+        agentResults.set("final-build-fix", fixResult);
+        completedAgents.push("frontend-dev (final build fix)");
       }
     }
   }
@@ -726,4 +757,163 @@ function extractAndWriteFiles(
   }
 
   return written;
+}
+
+/**
+ * Run a Vite build check on the project to detect compile errors.
+ * Returns error output string if there are errors, null if build succeeds.
+ */
+async function checkProjectBuild(projectPath: string): Promise<string | null> {
+  const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
+    ? projectPath
+    : join(process.cwd(), projectPath);
+
+  // Wait for any pending preview prep (which includes bun install)
+  await prepareProjectForPreview(projectPath);
+
+  console.log(`[orchestrator] Running build check in ${fullPath}...`);
+
+  try {
+    const proc = Bun.spawn(["bunx", "vite", "build", "--mode", "development"], {
+      cwd: fullPath,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, NODE_ENV: "development" },
+    });
+
+    const exitCode = await proc.exited;
+    if (exitCode === 0) {
+      console.log(`[orchestrator] Build check passed`);
+      return null;
+    }
+
+    const stderr = await new Response(proc.stderr).text();
+    const stdout = await new Response(proc.stdout).text();
+    const combined = (stderr + "\n" + stdout).trim();
+
+    // Extract just the error lines, skip noise
+    const errorLines = combined
+      .split("\n")
+      .filter((line) => /error|Error|ERR_|SyntaxError|TypeError|not found|does not provide/i.test(line))
+      .join("\n");
+
+    const errors = errorLines || combined.slice(0, 2000);
+    console.log(`[orchestrator] Build check failed:\n${errors}`);
+    return errors;
+  } catch (err) {
+    console.error(`[orchestrator] Build check process error:`, err);
+    return null; // Don't block pipeline on check failure
+  }
+}
+
+/**
+ * Run frontend-dev agent to fix build errors.
+ * Returns the agent's output content, or null on failure.
+ */
+async function runBuildFix(params: {
+  buildErrors: string;
+  chatId: string;
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  chatTitle: string;
+  userMessage: string;
+  chatHistory: Array<{ role: string; content: string }>;
+  agentResults: Map<string, string>;
+  providers: ProviderInstance;
+  apiKeys: Record<string, string>;
+  signal: AbortSignal;
+}): Promise<string | null> {
+  const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, providers, apiKeys, signal } = params;
+
+  const costCheck = checkCostLimit(chatId);
+  if (!costCheck.allowed) return null;
+
+  const fixAgent = "frontend-dev" as AgentName;
+  const config = getAgentConfig(fixAgent);
+  if (!config) return null;
+
+  broadcastAgentStatus(fixAgent, "running", { phase: "build-fix" });
+  broadcastAgentThinking(fixAgent, "Frontend Developer", "started");
+
+  const execId = nanoid();
+  await db.insert(schema.agentExecutions).values({
+    id: execId,
+    chatId,
+    agentName: fixAgent,
+    status: "running",
+    input: JSON.stringify({ phase: "build-fix", errors: buildErrors }),
+    output: null,
+    error: null,
+    retryCount: 0,
+    startedAt: Date.now(),
+    completedAt: null,
+  });
+
+  const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the Vite build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Output corrected versions of the files that need changes. The original code is in Previous Agent Outputs. Make sure all exports and imports match correctly.`;
+
+  try {
+    const fixInput: AgentInput = {
+      userMessage: fixPrompt,
+      chatHistory,
+      projectPath,
+      context: {
+        projectId,
+        originalRequest: userMessage,
+        upstreamOutputs: Object.fromEntries(agentResults),
+        phase: "build-fix",
+      },
+    };
+
+    const result = await runAgent(config, providers, fixInput, undefined, signal);
+
+    if (result.tokenUsage) {
+      const providerKey = apiKeys[config.provider];
+      if (providerKey) {
+        const record = trackTokenUsage({
+          executionId: execId,
+          chatId,
+          agentName: fixAgent,
+          provider: config.provider,
+          model: config.model,
+          apiKey: providerKey,
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          projectId,
+          projectName,
+          chatTitle,
+        });
+        broadcastTokenUsage({
+          chatId,
+          agentName: fixAgent,
+          provider: config.provider,
+          model: config.model,
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          totalTokens: result.tokenUsage.totalTokens,
+          costEstimate: record.costEstimate,
+        });
+      }
+    }
+
+    await db.update(schema.agentExecutions)
+      .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
+      .where(eq(schema.agentExecutions.id, execId));
+
+    extractAndWriteFiles("frontend-dev", result.content, projectPath, projectId);
+
+    broadcastAgentStatus(fixAgent, "completed", { phase: "build-fix" });
+    return result.content;
+  } catch (err) {
+    if (!signal.aborted) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await db.update(schema.agentExecutions)
+        .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
+        .where(eq(schema.agentExecutions.id, execId));
+      broadcastAgentError(fixAgent, `Build fix failed: ${errorMsg}`);
+    }
+    broadcastAgentStatus(fixAgent, "failed", { phase: "build-fix" });
+    return null;
+  }
 }

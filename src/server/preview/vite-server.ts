@@ -10,12 +10,13 @@ const installedProjects = new Set<string>();
 function ensureProjectHasViteConfig(projectPath: string) {
   const configPath = join(projectPath, "vite.config.ts");
 
-  // Always overwrite with our known-good config to ensure React plugin is present
+  // Always overwrite with our known-good config to ensure React + Tailwind plugins are present
   const config = `import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   root: ".",
   server: {
     hmr: true,
@@ -65,9 +66,11 @@ function ensureProjectHasPackageJson(projectPath: string) {
   if (!deps.react) deps.react = "^19.0.0";
   if (!deps["react-dom"]) deps["react-dom"] = "^19.0.0";
 
-  // Ensure Vite + React plugin in devDeps
+  // Ensure Vite + React plugin + Tailwind in devDeps
   if (!devDeps.vite) devDeps.vite = "^6.0.0";
   if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = "^4.3.0";
+  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = "^4.0.0";
+  if (!devDeps.tailwindcss) devDeps.tailwindcss = "^4.0.0";
   if (!devDeps["@types/react"]) devDeps["@types/react"] = "^19.0.0";
   if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = "^19.0.0";
 
@@ -118,6 +121,7 @@ function ensureProjectHasMainEntry(projectPath: string) {
 
   const mainContent = `import React from "react";
 import { createRoot } from "react-dom/client";
+import "./index.css";
 import App from "${appImport}";
 
 const root = createRoot(document.getElementById("root")!);
@@ -129,6 +133,20 @@ root.render(
 `;
 
   writeFileSync(mainPath, mainContent, "utf-8");
+}
+
+/**
+ * Ensure src/index.css exists with Tailwind CSS v4 import.
+ */
+function ensureProjectHasTailwindCss(projectPath: string) {
+  const cssPath = join(projectPath, "src", "index.css");
+  if (existsSync(cssPath)) return;
+
+  mkdirSync(join(projectPath, "src"), { recursive: true });
+
+  const css = `@import "tailwindcss";
+`;
+  writeFileSync(cssPath, css, "utf-8");
 }
 
 /**
@@ -173,6 +191,7 @@ export async function prepareProjectForPreview(projectPath: string): Promise<voi
   ensureProjectHasPackageJson(fullPath);
   ensureProjectHasViteConfig(fullPath);
   ensureProjectHasIndexHtml(fullPath);
+  ensureProjectHasTailwindCss(fullPath);
   ensureProjectHasMainEntry(fullPath);
   await installProjectDependencies(fullPath);
 }

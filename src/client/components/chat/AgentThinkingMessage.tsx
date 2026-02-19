@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 import type { ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 
@@ -8,31 +8,51 @@ interface Props {
 }
 
 /**
- * Strip internal agent plumbing from the streamed content:
- * - <tool_call>...</tool_call> blocks
- * - <tool_response>...</tool_response> blocks
- * - <tool>...</tool> tags and partial tags
- * - Lone XML-like tags (<tool_call>, </tool_response>, etc.)
- * - Raw JSON blobs ({ "name": ... })
- * Keeps the agent's natural language reasoning.
+ * Aggressively strip internal agent plumbing from streamed content.
+ * Returns clean natural-language text suitable for display.
  */
 function sanitizeThinking(raw: string): string {
   let cleaned = raw;
 
-  // Remove complete tool_call / tool_response / tool blocks (including partial/unclosed)
+  // Remove ALL XML-style tags (tool_call, parameter, invoke, tool_response, etc.)
+  // This catches <tool_call>...</tool_call>, <parameter name="...">...</parameter>, etc.
   cleaned = cleaned.replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/gi, "");
   cleaned = cleaned.replace(/<tool_response[\s\S]*?(<\/tool_response>|$)/gi, "");
   cleaned = cleaned.replace(/<tool[\s>][\s\S]*?(<\/tool>|$)/gi, "");
+  cleaned = cleaned.replace(/<invoke[\s\S]*?(<\/invoke>|$)/gi, "");
+  cleaned = cleaned.replace(/<result[\s\S]*?(<\/result>|$)/gi, "");
 
-  // Remove any remaining XML-like tags that look like internal plumbing
-  cleaned = cleaned.replace(/<\/?(?:tool_call|tool_response|tool|function_call|function_response|result|invoke)[^>]*>/gi, "");
+  // Remove any standalone XML-like tags (opening, closing, self-closing)
+  cleaned = cleaned.replace(/<\/?[\w_-]+(?:\s+[\w_-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]*))?)*\s*\/?>/g, "");
 
-  // Remove lines that are just JSON objects/arrays (common in tool responses)
-  cleaned = cleaned.replace(/^\s*[{[][\s\S]*?[}\]]\s*$/gm, (match) => {
-    // Only remove if it looks like a full JSON blob (has quotes and colons)
+  // Remove markdown code blocks that contain JSON or structured data
+  cleaned = cleaned.replace(/```(?:json|xml|typescript|tsx|ts|jsx|javascript|js|css|html)?\n[\s\S]*?```/g, (match) => {
+    // Keep code blocks that look like they have useful explanatory code (short, no JSON-like structure)
+    const inner = match.replace(/```\w*\n?/, "").replace(/\n?```$/, "").trim();
+    // If it looks like JSON or XML, remove it
+    if (inner.startsWith("{") || inner.startsWith("[") || inner.startsWith("<")) return "";
+    // If it's a very long code block, remove it (it's probably a full file)
+    if (inner.split("\n").length > 10) return "";
+    return match;
+  });
+
+  // Remove multi-line JSON objects/arrays (with some tolerance for whitespace)
+  cleaned = cleaned.replace(/^\s*\{[\s\S]*?\}\s*$/gm, (match) => {
+    if (match.includes('"') && (match.includes(":") || match.includes(","))) return "";
+    return match;
+  });
+
+  // Remove single-line JSON-like patterns
+  cleaned = cleaned.replace(/^\s*[{["][\s\S]{20,}$/gm, (match) => {
     if (match.includes('"') && match.includes(":")) return "";
     return match;
   });
+
+  // Remove lines that are just }, ], },  etc.
+  cleaned = cleaned.replace(/^\s*[}\]],?\s*$/gm, "");
+
+  // Remove lines that are just "key": value pairs (leftover from stripped JSON)
+  cleaned = cleaned.replace(/^\s*"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null|\[.*?\]|\{.*?\}),?\s*$/gm, "");
 
   // Collapse multiple blank lines into one
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
@@ -44,8 +64,10 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
   const { displayName, status, content, summary, expanded } = block;
   const isActive = status === "started" || status === "streaming";
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [showRaw, setShowRaw] = useState(false);
 
   const cleanContent = useMemo(() => sanitizeThinking(content), [content]);
+  const hasRawContent = content.length > 0 && content !== cleanContent;
 
   // Auto-scroll the thinking body to bottom while streaming
   useEffect(() => {
@@ -104,17 +126,32 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
         </button>
 
         {/* Expandable thinking body */}
-        {expanded && cleanContent && (
+        {expanded && (cleanContent || showRaw) && (
           <div
             ref={scrollRef}
             className="border-t border-zinc-800/60 max-h-60 overflow-y-auto"
           >
             <div className="px-4 py-3 text-xs leading-relaxed text-zinc-500">
-              <MarkdownContent content={cleanContent} />
+              {showRaw ? (
+                <pre className="whitespace-pre-wrap break-words font-mono text-zinc-600">{content}</pre>
+              ) : (
+                <MarkdownContent content={cleanContent} />
+              )}
               {isActive && (
                 <span className="inline-block w-1.5 h-3 bg-zinc-500 animate-pulse rounded-sm align-middle ml-0.5" />
               )}
             </div>
+            {/* Toggle raw output */}
+            {hasRawContent && !isActive && (
+              <div className="px-4 pb-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowRaw(!showRaw); }}
+                  className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  {showRaw ? "Show clean" : "Show raw output"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
