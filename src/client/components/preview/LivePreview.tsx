@@ -113,7 +113,8 @@ export function LivePreview() {
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
-      if (msg.type === "files_changed" || msg.type === "preview_ready") {
+      // Only start the preview on preview_ready (sent after a successful build check)
+      if (msg.type === "preview_ready") {
         if (previewUrl && iframeRef.current) {
           setTimeout(() => {
             if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
@@ -121,6 +122,12 @@ export function LivePreview() {
         } else if (!previewUrl && !loading) {
           checkAndMaybeStartPreview(activeProject.id);
         }
+      }
+      // files_changed only reloads an already-running preview — never starts one
+      if (msg.type === "files_changed" && previewUrl && iframeRef.current) {
+        setTimeout(() => {
+          if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
+        }, 1000);
       }
     });
 

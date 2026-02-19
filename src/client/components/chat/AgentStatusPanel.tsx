@@ -212,7 +212,7 @@ export function AgentStatusPanel({ chatId }: Props) {
           const icon = STATUS_ICONS[status] || STATUS_ICONS.pending;
 
           return (
-            <div key={agent.name} className="flex items-center">
+            <div key={`${agent.name}-${i}`} className="flex items-center">
               {i > 0 && (
                 <div
                   className={`w-4 h-px mx-0.5 ${
@@ -254,8 +254,8 @@ export function AgentStatusPanel({ chatId }: Props) {
       {/* Error display */}
       {Object.values(agents)
         .filter((a) => a.status === "failed" && a.error)
-        .map((a) => (
-          <div key={a.name} className="mt-2 text-xs text-red-400 bg-red-900/20 rounded px-3 py-2">
+        .map((a, i) => (
+          <div key={`${a.name}-err-${i}`} className="mt-2 text-xs text-red-400 bg-red-900/20 rounded px-3 py-2">
             <span className="font-medium">{a.displayName}:</span> {a.error}
           </div>
         ))}

@@ -206,9 +206,9 @@ export function ChatWindow() {
       )}
       <div className="flex-1 overflow-y-auto">
         <MessageList messages={messages} />
-        {blocks.map((block) => (
+        {blocks.map((block, i) => (
           <AgentThinkingMessage
-            key={block.agentName}
+            key={`${block.agentName}-${i}`}
             block={block}
             onToggle={() => toggleExpanded(block.agentName)}
           />
