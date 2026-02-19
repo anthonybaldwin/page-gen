@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
@@ -84,11 +84,20 @@ export async function cleanupStaleExecutions(): Promise<number> {
     });
   }
 
+  // Also mark any running pipeline_runs as interrupted
+  await db
+    .update(schema.pipelineRuns)
+    .set({
+      status: "interrupted",
+      completedAt: now,
+    })
+    .where(eq(schema.pipelineRuns.status, "running"));
+
   console.log(`[orchestrator] Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
   return stale.length;
 }
 
-interface OrchestratorInput {
+export interface OrchestratorInput {
   chatId: string;
   projectId: string;
   projectPath: string;
@@ -377,6 +386,20 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     const plan = buildExecutionPlan(userMessage, undefined, "fix", classification.scope);
 
+    // Persist pipeline run
+    const pipelineRunId = nanoid();
+    await db.insert(schema.pipelineRuns).values({
+      id: pipelineRunId,
+      chatId,
+      intent: "fix",
+      scope: classification.scope,
+      userMessage,
+      plannedAgents: JSON.stringify(plan.steps.map((s) => s.agentName)),
+      status: "running",
+      startedAt: Date.now(),
+      completedAt: null,
+    });
+
     // Broadcast pipeline plan so client knows which agents to display
     broadcast({
       type: "pipeline_plan",
@@ -390,6 +413,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       providers, apiKeys, signal,
     });
     if (!pipelineOk) {
+      await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
       abortControllers.delete(chatId);
       return;
     }
@@ -401,6 +425,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       providers, apiKeys, signal,
     });
 
+    await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     abortControllers.delete(chatId);
     return;
   }
@@ -434,6 +459,20 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const researchOutput = agentResults.get("research") || "";
   const plan = buildExecutionPlan(userMessage, researchOutput, "build");
 
+  // Persist pipeline run (after plan is built so we know the full agent list)
+  const pipelineRunId = nanoid();
+  await db.insert(schema.pipelineRuns).values({
+    id: pipelineRunId,
+    chatId,
+    intent: "build",
+    scope: classification.scope,
+    userMessage,
+    plannedAgents: JSON.stringify(["research", ...plan.steps.map((s) => s.agentName)]),
+    status: "running",
+    startedAt: Date.now(),
+    completedAt: null,
+  });
+
   broadcast({
     type: "pipeline_plan",
     payload: { chatId, agents: ["research", ...plan.steps.map((s) => s.agentName)] },
@@ -446,6 +485,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     providers, apiKeys, signal,
   });
   if (!pipelineOk) {
+    await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     abortControllers.delete(chatId);
     return;
   }
@@ -457,7 +497,155 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     providers, apiKeys, signal,
   });
 
+  await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
   abortControllers.delete(chatId);
+}
+
+/**
+ * Resume a previously interrupted pipeline from the last completed step.
+ * Reconstructs agentResults from DB, filters the execution plan to skip
+ * completed agents, then continues from where it left off.
+ */
+export async function resumeOrchestration(input: OrchestratorInput & { pipelineRunId: string }): Promise<void> {
+  const { chatId, projectId, projectPath, userMessage, providers, apiKeys, pipelineRunId } = input;
+
+  // Load the pipeline run
+  const pipelineRun = await db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.id, pipelineRunId)).get();
+  if (!pipelineRun) {
+    broadcastAgentError(chatId, "orchestrator", "Pipeline run not found — starting fresh.");
+    return runOrchestration(input);
+  }
+
+  const controller = new AbortController();
+  abortControllers.set(chatId, controller);
+  const { signal } = controller;
+
+  // Check cost limits
+  const costCheck = checkCostLimit(chatId);
+  if (!costCheck.allowed) {
+    abortControllers.delete(chatId);
+    broadcastAgentError(chatId, "orchestrator", `Token limit reached. Please increase your limit to continue.`);
+    return;
+  }
+
+  // Load project name and chat title
+  const projectRow = await db.select({ name: schema.projects.name }).from(schema.projects).where(eq(schema.projects.id, projectId)).get();
+  const chatRow = await db.select({ title: schema.chats.title }).from(schema.chats).where(eq(schema.chats.id, chatId)).get();
+  const projectName = projectRow?.name || "Unknown";
+  const chatTitle = chatRow?.title || "Unknown";
+
+  // Load chat history
+  const chatMessages = await db.select().from(schema.messages).where(eq(schema.messages.chatId, chatId)).all();
+  const chatHistory = chatMessages.map((m) => ({ role: m.role, content: m.content }));
+
+  // Reconstruct agentResults from completed executions
+  const agentResults = new Map<string, string>();
+  const completedAgents: string[] = [];
+  const callCounter: CallCounter = { value: 0 };
+
+  const completedExecs = await db.select()
+    .from(schema.agentExecutions)
+    .where(and(eq(schema.agentExecutions.chatId, chatId), eq(schema.agentExecutions.status, "completed")))
+    .all();
+
+  for (const exec of completedExecs) {
+    if (exec.output) {
+      try {
+        const parsed = JSON.parse(exec.output);
+        if (parsed.content) {
+          agentResults.set(exec.agentName, parsed.content);
+          completedAgents.push(exec.agentName);
+        }
+      } catch {
+        // skip unparseable
+      }
+    }
+  }
+
+  const intent = pipelineRun.intent as OrchestratorIntent;
+  const scope = pipelineRun.scope as IntentScope;
+  const originalMessage = pipelineRun.userMessage;
+
+  broadcastAgentStatus(chatId, "orchestrator", "running");
+
+  // Mark pipeline as running again
+  await db.update(schema.pipelineRuns).set({ status: "running" }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+
+  // For fix mode, inject project source if not already in results
+  if (intent === "fix" && !agentResults.has("project-source")) {
+    const projectSource = readProjectSource(projectPath);
+    if (projectSource) agentResults.set("project-source", projectSource);
+  }
+
+  // Rebuild execution plan
+  const researchOutput = agentResults.get("research") || "";
+  const plan = intent === "fix"
+    ? buildExecutionPlan(originalMessage, undefined, "fix", scope)
+    : buildExecutionPlan(originalMessage, researchOutput, "build");
+
+  // For build mode, if research hasn't completed, we can't resume — start fresh
+  if (intent === "build" && !agentResults.has("research")) {
+    console.log("[orchestrator] Research not completed — cannot resume, starting fresh");
+    await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+    abortControllers.delete(chatId);
+    return runOrchestration(input);
+  }
+
+  // Filter plan to only remaining steps
+  const completedAgentNames = new Set(completedAgents);
+  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
+
+  if (remainingSteps.length === 0) {
+    // All agents completed — just run finish pipeline
+    console.log("[orchestrator] All agents already completed — running finish pipeline");
+  } else {
+    // Broadcast pipeline plan showing all agents (completed + remaining)
+    const allAgentNames = intent === "build"
+      ? ["research", ...plan.steps.map((s) => s.agentName)]
+      : plan.steps.map((s) => s.agentName);
+    broadcast({ type: "pipeline_plan", payload: { chatId, agents: allAgentNames } });
+
+    // Broadcast completed status for already-done agents
+    for (const name of completedAgents) {
+      broadcastAgentStatus(chatId, name, "completed");
+    }
+
+    // Execute remaining steps
+    const remainingPlan: ExecutionPlan = { steps: remainingSteps };
+    const pipelineOk = await executePipelineSteps({
+      plan: remainingPlan, chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    });
+    if (!pipelineOk) {
+      await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      abortControllers.delete(chatId);
+      return;
+    }
+  }
+
+  // Remediation + final build + summary
+  await finishPipeline({
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
+
+  await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+  abortControllers.delete(chatId);
+}
+
+/**
+ * Find the most recent interrupted pipeline run for a chat.
+ * Returns the pipeline run ID, or null if none found.
+ */
+export function findInterruptedPipelineRun(chatId: string): string | null {
+  const row = db.select({ id: schema.pipelineRuns.id })
+    .from(schema.pipelineRuns)
+    .where(and(eq(schema.pipelineRuns.chatId, chatId), eq(schema.pipelineRuns.status, "interrupted")))
+    .orderBy(desc(schema.pipelineRuns.startedAt))
+    .get();
+  return row?.id || null;
 }
 
 /**

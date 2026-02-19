@@ -88,6 +88,20 @@ export const appSettings = sqliteTable("app_settings", {
   value: text("value").notNull(),
 });
 
+export const pipelineRuns = sqliteTable("pipeline_runs", {
+  id: text("id").primaryKey(),
+  chatId: text("chat_id")
+    .notNull()
+    .references(() => chats.id),
+  intent: text("intent").notNull(), // 'build' | 'fix' | 'question'
+  scope: text("scope").notNull(), // 'frontend' | 'backend' | 'styling' | 'full'
+  userMessage: text("user_message").notNull(),
+  plannedAgents: text("planned_agents").notNull(), // JSON array of agent names
+  status: text("status").notNull(), // 'running' | 'completed' | 'failed' | 'interrupted'
+  startedAt: integer("started_at").notNull(),
+  completedAt: integer("completed_at"),
+});
+
 export const snapshots = sqliteTable("snapshots", {
   id: text("id").primaryKey(),
   projectId: text("project_id")

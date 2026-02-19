@@ -97,6 +97,20 @@ export function runMigrations() {
   `);
 
   db.run(sql`
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL REFERENCES chats(id),
+      intent TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      user_message TEXT NOT NULL,
+      planned_agents TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER
+    )
+  `);
+
+  db.run(sql`
     CREATE TABLE IF NOT EXISTS snapshots (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id),

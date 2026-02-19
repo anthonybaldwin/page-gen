@@ -37,16 +37,17 @@ export function ChatWindow() {
       .get<{
         running: boolean;
         executions: Array<{ agentName: string; status: string; error?: string | null; output: string | null; startedAt: number }>;
+        interruptedPipelineId?: string | null;
       }>(`/agents/status?chatId=${activeChat.id}`)
-      .then(({ running, executions }) => {
+      .then(({ running, executions, interruptedPipelineId }) => {
         if (running) setThinking(true);
         // Reconstruct thinking blocks from execution history
         if (executions && executions.length > 0) {
           useAgentThinkingStore.getState().loadFromExecutions(executions);
-          // Detect interrupted pipeline (server restart)
-          const wasInterrupted = !running && executions.some(
+          // Detect interrupted pipeline (server restart) — prefer DB pipeline_runs signal
+          const wasInterrupted = interruptedPipelineId || (!running && executions.some(
             (e) => e.status === "failed" && e.error === "Server restarted — pipeline interrupted"
-          );
+          ));
           if (wasInterrupted) setInterrupted(true);
         }
       })
@@ -140,9 +141,29 @@ export function ChatWindow() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking, blocks]);
 
-  async function handleRetry() {
+  async function handleResume() {
     if (!activeChat || !messages.length) return;
-    // Find the last user message and re-send it
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    setInterrupted(false);
+    setError(null);
+    setThinking(true);
+    resetThinking();
+    try {
+      await api.post("/agents/run", {
+        chatId: activeChat.id,
+        message: lastUserMsg.content,
+        resume: true,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Agent orchestration failed";
+      setError(msg);
+      setThinking(false);
+    }
+  }
+
+  async function handleRetryFresh() {
+    if (!activeChat || !messages.length) return;
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg) return;
     setInterrupted(false);
@@ -236,12 +257,18 @@ export function ChatWindow() {
       {interrupted && !thinking && (
         <div className="px-4 py-2 bg-amber-900/30 border-b border-amber-800 text-amber-300 text-xs flex items-center justify-between">
           <span>Pipeline was interrupted by a server restart.</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
-              onClick={handleRetry}
+              onClick={handleResume}
               className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
             >
-              Retry
+              Resume
+            </button>
+            <button
+              onClick={handleRetryFresh}
+              className="text-amber-400/70 hover:text-amber-200 text-xs underline underline-offset-2"
+            >
+              Retry from scratch
             </button>
             <button onClick={() => setInterrupted(false)} className="text-amber-400 hover:text-amber-200">
               Dismiss

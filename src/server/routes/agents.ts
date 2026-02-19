@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
-import { runOrchestration, abortOrchestration, isOrchestrationRunning } from "../agents/orchestrator.ts";
+import { runOrchestration, resumeOrchestration, abortOrchestration, isOrchestrationRunning, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
 
 export const agentRoutes = new Hono();
 
@@ -19,9 +19,9 @@ agentRoutes.get("/executions", async (c) => {
   return c.json(executions);
 });
 
-// Trigger orchestration
+// Trigger orchestration (or resume an interrupted one)
 agentRoutes.post("/run", async (c) => {
-  const body = await c.req.json<{ chatId: string; message: string }>();
+  const body = await c.req.json<{ chatId: string; message: string; resume?: boolean }>();
   const keys = extractApiKeys(c);
   const providers = createProviders(keys);
 
@@ -53,15 +53,29 @@ agentRoutes.post("/run", async (c) => {
   if (keys.openai.apiKey) apiKeysMap.openai = keys.openai.apiKey;
   if (keys.google.apiKey) apiKeysMap.google = keys.google.apiKey;
 
-  // Run orchestration asynchronously
-  runOrchestration({
+  const orchestrationInput = {
     chatId: body.chatId,
     projectId: project.id,
     projectPath: project.path,
     userMessage: body.message,
     providers,
     apiKeys: apiKeysMap,
-  }).catch((err) => {
+  };
+
+  // Resume interrupted pipeline if requested
+  if (body.resume) {
+    const interruptedId = findInterruptedPipelineRun(body.chatId);
+    if (interruptedId) {
+      resumeOrchestration({ ...orchestrationInput, pipelineRunId: interruptedId }).catch((err) => {
+        console.error("[agents] Resume orchestration error:", err);
+      });
+      return c.json({ status: "resumed", chatId: body.chatId, pipelineRunId: interruptedId });
+    }
+    // No interrupted pipeline found — fall through to fresh start
+  }
+
+  // Run orchestration asynchronously
+  runOrchestration(orchestrationInput).catch((err) => {
     console.error("[agents] Orchestration error:", err);
   });
 
@@ -88,7 +102,10 @@ agentRoutes.get("/status", async (c) => {
     .where(eq(schema.agentExecutions.chatId, chatId))
     .all();
 
-  return c.json({ running, executions });
+  // Check for interrupted pipeline run
+  const interruptedPipelineId = findInterruptedPipelineRun(chatId);
+
+  return c.json({ running, executions, interruptedPipelineId });
 });
 
 // Stop orchestration
