@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system uses 8 specialized AI agents, coordinated by an orchestrator. Each agent has a specific role, model, and set of tools.
+The system uses 9 specialized AI agents, coordinated by an orchestrator. Each agent has a specific role, model, and set of tools.
 
 ## Agents
 
@@ -16,7 +16,7 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 ### 2. Research Agent
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Analyzes user request, identifies requirements
-- **Output:** Structured requirements document
+- **Output:** Structured JSON requirements document (includes `requires_backend` per feature for conditional pipeline)
 - **Tools:** None — receives user prompt only, outputs requirements
 
 ### 3. Architect Agent
@@ -34,18 +34,26 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates API routes, server logic
 - **Tools:** `write_file` only
+- **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`)
 
 ### 6. Styling Agent
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file` only
 
-### 7. QA Agent
+### 7. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Reviews code, writes tests, checks for issues
-- **Tools:** `write_file` only — fixes bugs by writing corrected files
+- **Role:** Reviews code for bugs, type errors, and correctness; fixes issues directly
+- **Tools:** `write_file` only — finds AND fixes bugs by writing corrected files
+- **Output format:** `Code Review: Pass` or `Code Review: Fixed` with categorized findings (`[frontend]`, `[backend]`, `[styling]`)
 
-### 8. Security Reviewer
+### 8. QA Agent (Requirements Validator)
+- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Role:** Validates implementation against research requirements; reports gaps without fixing code
+- **Tools:** None — read-only, report only
+- **Output:** Structured JSON report with `status: "pass" | "fail"`, requirements coverage, and categorized issues (`[frontend]`, `[backend]`, `[styling]`)
+
+### 9. Security Reviewer
 - **Model:** Claude Haiku 4.5 (Anthropic)
 - **Role:** Scans for XSS, injection, key exposure
 - **Output:** Security report (pass/fail with findings)
@@ -54,15 +62,21 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 ## Pipeline
 
 ```
-User → Orchestrator → Research → Architect → Frontend Dev → [Build Check] → Styling → QA → Security
+User → Orchestrator
+  → Phase 1: Research (determines requirements + backend needs)
+  → Phase 2: Dynamic plan from research output
+      → Architect → Frontend Dev → [Backend Dev if needed] → [Build Check]
+      → Styling → Code Review (find+fix bugs) → Security (scan)
+      → QA (validate requirements)
   → Remediation Loop (max 2 cycles):
-      ├─ detectIssues(QA + Security output)
+      ├─ detectIssues(code-review + security + qa output)
       ├─ if clean → break
-      ├─ Frontend Dev fixes findings
-      ├─ extract/write corrected files
-      ├─ re-run QA on updated code
-      ├─ re-run Security on updated code
-      └─ loop back to detectIssues()
+      ├─ Route findings to correct dev agent(s):
+      │     [frontend] issues → frontend-dev
+      │     [backend] issues  → backend-dev
+      │     [styling] issues  → styling
+      ├─ Re-run code-review, security, qa
+      └─ Loop
   → [Final Build Check] → Summary
 ```
 
@@ -72,36 +86,43 @@ User → Orchestrator → Research → Architect → Frontend Dev → [Build Che
 - Only this summary is saved as a chat message and shown to the user.
 - The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
 
+### Conditional Backend
+
+The research agent outputs `requires_backend: true/false` per feature in its JSON requirements. The orchestrator's `needsBackend()` function checks this flag (with a regex heuristic fallback) to decide whether to include backend-dev in the execution plan. When backend-dev is not included, it still appears in the pipeline bar but stays "pending" (gray).
+
 ### Remediation Loop
 
-After the initial QA and Security agents run, the orchestrator checks their output for issues using `detectIssues()`. If issues are found:
+After the initial code-review, security, and QA agents run, the orchestrator checks their output for issues using `detectIssues()`. If issues are found:
 
-1. **Frontend Dev** receives the QA/security findings and outputs corrected files
-2. **QA Agent** re-reviews the updated code (display name shows "re-review #N")
-3. **Security Reviewer** re-scans the updated code
-4. If issues persist, the loop repeats (max 2 cycles)
+1. **Route findings** to the correct dev agent(s) based on `[frontend]`/`[backend]`/`[styling]` tags from code-review and QA output. Defaults to frontend-dev when no clear routing.
+2. **Dev agent(s)** receive the findings and output corrected files
+3. **Code Reviewer** re-reviews the updated code (display name shows "re-review #N")
+4. **Security Reviewer** re-scans the updated code
+5. **QA Agent** re-validates against requirements
+6. If issues persist, the loop repeats (max 2 cycles)
 
 Each cycle checks the cost limit before proceeding. The loop exits early if:
-- All issues are resolved (QA passes + Security passes)
+- All issues are resolved (code-review passes + security passes + QA passes)
 - Cost limit is reached
 - The pipeline is aborted by the user
 - A remediation or re-review agent fails
 
-In the UI, re-review agents show their cycle number (e.g., "QA Agent (re-review #1)") so the user can track the iteration.
+In the UI, re-review agents show their cycle number (e.g., "Code Reviewer (re-review #1)") so the user can track the iteration.
 
 ### File Extraction
 
 Agents don't write files directly to disk. Instead:
 1. Agents include `<tool_call>` blocks with `write_file` in their text output
 2. The orchestrator's `extractAndWriteFiles()` parses these tool calls from the output
-3. Files are written to the project directory via `file-ops.ts`
-4. A `files_changed` WebSocket event is broadcast so the UI updates
+3. File paths are sanitized (strip leading quotes/backticks, normalize separators)
+4. Files are written to the project directory via `file-ops.ts`
+5. A `files_changed` WebSocket event is broadcast so the UI updates
 
 ### Build Check Pipeline
 
-After each file-producing agent (frontend-dev, styling, QA), the orchestrator:
+After each file-producing agent (frontend-dev, backend-dev, styling, code-review), the orchestrator:
 1. Runs `bunx vite build --mode development` to check for compile errors
-2. If errors are found, feeds them back to the frontend-dev agent for auto-fixing
+2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 3. Only broadcasts `preview_ready` after a successful build
 4. The Preview tab stays disabled until the build passes
 
