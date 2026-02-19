@@ -6,6 +6,8 @@ let nextPort = 3001;
 
 // Track which projects have had deps installed to avoid re-running
 const installedProjects = new Set<string>();
+// Per-project install mutex — prevents concurrent bun install on the same directory
+const pendingInstalls = new Map<string, Promise<void>>();
 
 function ensureProjectHasViteConfig(projectPath: string) {
   const configPath = join(projectPath, "vite.config.ts");
@@ -156,22 +158,35 @@ function ensureProjectHasTailwindCss(projectPath: string) {
 async function installProjectDependencies(projectPath: string): Promise<void> {
   if (installedProjects.has(projectPath)) return;
 
-  console.log(`[preview] Installing dependencies in ${projectPath}...`);
+  // If an install is already running for this path, wait for it instead of starting another
+  const pending = pendingInstalls.get(projectPath);
+  if (pending) return pending;
 
-  const proc = Bun.spawn(["bun", "install"], {
-    cwd: projectPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const installPromise = (async () => {
+    console.log(`[preview] Installing dependencies in ${projectPath}...`);
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    console.error(`[preview] bun install failed (exit ${exitCode}):`, stderr);
-    // Don't throw — preview might still partially work
-  } else {
-    console.log(`[preview] Dependencies installed successfully`);
-    installedProjects.add(projectPath);
+    const proc = Bun.spawn(["bun", "install"], {
+      cwd: projectPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      console.error(`[preview] bun install failed (exit ${exitCode}):`, stderr);
+      // Don't throw — preview might still partially work
+    } else {
+      console.log(`[preview] Dependencies installed successfully`);
+      installedProjects.add(projectPath);
+    }
+  })();
+
+  pendingInstalls.set(projectPath, installPromise);
+  try {
+    await installPromise;
+  } finally {
+    pendingInstalls.delete(projectPath);
   }
 }
 
