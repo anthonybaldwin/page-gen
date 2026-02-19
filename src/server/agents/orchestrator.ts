@@ -1609,31 +1609,31 @@ export function buildExecutionPlan(
   if (intent === "fix") {
     const steps: ExecutionPlan["steps"] = [];
 
-    // Testing comes first: write/update tests for the fix
+    // Testing comes first: create a test plan for the fix
     steps.push({
       agentName: "testing",
-      input: `Write or update vitest tests that verify the fix for: ${userMessage}. The existing code is in Previous Agent Outputs as "project-source". Write tests that define the expected behavior BEFORE the fix is implemented.`,
+      input: `Create a test plan that defines the expected behavior for the fix: ${userMessage}. The existing code is in Previous Agent Outputs as "project-source". Output a JSON test plan — dev agents will write the actual test files.`,
     });
 
     // Route to dev agent(s) based on scope
     if (scope === "frontend" || scope === "full") {
       steps.push({
         agentName: "frontend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
         dependsOn: ["testing"],
       });
     }
     if (scope === "backend" || scope === "full") {
       steps.push({
         agentName: "backend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
         dependsOn: ["testing"],
       });
     }
     if (scope === "styling") {
       steps.push({
         agentName: "styling",
-        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
         dependsOn: ["testing"],
       });
     }
@@ -1674,12 +1674,12 @@ export function buildExecutionPlan(
     },
     {
       agentName: "testing",
-      input: `Write vitest tests from the architect's plan and research requirements (provided in Previous Agent Outputs). Tests define expected behavior BEFORE implementation. Original request: ${userMessage}`,
+      input: `Create a JSON test plan from the architect's plan and research requirements (provided in Previous Agent Outputs). Define expected behavior for each component — dev agents will write the test files. Original request: ${userMessage}`,
       dependsOn: ["architect"],
     },
     {
       agentName: "frontend-dev",
-      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). A test plan has been created — write test files alongside your components following the plan. Original request: ${userMessage}`,
       dependsOn: ["testing"],
     },
   ];
@@ -1687,7 +1687,7 @@ export function buildExecutionPlan(
   if (includeBackend) {
     steps.push({
       agentName: "backend-dev",
-      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan has been created — write test files alongside your server code following the plan. Original request: ${userMessage}`,
       dependsOn: ["testing"],
     });
   }
@@ -1723,7 +1723,7 @@ export function buildExecutionPlan(
 }
 
 // Agents whose output may contain file code blocks
-const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "testing"]);
+const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling"]);
 
 /** Check if the project has any test files on disk (.test.tsx/.test.ts in src/) */
 function testFilesExist(projectPath: string): boolean {

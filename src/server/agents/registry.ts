@@ -47,10 +47,10 @@ export const AGENT_ROSTER: AgentConfig[] = [
   },
   {
     name: "testing",
-    displayName: "Testing Agent",
+    displayName: "Test Planner",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    description: "Writes vitest tests for generated components and validates functionality",
+    description: "Creates test plans that define expected behavior; dev agents write the actual test files",
   },
   {
     name: "code-review",

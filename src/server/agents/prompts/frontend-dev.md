@@ -60,13 +60,25 @@ If the architecture specifies additional npm dependencies, add them to `package.
 - Keep individual files under 200 lines. Split if larger.
 - Make sure all exports match what other files import. If `types/calculator.ts` exports `CalculatorState`, every file that imports it must use the exact same name.
 
+## Test Files
+
+If a test plan is provided in Previous Agent Outputs (from the testing agent), write test files alongside your components using vitest + @testing-library/react.
+
+- Follow the test plan's structure: one test file per component at the specified path.
+- Import from `vitest` (`describe`, `it`, `expect`, `vi`).
+- Import from `@testing-library/react` (`render`, `screen`, `waitFor`).
+- Use `@testing-library/user-event` for realistic user interactions.
+- The vitest config is already set up — just write the test files.
+- Test user-visible behavior as described in the test plan.
+- Mock external dependencies and API calls with `vi.mock()`.
+
 ## Output
 
 After writing all files, provide a brief summary:
 
 ```json
 {
-  "files_written": ["src/components/HeroSection.tsx", "src/App.tsx"],
+  "files_written": ["src/components/HeroSection.tsx", "src/App.tsx", "src/__tests__/App.test.tsx"],
   "dependencies_added": ["lucide-react"],
   "notes": "Any important context for downstream agents."
 }

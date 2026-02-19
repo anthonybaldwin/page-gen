@@ -85,13 +85,23 @@ export default router;
 - Do not modify frontend files. That is the frontend-dev agent's responsibility.
 - If you need additional npm dependencies, write an updated `package.json` that includes them. The build system will handle installation.
 
+## Test Files
+
+If a test plan is provided in Previous Agent Outputs (from the testing agent), write test files alongside your server code using vitest.
+
+- Follow the test plan's structure: one test file per module at the specified path.
+- Import from `vitest` (`describe`, `it`, `expect`, `vi`).
+- Mock external services, databases, and HTTP requests with `vi.mock()`.
+- The vitest config is already set up — just write the test files.
+- Test request validation, response shapes, error handling, and status codes.
+
 ## Output
 
 For each file you create or modify, return:
 
 ```json
 {
-  "files_written": ["src/api/contact.ts", "src/api/middleware/validate.ts"],
+  "files_written": ["src/api/contact.ts", "src/api/middleware/validate.ts", "src/__tests__/contact.test.ts"],
   "files_modified": ["src/server/index.ts"],
   "dependencies_installed": ["zod"],
   "env_vars_required": ["DATABASE_URL", "SMTP_HOST"],

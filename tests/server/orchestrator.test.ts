@@ -157,11 +157,23 @@ describe("buildExecutionPlan", () => {
     expect(beIdx).toBeLessThan(stIdx);
   });
 
-  test("testing comes after architect in build mode (TDD)", () => {
+  test("testing comes after architect in build mode", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
     expect(names.indexOf("testing")).toBeGreaterThan(names.indexOf("architect"));
     expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
+  });
+
+  test("build mode: testing step input mentions test plan", () => {
+    const plan = buildExecutionPlan("Build something");
+    const testStep = plan.steps.find((s) => s.agentName === "testing");
+    expect(testStep?.input).toContain("test plan");
+  });
+
+  test("build mode: frontend-dev step input mentions test plan", () => {
+    const plan = buildExecutionPlan("Build something");
+    const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
+    expect(feStep?.input).toContain("test plan");
   });
 
   test("code-review comes after testing", () => {
@@ -527,10 +539,16 @@ describe("buildExecutionPlan (fix mode)", () => {
     expect(names).not.toContain("architect");
   });
 
-  test("fix mode: testing comes first (TDD)", () => {
+  test("fix mode: testing (test planner) comes first", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
     expect(names[0]).toBe("testing");
+  });
+
+  test("fix mode: testing step input mentions test plan", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const testStep = plan.steps.find((s) => s.agentName === "testing");
+    expect(testStep?.input).toContain("test plan");
   });
 
   test("fix mode with frontend scope routes to frontend-dev after testing", () => {
