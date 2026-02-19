@@ -98,6 +98,13 @@ export interface ResolvedAgentConfig extends AgentConfig {
   isOverridden: boolean;
 }
 
+export interface ModelPricing {
+  input: number;
+  output: number;
+  isOverridden: boolean;
+  isKnown: boolean;
+}
+
 export type OrchestratorIntent = "build" | "fix" | "question";
 
 export type IntentScope = "frontend" | "backend" | "styling" | "full";
