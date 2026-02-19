@@ -16,11 +16,13 @@ export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
+  const [interrupted, setInterrupted] = useState(false);
 
   useEffect(() => {
     if (!activeChat) return;
     setError(null);
     setThinking(false);
+    setInterrupted(false);
     resetThinking();
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
@@ -34,13 +36,18 @@ export function ChatWindow() {
     api
       .get<{
         running: boolean;
-        executions: Array<{ agentName: string; status: string; output: string | null; startedAt: number }>;
+        executions: Array<{ agentName: string; status: string; error?: string | null; output: string | null; startedAt: number }>;
       }>(`/agents/status?chatId=${activeChat.id}`)
       .then(({ running, executions }) => {
         if (running) setThinking(true);
         // Reconstruct thinking blocks from execution history
         if (executions && executions.length > 0) {
           useAgentThinkingStore.getState().loadFromExecutions(executions);
+          // Detect interrupted pipeline (server restart)
+          const wasInterrupted = !running && executions.some(
+            (e) => e.status === "failed" && e.error === "Server restarted — pipeline interrupted"
+          );
+          if (wasInterrupted) setInterrupted(true);
         }
       })
       .catch(() => {});
@@ -133,9 +140,31 @@ export function ChatWindow() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, thinking, blocks]);
 
+  async function handleRetry() {
+    if (!activeChat || !messages.length) return;
+    // Find the last user message and re-send it
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    setInterrupted(false);
+    setError(null);
+    setThinking(true);
+    resetThinking();
+    try {
+      await api.post("/agents/run", {
+        chatId: activeChat.id,
+        message: lastUserMsg.content,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Agent orchestration failed";
+      setError(msg);
+      setThinking(false);
+    }
+  }
+
   async function handleSend(content: string) {
     if (!activeChat) return;
     setError(null);
+    setInterrupted(false);
 
     // Optimistic: show the message immediately before API call
     const optimisticMsg: Message = {
@@ -202,6 +231,22 @@ export function ChatWindow() {
           <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-2">
             Dismiss
           </button>
+        </div>
+      )}
+      {interrupted && !thinking && (
+        <div className="px-4 py-2 bg-amber-900/30 border-b border-amber-800 text-amber-300 text-xs flex items-center justify-between">
+          <span>Pipeline was interrupted by a server restart.</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRetry}
+              className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
+            >
+              Retry
+            </button>
+            <button onClick={() => setInterrupted(false)} className="text-amber-400 hover:text-amber-200">
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
       <div className="flex-1 overflow-y-auto">

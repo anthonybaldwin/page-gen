@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
@@ -39,6 +39,53 @@ export function abortOrchestration(chatId: string) {
 
 export function isOrchestrationRunning(chatId: string): boolean {
   return abortControllers.has(chatId);
+}
+
+/**
+ * Mark all "running" and "retrying" agent executions as "failed" on server startup.
+ * This handles the case where the server was restarted mid-pipeline — those executions
+ * will never complete because in-memory state (abortControllers) was lost.
+ * Also inserts a system message into each affected chat so the user knows what happened.
+ */
+export async function cleanupStaleExecutions(): Promise<number> {
+  const staleStatuses = ["running", "retrying"];
+  const now = Date.now();
+
+  // Find all stale executions
+  const stale = await db
+    .select({ id: schema.agentExecutions.id, chatId: schema.agentExecutions.chatId })
+    .from(schema.agentExecutions)
+    .where(inArray(schema.agentExecutions.status, staleStatuses))
+    .all();
+
+  if (stale.length === 0) return 0;
+
+  // Mark them all as failed
+  await db
+    .update(schema.agentExecutions)
+    .set({
+      status: "failed",
+      error: "Server restarted — pipeline interrupted",
+      completedAt: now,
+    })
+    .where(inArray(schema.agentExecutions.status, staleStatuses));
+
+  // Insert a system message into each affected chat (deduplicated)
+  const affectedChats = [...new Set(stale.map((s) => s.chatId))];
+  for (const chatId of affectedChats) {
+    await db.insert(schema.messages).values({
+      id: nanoid(),
+      chatId,
+      role: "system",
+      content: "Pipeline was interrupted by a server restart. You can retry your last message.",
+      agentName: "orchestrator",
+      metadata: null,
+      createdAt: now,
+    });
+  }
+
+  console.log(`[orchestrator] Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
+  return stale.length;
 }
 
 interface OrchestratorInput {

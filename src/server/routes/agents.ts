@@ -81,6 +81,7 @@ agentRoutes.get("/status", async (c) => {
       agentName: schema.agentExecutions.agentName,
       status: schema.agentExecutions.status,
       output: schema.agentExecutions.output,
+      error: schema.agentExecutions.error,
       startedAt: schema.agentExecutions.startedAt,
     })
     .from(schema.agentExecutions)
