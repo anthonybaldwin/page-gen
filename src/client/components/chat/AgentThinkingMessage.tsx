@@ -8,35 +8,152 @@ interface Props {
 }
 
 /**
- * Aggressively strip internal agent plumbing from streamed content.
- * Returns clean natural-language text suitable for display.
+ * Try to extract a human-readable summary from structured JSON output.
+ * Pulls out string values for common keys like "description", "name", "features", etc.
+ */
+function summarizeStructuredOutput(raw: string): string {
+  const lines: string[] = [];
+
+  // Try to find and parse JSON blocks
+  const jsonBlocks = raw.match(/```json\n([\s\S]*?)```/g) || [];
+  const inlineJson = raw.match(/^\s*\{[\s\S]*\}\s*$/m);
+  const sources = [...jsonBlocks.map((b) => b.replace(/```json\n?/, "").replace(/\n?```$/, "")), ...(inlineJson ? [inlineJson[0]] : [])];
+
+  for (const src of sources) {
+    try {
+      const obj = JSON.parse(src.trim());
+      extractReadableFields(obj, lines, 0);
+    } catch {
+      // Not valid JSON — skip
+    }
+  }
+
+  if (lines.length > 0) return lines.join("\n");
+
+  // Fallback: extract quoted string values from JSON-like content
+  const stringValues = [...raw.matchAll(/"(description|summary|purpose|name|title|reason)":\s*"([^"]{10,})"/gi)];
+  for (const m of stringValues) {
+    lines.push(`**${m[1]}:** ${m[2]}`);
+  }
+
+  return lines.join("\n");
+}
+
+function extractReadableFields(obj: unknown, lines: string[], depth: number) {
+  if (depth > 3 || lines.length > 20) return;
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      if (typeof item === "string" && item.length > 5) {
+        lines.push(`- ${item}`);
+      } else if (typeof item === "object" && item !== null) {
+        extractReadableFields(item, lines, depth + 1);
+      }
+    }
+    return;
+  }
+
+  if (typeof obj !== "object" || obj === null) return;
+  const record = obj as Record<string, unknown>;
+
+  // Extract human-readable fields
+  const nameField = record.name || record.title || record.label;
+  const descField = record.description || record.summary || record.purpose || record.reason;
+
+  if (nameField && descField) {
+    lines.push(`- **${nameField}** — ${descField}`);
+  } else if (descField) {
+    lines.push(`- ${descField}`);
+  } else if (nameField && typeof nameField === "string") {
+    // Check for nested children
+    const children = record.children || record.items || record.steps || record.components;
+    if (Array.isArray(children) && children.length > 0) {
+      lines.push(`**${nameField}:**`);
+      extractReadableFields(children, lines, depth + 1);
+    } else {
+      lines.push(`- ${nameField}`);
+    }
+  }
+
+  // Recurse into known collection keys
+  for (const key of ["features", "components", "file_plan", "dependencies", "shared_utilities", "steps", "sections", "requirements"]) {
+    if (Array.isArray(record[key])) {
+      lines.push(`\n**${key.replace(/_/g, " ")}:**`);
+      extractReadableFields(record[key], lines, depth + 1);
+    }
+  }
+}
+
+/**
+ * Convert a raw <tool_call> XML block into a human-readable one-liner.
+ */
+function humanizeToolCall(raw: string): string {
+  try {
+    // Extract the JSON body from the tool_call
+    const jsonMatch = raw.match(/<tool_call>\s*\n?([\s\S]*?)\n?\s*<\/tool_call>/i);
+    if (!jsonMatch) return "";
+
+    const json = JSON.parse(jsonMatch[1]!.trim());
+    const name = json.name || "";
+    const params = json.parameters || {};
+
+    switch (name) {
+      case "write_file":
+        return `\n> Writing \`${params.path}\`\n`;
+      case "read_file":
+        return `\n> Reading \`${params.path}\`\n`;
+      case "search_files":
+        return `\n> Searching for \`${params.pattern || params.query || ""}\`\n`;
+      case "list_files":
+        return `\n> Listing \`${params.path || "."}\`\n`;
+      case "shell":
+        return `\n> Running \`${(params.command || "").slice(0, 80)}\`\n`;
+      default:
+        return name ? `\n> ${name}(${params.path || ""})\n` : "";
+    }
+  } catch {
+    // If JSON parse fails, try to extract the tool name and path manually
+    const nameMatch = raw.match(/"name"\s*:\s*"([^"]+)"/);
+    const pathMatch = raw.match(/"path"\s*:\s*"([^"]+)"/);
+    if (nameMatch) {
+      const verb = nameMatch[1] === "write_file" ? "Writing" : nameMatch[1] === "read_file" ? "Reading" : nameMatch[1];
+      return `\n> ${verb}${pathMatch ? ` \`${pathMatch[1]}\`` : ""}\n`;
+    }
+    return "";
+  }
+}
+
+/**
+ * Strip internal agent plumbing from streamed content.
+ * Returns clean natural-language text. If the output is mostly structured
+ * data (JSON/XML), extracts a human-readable summary from it.
  */
 function sanitizeThinking(raw: string): string {
   let cleaned = raw;
 
-  // Remove ALL XML-style tags (tool_call, parameter, invoke, tool_response, etc.)
-  // This catches <tool_call>...</tool_call>, <parameter name="...">...</parameter>, etc.
-  cleaned = cleaned.replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/gi, "");
+  // Replace tool_call blocks with human-readable summaries
+  cleaned = cleaned.replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/gi, (match) => {
+    return humanizeToolCall(match);
+  });
+
+  // Replace tool_response blocks with a brief note
   cleaned = cleaned.replace(/<tool_response[\s\S]*?(<\/tool_response>|$)/gi, "");
   cleaned = cleaned.replace(/<tool[\s>][\s\S]*?(<\/tool>|$)/gi, "");
   cleaned = cleaned.replace(/<invoke[\s\S]*?(<\/invoke>|$)/gi, "");
   cleaned = cleaned.replace(/<result[\s\S]*?(<\/result>|$)/gi, "");
 
-  // Remove any standalone XML-like tags (opening, closing, self-closing)
+  // Remove any remaining XML-like tags
   cleaned = cleaned.replace(/<\/?[\w_-]+(?:\s+[\w_-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]*))?)*\s*\/?>/g, "");
 
   // Remove markdown code blocks that contain JSON or structured data
   cleaned = cleaned.replace(/```(?:json|xml|typescript|tsx|ts|jsx|javascript|js|css|html)?\n[\s\S]*?```/g, (match) => {
-    // Keep code blocks that look like they have useful explanatory code (short, no JSON-like structure)
     const inner = match.replace(/```\w*\n?/, "").replace(/\n?```$/, "").trim();
-    // If it looks like JSON or XML, remove it
     if (inner.startsWith("{") || inner.startsWith("[") || inner.startsWith("<")) return "";
-    // If it's a very long code block, remove it (it's probably a full file)
     if (inner.split("\n").length > 10) return "";
     return match;
   });
 
-  // Remove multi-line JSON objects/arrays (with some tolerance for whitespace)
+  // Remove multi-line JSON objects/arrays
   cleaned = cleaned.replace(/^\s*\{[\s\S]*?\}\s*$/gm, (match) => {
     if (match.includes('"') && (match.includes(":") || match.includes(","))) return "";
     return match;
@@ -48,16 +165,21 @@ function sanitizeThinking(raw: string): string {
     return match;
   });
 
-  // Remove lines that are just }, ], },  etc.
+  // Remove leftover JSON fragments
   cleaned = cleaned.replace(/^\s*[}\]],?\s*$/gm, "");
-
-  // Remove lines that are just "key": value pairs (leftover from stripped JSON)
   cleaned = cleaned.replace(/^\s*"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null|\[.*?\]|\{.*?\}),?\s*$/gm, "");
 
-  // Collapse multiple blank lines into one
+  // Collapse multiple blank lines
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.trim();
 
-  return cleaned.trim();
+  // If sanitization left very little, try to extract a structured summary from the raw output
+  if (cleaned.length < 30 && raw.length > 100) {
+    const structuredSummary = summarizeStructuredOutput(raw);
+    if (structuredSummary) return structuredSummary;
+  }
+
+  return cleaned;
 }
 
 export function AgentThinkingMessage({ block, onToggle }: Props) {
