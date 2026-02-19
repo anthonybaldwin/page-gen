@@ -53,9 +53,9 @@ export function ChatWindow() {
     const unsub = onWsMessage((msg) => {
       if (!activeChat) return;
 
-      // Filter by chatId — ignore messages from other chats
+      // Strict filter — only process messages for THIS chat
       const msgChatId = (msg.payload as { chatId?: string }).chatId;
-      if (msgChatId && msgChatId !== activeChat.id) return;
+      if (msgChatId !== activeChat.id) return;
 
       // Agent completed and produced a chat message
       if (msg.type === "chat_message") {

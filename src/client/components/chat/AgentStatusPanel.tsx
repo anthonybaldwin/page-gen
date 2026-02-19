@@ -61,8 +61,13 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineAgents, setPipelineAgents] = useState(DEFAULT_PIPELINE_AGENTS);
 
-  // Reconstruct progress state from DB on mount / chat change
+  // Reset all state and reconstruct from DB on chat change
   useEffect(() => {
+    setAgents({});
+    setPipelineActive(false);
+    setPipelineAgents(DEFAULT_PIPELINE_AGENTS);
+    setExpanded(null);
+
     if (!chatId) return;
 
     api
@@ -91,9 +96,10 @@ export function AgentStatusPanel({ chatId }: Props) {
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
-      // Filter by chatId — ignore messages from other chats
+      if (!chatId) return;
+      // Strict filter — only process messages for THIS chat
       const msgChatId = (msg.payload as { chatId?: string }).chatId;
-      if (msgChatId && chatId && msgChatId !== chatId) return;
+      if (msgChatId !== chatId) return;
 
       // Dynamic pipeline plan — update which agents to display
       if (msg.type === "pipeline_plan") {
