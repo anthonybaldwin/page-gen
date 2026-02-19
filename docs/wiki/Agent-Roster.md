@@ -30,6 +30,7 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
+- **Parallel instances (build mode):** The orchestrator parses the architect's `file_plan` and spawns multiple frontend-dev instances — each assigned a specific subset of files. Instances use `instanceId` (e.g., `frontend-dev-shared`, `frontend-dev-1`, `frontend-dev-app`) but share the same agent config and prompt.
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -89,10 +90,14 @@ Classification uses a ~50-token Opus call. Fast-path: empty projects always get 
 
 ```
 User → Orchestrator → classifyIntent() → "build" (scope used for backend gating)
-  → Phase 1: Research (determines requirements + backend needs)
-  → Phase 2: Dynamic plan from research output
-      → Architect (architecture + test plan)
-      → Frontend Dev → [write tests + code] → [run tests]
+  → Phase 1: Research (standalone — determines requirements + backend needs)
+  → Phase 2: Architect (standalone — outputs file_plan JSON)
+  → Phase 3: Parse file_plan → parallel frontend-dev instances
+      → Frontend Dev (Setup)   ← shared hooks/utils/types (if any)
+      → Frontend Dev 1 ─┐
+      → Frontend Dev 2  ├─ component batches (parallel, depend on Setup)
+      → Frontend Dev 3 ─┘
+      → Frontend Dev (App)     ← writes App.tsx (depends on ALL above)
       → Backend Dev → [write tests + code] → [run tests]  (only if scope + research require it)
       → Styling (waits for all dev agents)
       → Code Review ─┐
@@ -102,7 +107,9 @@ User → Orchestrator → classifyIntent() → "build" (scope used for backend g
   → [Final Build Check] → Summary
 ```
 
-**Stage count:** 5 stages without backend, 6 with backend.
+**Parallelism heuristic:** The number of parallel frontend-dev instances scales with component count: 1 for ≤4 files, 2 for 5–8, 3 for 9–14, 4 max for 15+. Small projects get a single instance (no overhead).
+
+**Fallback:** If the architect's `file_plan` can't be parsed, the orchestrator falls back to a single frontend-dev instance (previous behavior).
 
 ### Fix Pipeline (Parallelized)
 
@@ -139,18 +146,24 @@ The pipeline executor uses dependency-aware batch scheduling:
 - Cost limit checked after each batch completes
 
 **Parallel groups in build mode:**
-- `frontend-dev` depends on `architect`; `backend-dev` depends on `frontend-dev` (sequential to avoid file conflicts)
-- `styling` depends on all dev agents → waits for both to complete
+- `frontend-dev-shared` depends on `architect` — writes shared hooks/utils/types
+- `frontend-dev-{1,2,3,4}` depend on `architect` + `frontend-dev-shared` (if present) — write component batches in parallel
+- `frontend-dev-app` depends on ALL other frontend-dev instances — writes `App.tsx` last, gets the real build check
+- `backend-dev` depends on `frontend-dev-app`
+- `styling` depends on all dev agents → waits for all to complete
 - `code-review`, `security`, and `qa` all depend on `styling` → run in parallel
+- Steps use `instanceId` for keying/dependency resolution; base `agentName` is used for config lookup
 
 **Remediation re-reviews** also run in parallel (`Promise.all` for code-review, security, qa).
 
 ### Pipeline Plan Broadcasting
 
 The orchestrator broadcasts a `pipeline_plan` WebSocket message at the start of each pipeline. The client uses this to dynamically render only the relevant agents in the status bar:
-- Build mode: shows all agents in the plan
+- Build mode: shows all agents including parallel frontend-dev instances (using instanceIds like `frontend-dev-1`, `frontend-dev-app`)
 - Fix mode: shows only the dev agent(s) + reviewers
 - Question mode: hides the pipeline bar entirely, shows a "Thinking..." indicator
+
+The `AgentStatusPanel` resolves display names for parallel instances: `frontend-dev-shared` → "Frontend Dev (Setup)", `frontend-dev-{N}` → "Frontend Dev {N}", `frontend-dev-app` → "Frontend Dev (App)".
 
 ### General Pipeline Behavior
 
