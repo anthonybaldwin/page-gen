@@ -11,7 +11,7 @@ import { trackTokenUsage } from "../services/token-tracker.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults } from "../ws.ts";
 import { broadcast } from "../ws.ts";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 
@@ -230,43 +230,46 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       const filesWritten = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
 
       if (filesWritten.length > 0 && FILE_PRODUCING_AGENTS.has(step.agentName) && !signal.aborted) {
-        // Testing agent: run tests after writing test files
-        if (step.agentName === "testing") {
-          const testResult = await runProjectTests(projectPath, chatId, projectId);
-          if (testResult && testResult.failed > 0 && !signal.aborted) {
-            // Route test failures to frontend-dev for one fix attempt
-            const testFixResult = await runBuildFix({
-              buildErrors: `Test failures:\n${testResult.failures.map((f) => `- ${f.name}: ${f.error}`).join("\n")}`,
-              chatId, projectId, projectPath, projectName, chatTitle,
-              userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
-            });
-            if (testFixResult) {
-              agentResults.set("testing-fix", testFixResult);
-              completedAgents.push("frontend-dev (test fix)");
-            }
-            // Re-run tests once after fix
-            if (!signal.aborted) {
-              await runProjectTests(projectPath, chatId, projectId);
-            }
+        // All file-producing agents get build check
+        const buildErrors = await checkProjectBuild(projectPath);
+        if (buildErrors && !signal.aborted) {
+          const fixResult = await runBuildFix({
+            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+          });
+          if (fixResult) {
+            agentResults.set(`${step.agentName}-build-fix`, fixResult);
+            completedAgents.push(`${step.agentName} (build fix)`);
+          }
+          const recheckErrors = await checkProjectBuild(projectPath);
+          if (!recheckErrors) {
+            broadcast({ type: "preview_ready", payload: { projectId } });
           }
         } else {
-          // Non-testing file producers: run build check
-          const buildErrors = await checkProjectBuild(projectPath);
-          if (buildErrors && !signal.aborted) {
-            const fixResult = await runBuildFix({
-              buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-              userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
-            });
-            if (fixResult) {
-              agentResults.set(`${step.agentName}-build-fix`, fixResult);
-              completedAgents.push(`${step.agentName} (build fix)`);
+          broadcast({ type: "preview_ready", payload: { projectId } });
+        }
+
+        // After dev agents (not testing itself), run tests if test files exist
+        if (step.agentName !== "testing" && !signal.aborted) {
+          const hasTestFiles = testFilesExist(projectPath);
+          if (hasTestFiles) {
+            const testResult = await runProjectTests(projectPath, chatId, projectId);
+            if (testResult && testResult.failed > 0 && !signal.aborted) {
+              // Route test failures to dev agent for one fix attempt
+              const testFixResult = await runBuildFix({
+                buildErrors: `Test failures:\n${testResult.failures.map((f) => `- ${f.name}: ${f.error}`).join("\n")}`,
+                chatId, projectId, projectPath, projectName, chatTitle,
+                userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+              });
+              if (testFixResult) {
+                agentResults.set(`${step.agentName}-test-fix`, testFixResult);
+                completedAgents.push(`${step.agentName} (test fix)`);
+              }
+              // Re-run tests once after fix
+              if (!signal.aborted) {
+                await runProjectTests(projectPath, chatId, projectId);
+              }
             }
-            const recheckErrors = await checkProjectBuild(projectPath);
-            if (!recheckErrors) {
-              broadcast({ type: "preview_ready", payload: { projectId } });
-            }
-          } else {
-            broadcast({ type: "preview_ready", payload: { projectId } });
           }
         }
       }
@@ -1549,44 +1552,45 @@ export function buildExecutionPlan(
   intent: OrchestratorIntent = "build",
   scope: IntentScope = "full"
 ): ExecutionPlan {
-  // --- Fix mode: skip research/architect, route to relevant dev agent(s) ---
+  // --- Fix mode: TDD — testing first, then dev agents ---
   if (intent === "fix") {
     const steps: ExecutionPlan["steps"] = [];
+
+    // Testing comes first: write/update tests for the fix
+    steps.push({
+      agentName: "testing",
+      input: `Write or update vitest tests that verify the fix for: ${userMessage}. The existing code is in Previous Agent Outputs as "project-source". Write tests that define the expected behavior BEFORE the fix is implemented.`,
+    });
 
     // Route to dev agent(s) based on scope
     if (scope === "frontend" || scope === "full") {
       steps.push({
         agentName: "frontend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        dependsOn: ["testing"],
       });
     }
     if (scope === "backend" || scope === "full") {
       steps.push({
         agentName: "backend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        dependsOn: ["testing"],
       });
     }
     if (scope === "styling") {
       steps.push({
         agentName: "styling",
-        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+        dependsOn: ["testing"],
       });
     }
-
-    // Testing agent before reviewers
-    const devAgentNames = steps.map((s) => s.agentName);
-    steps.push({
-      agentName: "testing",
-      input: `Write vitest tests for all components changed by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: devAgentNames,
-    });
 
     // Always append reviewers
     steps.push(
       {
         agentName: "code-review",
         input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["testing"],
+        dependsOn: [steps[steps.length - 1]!.agentName],
       },
       {
         agentName: "security",
@@ -1603,7 +1607,7 @@ export function buildExecutionPlan(
     return { steps };
   }
 
-  // --- Build mode: full pipeline (unchanged) ---
+  // --- Build mode: TDD pipeline (testing from spec, before dev) ---
   const includeBackend = researchOutput ? needsBackend(researchOutput) : false;
 
   const steps: ExecutionPlan["steps"] = [
@@ -1613,17 +1617,22 @@ export function buildExecutionPlan(
       dependsOn: ["research"],
     },
     {
-      agentName: "frontend-dev",
-      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      agentName: "testing",
+      input: `Write vitest tests from the architect's plan and research requirements (provided in Previous Agent Outputs). Tests define expected behavior BEFORE implementation. Original request: ${userMessage}`,
       dependsOn: ["architect"],
+    },
+    {
+      agentName: "frontend-dev",
+      input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+      dependsOn: ["testing"],
     },
   ];
 
   if (includeBackend) {
     steps.push({
       agentName: "backend-dev",
-      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["architect"],
+      input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). Tests have been written — your implementation should pass them. Original request: ${userMessage}`,
+      dependsOn: ["testing"],
     });
   }
 
@@ -1634,14 +1643,9 @@ export function buildExecutionPlan(
       dependsOn: ["frontend-dev"],
     },
     {
-      agentName: "testing",
-      input: `Write vitest tests for all components built by the dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["styling"],
-    },
-    {
       agentName: "code-review",
       input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["testing"],
+      dependsOn: ["styling"],
     },
     {
       agentName: "security",
@@ -1660,6 +1664,23 @@ export function buildExecutionPlan(
 
 // Agents whose output may contain file code blocks
 const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "testing"]);
+
+/** Check if the project has any test files on disk (.test.tsx/.test.ts in src/) */
+function testFilesExist(projectPath: string): boolean {
+  const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
+    ? projectPath
+    : join(process.cwd(), projectPath);
+  const srcTestDir = join(fullPath, "src", "__tests__");
+  if (existsSync(srcTestDir)) return true;
+  const srcDir = join(fullPath, "src");
+  if (!existsSync(srcDir)) return false;
+  try {
+    const files = readdirSync(srcDir);
+    return files.some((f) => /\.test\.(tsx?|jsx?)$/.test(f));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Sanitize a file path from agent output.

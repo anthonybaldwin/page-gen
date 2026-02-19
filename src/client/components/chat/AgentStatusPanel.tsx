@@ -15,6 +15,7 @@ interface AgentState {
 const DEFAULT_PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
   { name: "research", displayName: "Research" },
   { name: "architect", displayName: "Architect" },
+  { name: "testing", displayName: "Testing" },
   { name: "frontend-dev", displayName: "Frontend Dev" },
   { name: "styling", displayName: "Styling" },
   { name: "code-review", displayName: "Code Review" },

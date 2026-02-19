@@ -112,14 +112,14 @@ describe("needsBackend", () => {
 // --- buildExecutionPlan ---
 
 describe("buildExecutionPlan", () => {
-  test("includes core pipeline agents without backend", () => {
+  test("includes core pipeline agents without backend (TDD order)", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const agentNames = plan.steps.map((s) => s.agentName);
     expect(agentNames).toEqual([
       "architect",
+      "testing",
       "frontend-dev",
       "styling",
-      "testing",
       "code-review",
       "security",
       "qa",
@@ -144,23 +144,24 @@ describe("buildExecutionPlan", () => {
     expect(agentNames).not.toContain("backend-dev");
   });
 
-  test("backend-dev comes after frontend-dev and before styling", () => {
+  test("backend-dev comes after testing and before styling", () => {
     const research = JSON.stringify({
       features: [{ name: "api", requires_backend: true }],
     });
     const plan = buildExecutionPlan("Build app", research);
     const names = plan.steps.map((s) => s.agentName);
-    const feIdx = names.indexOf("frontend-dev");
+    const testIdx = names.indexOf("testing");
     const beIdx = names.indexOf("backend-dev");
     const stIdx = names.indexOf("styling");
-    expect(beIdx).toBeGreaterThan(feIdx);
+    expect(beIdx).toBeGreaterThan(testIdx);
     expect(beIdx).toBeLessThan(stIdx);
   });
 
-  test("testing comes after styling in build mode", () => {
+  test("testing comes after architect in build mode (TDD)", () => {
     const plan = buildExecutionPlan("Build something");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names.indexOf("testing")).toBeGreaterThan(names.indexOf("styling"));
+    expect(names.indexOf("testing")).toBeGreaterThan(names.indexOf("architect"));
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
   });
 
   test("code-review comes after testing", () => {
@@ -526,48 +527,58 @@ describe("buildExecutionPlan (fix mode)", () => {
     expect(names).not.toContain("architect");
   });
 
-  test("fix mode with frontend scope routes to frontend-dev", () => {
+  test("fix mode: testing comes first (TDD)", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names[0]).toBe("testing");
+  });
+
+  test("fix mode with frontend scope routes to frontend-dev after testing", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
     expect(names).toContain("frontend-dev");
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
     expect(names).not.toContain("backend-dev");
     expect(names).not.toContain("styling");
   });
 
-  test("fix mode with backend scope routes to backend-dev", () => {
+  test("fix mode with backend scope routes to backend-dev after testing", () => {
     const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
     const names = plan.steps.map((s) => s.agentName);
     expect(names).toContain("backend-dev");
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("backend-dev"));
     expect(names).not.toContain("frontend-dev");
   });
 
-  test("fix mode with styling scope routes to styling", () => {
+  test("fix mode with styling scope routes to styling after testing", () => {
     const plan = buildExecutionPlan("fix the colors", undefined, "fix", "styling");
     const names = plan.steps.map((s) => s.agentName);
     expect(names).toContain("styling");
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("styling"));
     expect(names).not.toContain("frontend-dev");
     expect(names).not.toContain("backend-dev");
   });
 
-  test("fix mode with full scope routes to frontend-dev + backend-dev", () => {
+  test("fix mode with full scope routes to frontend-dev + backend-dev after testing", () => {
     const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
     const names = plan.steps.map((s) => s.agentName);
     expect(names).toContain("frontend-dev");
     expect(names).toContain("backend-dev");
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
+    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("backend-dev"));
   });
 
-  test("fix mode always ends with testing, code-review, security, qa", () => {
+  test("fix mode always ends with code-review, security, qa", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
-    const lastFour = names.slice(-4);
-    expect(lastFour).toEqual(["testing", "code-review", "security", "qa"]);
+    const lastThree = names.slice(-3);
+    expect(lastThree).toEqual(["code-review", "security", "qa"]);
   });
 
-  test("fix mode includes testing agent before code-review", () => {
+  test("fix mode: frontend-dev depends on testing", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const names = plan.steps.map((s) => s.agentName);
-    expect(names).toContain("testing");
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("code-review"));
+    const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
+    expect(feStep?.dependsOn).toContain("testing");
   });
 
   test("fix mode includes user message in step inputs", () => {
@@ -577,16 +588,22 @@ describe("buildExecutionPlan (fix mode)", () => {
     }
   });
 
-  test("build mode with default params includes testing", () => {
+  test("build mode with default params: TDD order", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "frontend-dev", "styling", "testing", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "testing", "frontend-dev", "styling", "code-review", "security", "qa"]);
   });
 
-  test("build mode with explicit intent param includes testing", () => {
+  test("build mode with explicit intent param: TDD order", () => {
     const plan = buildExecutionPlan("Build a landing page", undefined, "build");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toEqual(["architect", "frontend-dev", "styling", "testing", "code-review", "security", "qa"]);
+    expect(names).toEqual(["architect", "testing", "frontend-dev", "styling", "code-review", "security", "qa"]);
+  });
+
+  test("build mode: frontend-dev depends on testing", () => {
+    const plan = buildExecutionPlan("Build a landing page");
+    const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
+    expect(feStep?.dependsOn).toContain("testing");
   });
 });
 
