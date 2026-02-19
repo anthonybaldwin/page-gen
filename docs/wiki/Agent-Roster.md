@@ -54,7 +54,16 @@ The system uses 8 specialized AI agents, coordinated by an orchestrator. Each ag
 ## Pipeline
 
 ```
-User → Orchestrator → Research → Architect → Frontend Dev → [Build Check] → Styling → QA → Security → [Final Build Check] → Summary
+User → Orchestrator → Research → Architect → Frontend Dev → [Build Check] → Styling → QA → Security
+  → Remediation Loop (max 2 cycles):
+      ├─ detectIssues(QA + Security output)
+      ├─ if clean → break
+      ├─ Frontend Dev fixes findings
+      ├─ extract/write corrected files
+      ├─ re-run QA on updated code
+      ├─ re-run Security on updated code
+      └─ loop back to detectIssues()
+  → [Final Build Check] → Summary
 ```
 
 - Each agent's output is collected internally by the orchestrator (not saved as a chat message).
@@ -62,6 +71,23 @@ User → Orchestrator → Research → Architect → Frontend Dev → [Build Che
 - After the pipeline completes, the orchestrator calls its own model to generate a single markdown summary.
 - Only this summary is saved as a chat message and shown to the user.
 - The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
+
+### Remediation Loop
+
+After the initial QA and Security agents run, the orchestrator checks their output for issues using `detectIssues()`. If issues are found:
+
+1. **Frontend Dev** receives the QA/security findings and outputs corrected files
+2. **QA Agent** re-reviews the updated code (display name shows "re-review #N")
+3. **Security Reviewer** re-scans the updated code
+4. If issues persist, the loop repeats (max 2 cycles)
+
+Each cycle checks the cost limit before proceeding. The loop exits early if:
+- All issues are resolved (QA passes + Security passes)
+- Cost limit is reached
+- The pipeline is aborted by the user
+- A remediation or re-review agent fails
+
+In the UI, re-review agents show their cycle number (e.g., "QA Agent (re-review #1)") so the user can track the iteration.
 
 ### File Extraction
 
