@@ -687,8 +687,9 @@ export function findInterruptedPipelineRun(chatId: string): string | null {
 }
 
 /**
- * Execute all steps in a pipeline plan sequentially.
- * Returns true if all steps completed, false if aborted/failed.
+ * Execute pipeline steps with dependency-aware parallelism.
+ * Steps whose `dependsOn` are all in the completed set run concurrently as a batch.
+ * Halts on first failure. Checks cost limit after each batch.
  */
 async function executePipelineSteps(ctx: {
   plan: ExecutionPlan;
@@ -710,7 +711,12 @@ async function executePipelineSteps(ctx: {
     userMessage, chatHistory, agentResults, completedAgents, callCounter,
     providers, apiKeys, signal } = ctx;
 
-  for (const step of plan.steps) {
+  const completedSet = new Set<string>(
+    agentResults.keys()
+  );
+  const remaining = [...plan.steps];
+
+  while (remaining.length > 0) {
     if (signal.aborted) {
       await db.insert(schema.messages).values({
         id: nanoid(), chatId, role: "system",
@@ -721,11 +727,34 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    const stepResult = await runPipelineStep({
-      step, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
-      providers, apiKeys, signal,
-    });
+    // Find steps whose dependencies are all satisfied
+    const ready: typeof remaining = [];
+    const notReady: typeof remaining = [];
+    for (const step of remaining) {
+      const deps = step.dependsOn || [];
+      if (deps.every((d) => completedSet.has(d))) {
+        ready.push(step);
+      } else {
+        notReady.push(step);
+      }
+    }
+
+    if (ready.length === 0) {
+      // Deadlock — remaining steps have unmet deps that will never resolve
+      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.agentName).join(", ")} have unmet dependencies`);
+      return false;
+    }
+
+    // Run all ready steps concurrently
+    const results = await Promise.all(
+      ready.map((step) =>
+        runPipelineStep({
+          step, chatId, projectId, projectPath, projectName, chatTitle,
+          userMessage, chatHistory, agentResults, completedAgents, callCounter,
+          providers, apiKeys, signal,
+        }).then((result) => ({ agentName: step.agentName, result }))
+      )
+    );
 
     if (signal.aborted) {
       await db.insert(schema.messages).values({
@@ -737,10 +766,18 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    if (!stepResult) {
+    // Check for failures
+    const failed = results.find((r) => !r.result);
+    if (failed) {
       return false; // HALT — runPipelineStep already handled error broadcasting
     }
 
+    // Mark completed
+    for (const r of results) {
+      completedSet.add(r.agentName);
+    }
+
+    // Cost check after each batch
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
       broadcastAgentStatus(chatId, "orchestrator", "paused");
@@ -749,12 +786,16 @@ async function executePipelineSteps(ctx: {
         payload: {
           chatId,
           agentName: "orchestrator",
-          error: `Token limit reached mid-pipeline. Completed through ${step.agentName}.`,
+          error: `Token limit reached mid-pipeline. Completed through batch: ${ready.map((s) => s.agentName).join(", ")}.`,
           errorType: "cost_limit",
         },
       });
       return false;
     }
+
+    // Continue with remaining steps
+    remaining.length = 0;
+    remaining.push(...notReady);
   }
 
   return true;
@@ -1179,17 +1220,13 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
 
     if (ctx.signal.aborted) return;
 
-    // 5. Re-run code-review on updated code
-    const crResult = await runReviewAgent("code-review", cycleLabel, ctx);
-    if (!crResult || ctx.signal.aborted) return;
-
-    // 6. Re-run Security on updated code
-    const secResult = await runReviewAgent("security", cycleLabel, ctx);
-    if (!secResult || ctx.signal.aborted) return;
-
-    // 7. Re-run QA on updated code
-    const qaResult = await runReviewAgent("qa", cycleLabel, ctx);
-    if (!qaResult || ctx.signal.aborted) return;
+    // 5. Re-run code-review, security, and QA in parallel on updated code
+    const reviewResults = await Promise.all([
+      runReviewAgent("code-review", cycleLabel, ctx),
+      runReviewAgent("security", cycleLabel, ctx),
+      runReviewAgent("qa", cycleLabel, ctx),
+    ]);
+    if (reviewResults.some((r) => !r) || ctx.signal.aborted) return;
 
     // Loop continues — detectIssues() at top checks the fresh output
   }
@@ -1585,22 +1622,25 @@ export function buildExecutionPlan(
       });
     }
 
-    // Always append reviewers
+    // Always append reviewers — all depend on the last dev agent(s), run in parallel
+    const lastDevAgent = steps[steps.length - 1]!.agentName;
+    const reviewDeps = [lastDevAgent];
+
     steps.push(
       {
         agentName: "code-review",
         input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: [steps[steps.length - 1]!.agentName],
+        dependsOn: reviewDeps,
       },
       {
         agentName: "security",
         input: `Security review all code changes (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["code-review"],
+        dependsOn: reviewDeps,
       },
       {
         agentName: "qa",
         input: `Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["security"],
+        dependsOn: reviewDeps,
       },
     );
 
@@ -1636,12 +1676,16 @@ export function buildExecutionPlan(
     });
   }
 
+  // Styling depends on all dev agents (waits for both if backend included)
+  const stylingDeps: AgentName[] = includeBackend ? ["frontend-dev", "backend-dev"] : ["frontend-dev"];
+
   steps.push(
     {
       agentName: "styling",
       input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["frontend-dev"],
+      dependsOn: stylingDeps,
     },
+    // Review agents all depend on styling — they run in parallel with each other
     {
       agentName: "code-review",
       input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
@@ -1650,12 +1694,12 @@ export function buildExecutionPlan(
     {
       agentName: "security",
       input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["code-review"],
+      dependsOn: ["styling"],
     },
     {
       agentName: "qa",
       input: `Validate the implementation against the research requirements (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: ["security"],
+      dependsOn: ["styling"],
     },
   );
 

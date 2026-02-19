@@ -605,6 +605,54 @@ describe("buildExecutionPlan (fix mode)", () => {
     const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
     expect(feStep?.dependsOn).toContain("testing");
   });
+
+  test("build mode: review agents all depend on styling (parallel with each other)", () => {
+    const plan = buildExecutionPlan("Build a landing page");
+    const cr = plan.steps.find((s) => s.agentName === "code-review");
+    const sec = plan.steps.find((s) => s.agentName === "security");
+    const qa = plan.steps.find((s) => s.agentName === "qa");
+    expect(cr?.dependsOn).toEqual(["styling"]);
+    expect(sec?.dependsOn).toEqual(["styling"]);
+    expect(qa?.dependsOn).toEqual(["styling"]);
+  });
+
+  test("build mode: styling depends on both dev agents when backend included", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research);
+    const styling = plan.steps.find((s) => s.agentName === "styling");
+    expect(styling?.dependsOn).toContain("frontend-dev");
+    expect(styling?.dependsOn).toContain("backend-dev");
+  });
+
+  test("build mode: styling depends only on frontend-dev when no backend", () => {
+    const plan = buildExecutionPlan("Build a landing page");
+    const styling = plan.steps.find((s) => s.agentName === "styling");
+    expect(styling?.dependsOn).toEqual(["frontend-dev"]);
+  });
+
+  test("build mode: frontend-dev and backend-dev both depend only on testing (parallel)", () => {
+    const research = JSON.stringify({
+      features: [{ name: "api", requires_backend: true }],
+    });
+    const plan = buildExecutionPlan("Build app", research);
+    const fe = plan.steps.find((s) => s.agentName === "frontend-dev");
+    const be = plan.steps.find((s) => s.agentName === "backend-dev");
+    expect(fe?.dependsOn).toEqual(["testing"]);
+    expect(be?.dependsOn).toEqual(["testing"]);
+  });
+
+  test("fix mode: review agents all depend on last dev agent (parallel with each other)", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const cr = plan.steps.find((s) => s.agentName === "code-review");
+    const sec = plan.steps.find((s) => s.agentName === "security");
+    const qa = plan.steps.find((s) => s.agentName === "qa");
+    // All should depend on frontend-dev (the last dev agent for frontend scope)
+    expect(cr?.dependsOn).toEqual(["frontend-dev"]);
+    expect(sec?.dependsOn).toEqual(["frontend-dev"]);
+    expect(qa?.dependsOn).toEqual(["frontend-dev"]);
+  });
 });
 
 // --- classifyIntent ---
