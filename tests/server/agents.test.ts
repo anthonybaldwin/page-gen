@@ -33,10 +33,10 @@ describe("Agent Registry", () => {
     expect(config?.model).toBe("claude-opus-4-6");
   });
 
-  test("research uses gemini model", () => {
+  test("research uses sonnet model", () => {
     const config = getAgentConfig("research");
-    expect(config?.provider).toBe("google");
-    expect(config?.model).toBe("gemini-2.5-flash");
+    expect(config?.provider).toBe("anthropic");
+    expect(config?.model).toBe("claude-sonnet-4-6");
   });
 
   test("security uses haiku model", () => {

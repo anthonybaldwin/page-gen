@@ -232,6 +232,14 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
               agentResults.set(`${step.agentName}-build-fix`, fixResult);
               completedAgents.push(`${step.agentName} (build fix)`);
             }
+            // Re-check build after fix — if clean, enable preview
+            const recheckErrors = await checkProjectBuild(projectPath);
+            if (!recheckErrors) {
+              broadcast({ type: "preview_ready", payload: { projectId } });
+            }
+          } else {
+            // Build passed — enable preview
+            broadcast({ type: "preview_ready", payload: { projectId } });
           }
         }
 
@@ -432,6 +440,14 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         agentResults.set("final-build-fix", fixResult);
         completedAgents.push("frontend-dev (final build fix)");
       }
+      // Final re-check after fix
+      const finalRecheck = await checkProjectBuild(projectPath);
+      if (!finalRecheck) {
+        broadcast({ type: "preview_ready", payload: { projectId } });
+      }
+    } else {
+      // Build clean — enable preview
+      broadcast({ type: "preview_ready", payload: { projectId } });
     }
   }
 
@@ -743,12 +759,12 @@ function extractAndWriteFiles(
 
     // After the first file-producing agent writes files, prepare project for preview
     // This runs in the background — doesn't block the pipeline
+    // NOTE: preview_ready is NOT broadcast here — it's only sent after a successful build check
     if (!previewPrepStarted.has(projectId)) {
       previewPrepStarted.add(projectId);
       prepareProjectForPreview(projectPath)
         .then(() => {
-          console.log(`[orchestrator] Project ${projectId} prepared for preview`);
-          broadcast({ type: "preview_ready", payload: { projectId } });
+          console.log(`[orchestrator] Project ${projectId} scaffolded for preview (waiting for build check)`);
         })
         .catch((err) => {
           console.error(`[orchestrator] Preview preparation failed:`, err);

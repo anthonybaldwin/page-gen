@@ -11,8 +11,8 @@ export const AGENT_ROSTER: AgentConfig[] = [
   {
     name: "research",
     displayName: "Research Agent",
-    provider: "google",
-    model: "gemini-2.5-flash",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
     description: "Analyzes user requests, identifies requirements, suggests approaches",
   },
   {

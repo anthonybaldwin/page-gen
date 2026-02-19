@@ -12,6 +12,7 @@ export function MainPanel() {
   const activeProject = useProjectStore((s) => s.activeProject);
   const [activeTab, setActiveTab] = useState<"chat" | "preview">("chat");
   const [hasFiles, setHasFiles] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
   const hasOpenedPreview = useRef(false);
   if (activeTab === "preview") hasOpenedPreview.current = true;
 
@@ -19,6 +20,7 @@ export function MainPanel() {
   useEffect(() => {
     if (!activeProject) {
       setHasFiles(false);
+      setPreviewReady(false);
       return;
     }
     api
@@ -27,20 +29,24 @@ export function MainPanel() {
       .catch(() => setHasFiles(false));
   }, [activeProject]);
 
-  // Re-check files when agents complete or files change
+  // Listen for file changes and preview readiness
   useEffect(() => {
     connectWebSocket();
     const unsub = onWsMessage((msg) => {
       if (!activeProject) return;
-      const shouldCheck =
-        (msg.type === "files_changed") ||
-        (msg.type === "preview_ready") ||
-        (msg.type === "agent_status" && (msg.payload as { status: string }).status === "completed");
-      if (shouldCheck) {
+
+      // Update file tree on any file/agent change
+      if (msg.type === "files_changed" || msg.type === "preview_ready" ||
+          (msg.type === "agent_status" && (msg.payload as { status: string }).status === "completed")) {
         api
           .get<FileNode[]>(`/files/tree/${activeProject.id}`)
           .then((tree) => setHasFiles(tree.length > 0))
           .catch(() => {});
+      }
+
+      // Only enable preview after a successful build
+      if (msg.type === "preview_ready") {
+        setPreviewReady(true);
       }
     });
     return unsub;
@@ -48,8 +54,10 @@ export function MainPanel() {
 
   // Force switch to chat if preview becomes unavailable
   useEffect(() => {
-    if (!hasFiles && activeTab === "preview") setActiveTab("chat");
-  }, [hasFiles, activeTab]);
+    if (!previewReady && activeTab === "preview") setActiveTab("chat");
+  }, [previewReady, activeTab]);
+
+  const canPreview = hasFiles && previewReady;
 
   return (
     <main className="flex-1 flex flex-col min-w-0">
@@ -66,10 +74,10 @@ export function MainPanel() {
           Chat
         </button>
         <button
-          onClick={() => hasFiles && setActiveTab("preview")}
-          disabled={!hasFiles}
+          onClick={() => canPreview && setActiveTab("preview")}
+          disabled={!canPreview}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
-            !hasFiles
+            !canPreview
               ? "text-zinc-700 cursor-not-allowed"
               : activeTab === "preview"
                 ? "text-white border-b-2 border-blue-500"
