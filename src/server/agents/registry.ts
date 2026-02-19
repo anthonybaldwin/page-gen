@@ -120,15 +120,15 @@ export function getModelId(provider: string, model: string): string {
 
 export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   orchestrator: [],
-  research: [],
-  architect: [],
+  research: ["read_file", "list_files"],
+  architect: ["read_file", "list_files"],
   "frontend-dev": [...ALL_TOOLS],
   "backend-dev": [...ALL_TOOLS],
   styling: [...ALL_TOOLS],
-  testing: [],
-  "code-review": [],
-  qa: [],
-  security: [],
+  testing: ["read_file", "list_files"],
+  "code-review": ["read_file", "list_files"],
+  qa: ["read_file", "list_files"],
+  security: ["read_file", "list_files"],
 };
 
 export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator"]);
