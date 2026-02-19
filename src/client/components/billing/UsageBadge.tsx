@@ -29,7 +29,7 @@ export function UsageBadge({ onClick }: Props) {
   return (
     <button
       onClick={onClick}
-      className="w-full px-4 py-3 border-t border-zinc-800 text-left hover:bg-zinc-800/50 transition-colors"
+      className="w-full px-4 py-3 text-left hover:bg-zinc-800/50 transition-colors"
     >
       <div className="flex items-center justify-between">
         <span className="text-xs text-zinc-500">Total spent</span>

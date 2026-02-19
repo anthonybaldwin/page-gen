@@ -4,8 +4,6 @@ import { UsageByAgent } from "./UsageByAgent.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
 import { RequestLog } from "./RequestLog.tsx";
 import { BillingHistory } from "./BillingHistory.tsx";
-import { LimitsSettings } from "./LimitsSettings.tsx";
-import { ApiKeySettings } from "./ApiKeySettings.tsx";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -15,7 +13,7 @@ interface UsageSummary {
   requestCount: number;
 }
 
-type Tab = "overview" | "by-agent" | "by-provider" | "log" | "history" | "limits" | "keys";
+type Tab = "overview" | "by-agent" | "by-provider" | "log" | "history";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
@@ -23,8 +21,6 @@ const TAB_LABELS: Record<Tab, string> = {
   "by-provider": "By Provider",
   log: "Request Log",
   history: "History",
-  limits: "Limits",
-  keys: "API Keys",
 };
 
 interface UsageDashboardProps {
@@ -103,8 +99,6 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
         {activeTab === "by-provider" && <UsageByProvider />}
         {activeTab === "log" && <RequestLog />}
         {activeTab === "history" && <BillingHistory />}
-        {activeTab === "limits" && <LimitsSettings />}
-        {activeTab === "keys" && <ApiKeySettings />}
         {activeTab === "overview" && summary && (
           <p className="text-sm text-zinc-400">
             {summary.requestCount} API requests made across all sessions.

@@ -6,6 +6,8 @@ import { api } from "../../lib/api.ts";
 import type { Project, Chat } from "../../../shared/types.ts";
 import { UsageBadge } from "../billing/UsageBadge.tsx";
 import { UsageDashboard } from "../billing/UsageDashboard.tsx";
+import { SettingsButton } from "../settings/SettingsButton.tsx";
+import { SettingsModal } from "../settings/SettingsModal.tsx";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -19,6 +21,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [showNewProject, setShowNewProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showUsage, setShowUsage] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
@@ -301,13 +304,27 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       </div>
 
-      <UsageBadge onClick={() => setShowUsage(true)} />
+      <div className="flex items-center border-t border-zinc-800">
+        <SettingsButton onClick={() => setShowSettings(true)} />
+        <div className="flex-1">
+          <UsageBadge onClick={() => setShowUsage(true)} />
+        </div>
+      </div>
 
       {/* Usage dashboard modal */}
       {showUsage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl h-[80vh] flex flex-col shadow-2xl">
             <UsageDashboard onClose={() => setShowUsage(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl h-[80vh] flex flex-col shadow-2xl">
+            <SettingsModal onClose={() => setShowSettings(false)} />
           </div>
         </div>
       )}
