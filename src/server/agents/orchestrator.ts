@@ -514,14 +514,23 @@ function detectIssues(agentResults: Map<string, string>): ReviewFindings {
   const qaOutput = agentResults.get("qa") || "";
   const securityOutput = agentResults.get("security") || "";
 
-  // QA agent outputs "QA Review: Pass" when no issues found (see qa.md prompt)
-  const qaClean = qaOutput.includes("QA Review: Pass") || qaOutput.trim() === "";
+  // QA is a self-fixing agent: if it found issues, it already wrote corrected files.
+  // "QA Review: Pass" = no issues found at all.
+  // If QA output contains write_file tool calls, it found AND fixed issues — those are resolved.
+  // Only treat QA as having unresolved issues if it reported problems without writing fixes.
+  const qaNoIssues = qaOutput.includes("QA Review: Pass") || qaOutput.trim() === "";
+  const qaFixedIssues =
+    qaOutput.includes("QA Review: Fixed") ||
+    /<tool_call>[\s\S]*?write_file[\s\S]*?<\/tool_call>/.test(qaOutput);
+  const qaClean = qaNoIssues || qaFixedIssues;
 
-  // Security agent outputs "status": "pass" when no issues found (see security.md prompt)
+  // Security agent only reports — it never fixes. Check for pass signals.
   const securityClean =
     securityOutput.includes('"status": "pass"') ||
     securityOutput.includes('"status":"pass"') ||
     securityOutput.includes("Passed with no issues") ||
+    securityOutput.includes("zero security vulnerabilities") ||
+    securityOutput.includes("safe for production") ||
     securityOutput.trim() === "";
 
   return {

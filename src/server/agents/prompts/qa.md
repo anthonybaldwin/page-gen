@@ -44,9 +44,15 @@ For each file, check:
 
 ## Output Format
 
-For each issue found, fix it by writing the corrected file. Then provide a brief summary:
+For each issue found, fix it by writing the corrected file. Then provide a brief summary.
 
-If no issues are found, output:
+If issues were found and fixed, end with:
+```
+## QA Review: Fixed
+[number] issues found and fixed.
+```
+
+If no issues are found, end with:
 ```
 ## QA Review: Pass
 All files reviewed. No issues found.
