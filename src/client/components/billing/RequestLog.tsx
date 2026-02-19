@@ -1,12 +1,35 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
-import type { TokenUsage } from "../../../shared/types.ts";
+
+interface LedgerRecord {
+  id: string;
+  agentName: string;
+  provider: string;
+  model: string;
+  projectName: string | null;
+  chatTitle: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costEstimate: number;
+  createdAt: number;
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 export function RequestLog() {
-  const [records, setRecords] = useState<TokenUsage[]>([]);
+  const [records, setRecords] = useState<LedgerRecord[]>([]);
 
   useEffect(() => {
-    api.get<TokenUsage[]>("/usage").then(setRecords).catch(console.error);
+    api.get<LedgerRecord[]>("/usage").then(setRecords).catch(console.error);
   }, []);
 
   if (records.length === 0) {
@@ -18,25 +41,25 @@ export function RequestLog() {
       <table className="w-full text-xs">
         <thead>
           <tr className="text-left text-zinc-500 border-b border-zinc-800">
+            <th className="pb-2 pr-3">Time</th>
             <th className="pb-2 pr-3">Agent</th>
-            <th className="pb-2 pr-3">Provider</th>
             <th className="pb-2 pr-3">Model</th>
+            <th className="pb-2 pr-3">Chat</th>
             <th className="pb-2 pr-3 text-right">Input</th>
             <th className="pb-2 pr-3 text-right">Output</th>
-            <th className="pb-2 pr-3 text-right">Total</th>
             <th className="pb-2 text-right">Cost</th>
           </tr>
         </thead>
         <tbody>
           {records.map((r) => (
             <tr key={r.id} className="border-b border-zinc-800/50 text-zinc-300">
-              <td className="py-1.5 pr-3">{r.agentName}</td>
-              <td className="py-1.5 pr-3">{r.provider}</td>
-              <td className="py-1.5 pr-3 text-zinc-500">{r.model}</td>
-              <td className="py-1.5 pr-3 text-right">{r.inputTokens.toLocaleString()}</td>
-              <td className="py-1.5 pr-3 text-right">{r.outputTokens.toLocaleString()}</td>
-              <td className="py-1.5 pr-3 text-right">{r.totalTokens.toLocaleString()}</td>
-              <td className="py-1.5 text-right text-green-400">${r.costEstimate.toFixed(4)}</td>
+              <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{formatTime(r.createdAt)}</td>
+              <td className="py-1.5 pr-3 whitespace-nowrap">{r.agentName}</td>
+              <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{r.model}</td>
+              <td className="py-1.5 pr-3 text-zinc-500 truncate max-w-[120px]">{r.chatTitle || "—"}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.inputTokens.toLocaleString()}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.outputTokens.toLocaleString()}</td>
+              <td className="py-1.5 text-right text-green-400 whitespace-nowrap">${r.costEstimate.toFixed(4)}</td>
             </tr>
           ))}
         </tbody>
