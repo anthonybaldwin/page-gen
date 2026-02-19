@@ -100,8 +100,7 @@ Clicking the badge opens the full usage dashboard as a modal overlay.
 1. **Overview** — Total tokens, cost, request count
 2. **By Agent** — Token usage per agent
 3. **By Provider** — Token usage per provider/model
-4. **Request Log** — Per-request detail table
-5. **History** — Lifetime billing history with per-project and per-chat breakdown (includes deleted entities)
+4. **Request Log** — Per-request detail table (filterable by chat and timeframe)
 
 ## Settings Modal
 

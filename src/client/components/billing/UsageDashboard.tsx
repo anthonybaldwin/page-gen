@@ -3,7 +3,6 @@ import { api } from "../../lib/api.ts";
 import { UsageByAgent } from "./UsageByAgent.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
 import { RequestLog } from "./RequestLog.tsx";
-import { BillingHistory } from "./BillingHistory.tsx";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -19,7 +18,7 @@ interface ChatOption {
   projectName: string | null;
 }
 
-type Tab = "overview" | "by-agent" | "by-provider" | "log" | "history";
+type Tab = "overview" | "by-agent" | "by-provider" | "log";
 type Timeframe = "all" | "today" | "7d" | "30d";
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -27,7 +26,6 @@ const TAB_LABELS: Record<Tab, string> = {
   "by-agent": "By Agent",
   "by-provider": "By Provider",
   log: "Request Log",
-  history: "History",
 };
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
@@ -197,7 +195,6 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
         {activeTab === "by-agent" && <UsageByAgent filterQuery={filterQuery} />}
         {activeTab === "by-provider" && <UsageByProvider filterQuery={filterQuery} />}
         {activeTab === "log" && <RequestLog filterQuery={filterQuery} />}
-        {activeTab === "history" && <BillingHistory />}
         {activeTab === "overview" && summary && (
           <p className="text-sm text-zinc-400">
             {summary.requestCount} API requests{selectedChat ? " for this chat" : " across all sessions"}.
