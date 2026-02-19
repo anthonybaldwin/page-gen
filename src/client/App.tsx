@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
-import { MainPanel } from "./components/layout/MainPanel.tsx";
+import { ChatWindow } from "./components/chat/ChatWindow.tsx";
+import { LivePreview } from "./components/preview/LivePreview.tsx";
 import { FileExplorer } from "./components/layout/FileExplorer.tsx";
 import { ApiKeySetup } from "./components/settings/ApiKeySetup.tsx";
 import { useSettingsStore } from "./stores/settingsStore.ts";
+import { useChatStore } from "./stores/chatStore.ts";
 
 export function App() {
   const { hasKeys, loadKeys } = useSettingsStore();
   const [showSetup, setShowSetup] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const activeChat = useChatStore((s) => s.activeChat);
 
   useEffect(() => {
     loadKeys();
@@ -27,8 +30,20 @@ export function App() {
       {/* Left: Sidebar */}
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
-      {/* Center: Main panel */}
-      <MainPanel />
+      {/* Chat column — narrow, fixed width */}
+      <div className="w-96 flex flex-col border-r border-zinc-800 min-h-0">
+        {activeChat && (
+          <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900">
+            <span className="text-xs text-zinc-500">{activeChat.title}</span>
+          </div>
+        )}
+        <ChatWindow />
+      </div>
+
+      {/* Preview column — fills remaining space */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <LivePreview />
+      </div>
 
       {/* Right: File explorer */}
       <FileExplorer />
