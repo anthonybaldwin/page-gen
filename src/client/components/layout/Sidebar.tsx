@@ -7,7 +7,12 @@ import type { Project, Chat } from "../../../shared/types.ts";
 import { UsageBadge } from "../billing/UsageBadge.tsx";
 import { UsageDashboard } from "../billing/UsageDashboard.tsx";
 
-export function Sidebar() {
+interface SidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { projects, activeProject, setProjects, setActiveProject } = useProjectStore();
   const { chats, activeChat, setChats, setActiveChat, setMessages } = useChatStore();
   const [newProjectName, setNewProjectName] = useState("");
@@ -68,10 +73,35 @@ export function Sidebar() {
     }
   }
 
+  if (collapsed) {
+    return (
+      <aside className="w-12 border-r border-zinc-800 bg-zinc-900 flex flex-col items-center py-3 transition-all duration-200">
+        <button
+          onClick={onToggle}
+          className="text-zinc-400 hover:text-white p-1.5 rounded hover:bg-zinc-800 transition-colors"
+          title="Expand sidebar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+            <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col">
-      <div className="p-4 border-b border-zinc-800">
+    <aside className="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col transition-all duration-200">
+      <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
         <h1 className="text-lg font-bold text-white">Just Build It</h1>
+        <button
+          onClick={onToggle}
+          className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-colors"
+          title="Collapse sidebar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" clipRule="evenodd" />
+          </svg>
+        </button>
       </div>
       {error && (
         <div className="px-3 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs">

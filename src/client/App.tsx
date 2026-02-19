@@ -8,6 +8,7 @@ import { useSettingsStore } from "./stores/settingsStore.ts";
 export function App() {
   const { hasKeys, loadKeys } = useSettingsStore();
   const [showSetup, setShowSetup] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     loadKeys();
@@ -24,7 +25,7 @@ export function App() {
       )}
 
       {/* Left: Sidebar */}
-      <Sidebar />
+      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
       {/* Center: Main panel */}
       <MainPanel />
