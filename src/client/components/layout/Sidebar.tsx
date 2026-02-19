@@ -121,7 +121,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside className="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col transition-all duration-200">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white">Just Build It</h1>
+        <h1 className="text-lg font-bold text-white">Page Gen.</h1>
         <button
           onClick={onToggle}
           className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-colors"

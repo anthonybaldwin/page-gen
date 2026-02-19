@@ -103,7 +103,7 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
       <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-8 w-full max-w-lg">
-        <h2 className="text-xl font-bold text-white mb-2">Welcome to Just Build It</h2>
+        <h2 className="text-xl font-bold text-white mb-2">Welcome to Page Gen.</h2>
         <p className="text-sm text-zinc-400 mb-6">
           Enter at least one API key to get started. Keys are stored locally in your browser.
         </p>

@@ -1,4 +1,4 @@
-# Just Build It
+# Page Gen.
 
 A local-first, multi-agent page builder. Describe what you want in natural language, and AI agents build it live with real-time HMR preview.
 
@@ -13,6 +13,12 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar and permanent billing history that survives deletions
 - ~~**Snapshots** — Version your project, rollback to any point~~ **TODO**
 - **Local-first** — All data in SQLite, API keys encrypted at rest in localStorage, no cloud dependency
+
+## TODO
+
+- [ ] **Snapshots UI** — Snapshot API + DB schema exist, but no UI is wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` are orphaned components. Need to add snapshot panel to sidebar and connect create/rollback actions.
+- [ ] **Auto-snapshot after pipeline** — Wiki claims snapshots are created automatically after each orchestration run. `finishPipeline()` does not call `createSnapshot()`.
+- [ ] **Agent Roster wiki accuracy** — Build pipeline section says Test Planner runs as a separate step; it's now merged into architect in build mode (only separate in fix mode).
 
 ## Tech Stack
 
@@ -39,7 +45,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 ```bash
 # Clone the repo
 git clone <repo-url>
-cd just-build-it
+cd page-gen
 
 # Install dependencies
 bun install

@@ -1,4 +1,4 @@
-# Just Build It - Wiki
+# Page Gen. - Wiki
 
 A local-first, multi-agent page builder. Describe what you want in natural language, and AI agents build it live.
 

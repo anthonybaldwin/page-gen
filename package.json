@@ -1,5 +1,5 @@
 {
-  "name": "just-build-it",
+  "name": "page-gen",
   "type": "module",
   "private": true,
   "scripts": {
