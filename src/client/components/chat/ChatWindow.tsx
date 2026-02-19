@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
+import { TestResultsBanner } from "./TestResultsBanner.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
@@ -17,12 +18,17 @@ export function ChatWindow() {
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
+  const [testResults, setTestResults] = useState<{
+    passed: number; failed: number; total: number; duration: number;
+    failures: Array<{ name: string; error: string }>;
+  } | null>(null);
 
   useEffect(() => {
     if (!activeChat) return;
     setError(null);
     setThinking(false);
     setInterrupted(false);
+    setTestResults(null);
     resetThinking();
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
@@ -79,12 +85,22 @@ export function ChatWindow() {
         });
       }
 
+      // Test results from test runner
+      if (msg.type === "test_results") {
+        const payload = msg.payload as {
+          passed: number; failed: number; total: number; duration: number;
+          failures: Array<{ name: string; error: string }>;
+        };
+        setTestResults(payload);
+      }
+
       // Orchestrator status changes
       if (msg.type === "agent_status") {
         const { agentName, status } = msg.payload as { agentName: string; status: string };
         if (agentName === "orchestrator") {
           if (status === "running") {
             resetThinking();
+            setTestResults(null);
           }
           if (status === "completed" || status === "failed") {
             setThinking(false);
@@ -285,6 +301,7 @@ export function ChatWindow() {
             onToggle={() => toggleExpanded(block.agentName)}
           />
         ))}
+        {testResults && <TestResultsBanner results={testResults} />}
         {thinking && blocks.length === 0 && <ThinkingIndicator />}
         <div ref={messagesEndRef} />
       </div>

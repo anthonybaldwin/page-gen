@@ -9,6 +9,7 @@ interface AgentState {
   stream: string;
   error?: string;
   phase?: string;
+  testBadge?: { passed: number; total: number };
 }
 
 const DEFAULT_PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
@@ -181,6 +182,22 @@ export function AgentStatusPanel({ chatId }: Props) {
           },
         }));
       }
+
+      // Test results — attach badge to testing agent
+      if (msg.type === "test_results") {
+        const { passed, total } = msg.payload as { passed: number; total: number };
+        setAgents((prev) => ({
+          ...prev,
+          testing: {
+            ...prev.testing,
+            name: "testing",
+            displayName: AGENT_DISPLAY_NAMES.testing || "Testing",
+            status: prev.testing?.status || "completed",
+            stream: prev.testing?.stream || "",
+            testBadge: { passed, total },
+          },
+        }));
+      }
     });
 
     return unsub;
@@ -235,6 +252,15 @@ export function AgentStatusPanel({ chatId }: Props) {
                   {agent.displayName}
                   {state?.phase === "remediation" && " (fixing)"}
                 </span>
+                {state?.testBadge && (
+                  <span className={`ml-1 text-[10px] font-medium ${
+                    state.testBadge.passed === state.testBadge.total
+                      ? "text-green-400"
+                      : "text-red-400"
+                  }`}>
+                    {state.testBadge.passed === state.testBadge.total ? "\u2713" : "\u2717"} {state.testBadge.passed}/{state.testBadge.total}
+                  </span>
+                )}
               </button>
             </div>
           );
