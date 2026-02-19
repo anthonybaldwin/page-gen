@@ -17,6 +17,7 @@ const PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
   { name: "architect", displayName: "Architect" },
   { name: "frontend-dev", displayName: "Frontend Dev" },
   { name: "styling", displayName: "Styling" },
+  { name: "code-review", displayName: "Code Review" },
   { name: "qa", displayName: "QA" },
   { name: "security", displayName: "Security" },
 ];

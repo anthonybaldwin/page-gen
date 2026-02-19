@@ -82,6 +82,7 @@ export type AgentName =
   | "frontend-dev"
   | "backend-dev"
   | "styling"
+  | "code-review"
   | "qa"
   | "security";
 

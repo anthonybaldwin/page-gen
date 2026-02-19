@@ -44,6 +44,13 @@ export const AGENT_ROSTER: AgentConfig[] = [
     description: "Applies design system, responsive layout, theming",
   },
   {
+    name: "code-review",
+    displayName: "Code Reviewer",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    description: "Reviews code for bugs, type errors, and correctness; fixes issues directly",
+  },
+  {
     name: "qa",
     displayName: "QA Agent",
     provider: "anthropic",

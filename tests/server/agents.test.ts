@@ -2,8 +2,8 @@ import { describe, test, expect } from "bun:test";
 import { AGENT_ROSTER, getAgentConfig } from "../../src/server/agents/registry.ts";
 
 describe("Agent Registry", () => {
-  test("all 8 agents are defined", () => {
-    expect(AGENT_ROSTER).toHaveLength(8);
+  test("all 9 agents are defined", () => {
+    expect(AGENT_ROSTER).toHaveLength(9);
   });
 
   test("each agent has required fields", () => {
