@@ -46,42 +46,42 @@ usageRoutes.get("/summary", (c) => {
   });
 });
 
-// Usage grouped by agent
+// Usage grouped by agent (from billing_ledger — survives deletions)
 usageRoutes.get("/by-agent", (c) => {
   const chatId = c.req.query("chatId");
   const baseQuery = db
     .select({
-      agentName: schema.tokenUsage.agentName,
-      totalTokens: sql<number>`sum(${schema.tokenUsage.totalTokens})`,
-      totalCost: sql<number>`sum(${schema.tokenUsage.costEstimate})`,
+      agentName: schema.billingLedger.agentName,
+      totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
-    .from(schema.tokenUsage);
+    .from(schema.billingLedger);
 
   if (chatId) {
     const results = baseQuery
-      .where(eq(schema.tokenUsage.chatId, chatId))
-      .groupBy(schema.tokenUsage.agentName)
+      .where(eq(schema.billingLedger.chatId, chatId))
+      .groupBy(schema.billingLedger.agentName)
       .all();
     return c.json(results);
   }
 
-  const results = baseQuery.groupBy(schema.tokenUsage.agentName).all();
+  const results = baseQuery.groupBy(schema.billingLedger.agentName).all();
   return c.json(results);
 });
 
-// Usage grouped by provider
+// Usage grouped by provider (from billing_ledger — survives deletions)
 usageRoutes.get("/by-provider", (c) => {
   const results = db
     .select({
-      provider: schema.tokenUsage.provider,
-      model: schema.tokenUsage.model,
-      totalTokens: sql<number>`sum(${schema.tokenUsage.totalTokens})`,
-      totalCost: sql<number>`sum(${schema.tokenUsage.costEstimate})`,
+      provider: schema.billingLedger.provider,
+      model: schema.billingLedger.model,
+      totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
-    .from(schema.tokenUsage)
-    .groupBy(schema.tokenUsage.provider, schema.tokenUsage.model)
+    .from(schema.billingLedger)
+    .groupBy(schema.billingLedger.provider, schema.billingLedger.model)
     .all();
   return c.json(results);
 });
