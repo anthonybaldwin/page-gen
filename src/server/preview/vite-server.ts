@@ -138,6 +138,35 @@ root.render(
 }
 
 /**
+ * Ensure tsconfig.json exists so Vite/esbuild correctly handles .ts files.
+ * Without this, esbuild may treat .ts files as JavaScript and choke on type annotations.
+ */
+function ensureProjectHasTsConfig(projectPath: string) {
+  const tsconfigPath = join(projectPath, "tsconfig.json");
+  if (existsSync(tsconfigPath)) return;
+
+  const tsconfig = {
+    compilerOptions: {
+      target: "ESNext",
+      module: "ESNext",
+      moduleResolution: "bundler",
+      jsx: "react-jsx",
+      allowJs: true,
+      skipLibCheck: true,
+      esModuleInterop: true,
+      strict: false,
+      forceConsistentCasingInFileNames: true,
+      resolveJsonModule: true,
+      isolatedModules: true,
+    },
+    include: ["src"],
+    exclude: ["node_modules", "dist"],
+  };
+
+  writeFileSync(tsconfigPath, JSON.stringify(tsconfig, null, 2), "utf-8");
+}
+
+/**
  * Ensure src/index.css exists with Tailwind CSS v4 import.
  */
 function ensureProjectHasTailwindCss(projectPath: string) {
@@ -205,6 +234,7 @@ export async function prepareProjectForPreview(projectPath: string): Promise<voi
 
   ensureProjectHasPackageJson(fullPath);
   ensureProjectHasViteConfig(fullPath);
+  ensureProjectHasTsConfig(fullPath);
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);
   ensureProjectHasMainEntry(fullPath);
