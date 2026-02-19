@@ -64,6 +64,7 @@ export function LivePreview() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const startPreview = useCallback(async (projectId: string) => {
@@ -113,6 +114,15 @@ export function LivePreview() {
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
+      // Track pipeline running state from orchestrator status
+      if (msg.type === "agent_status") {
+        const { agentName, status } = msg.payload as { agentName: string; status: string };
+        if (agentName === "orchestrator") {
+          if (status === "running") setPipelineRunning(true);
+          if (["completed", "stopped", "failed"].includes(status)) setPipelineRunning(false);
+        }
+      }
+
       // Only start the preview on preview_ready (sent after a successful build check)
       if (msg.type === "preview_ready") {
         if (previewUrl && iframeRef.current) {
@@ -123,8 +133,8 @@ export function LivePreview() {
           checkAndMaybeStartPreview(activeProject.id);
         }
       }
-      // files_changed only reloads an already-running preview — never starts one
-      if (msg.type === "files_changed" && previewUrl && iframeRef.current) {
+      // files_changed only reloads when pipeline is NOT running — prevents broken preview mid-build
+      if (msg.type === "files_changed" && !pipelineRunning && previewUrl && iframeRef.current) {
         setTimeout(() => {
           if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
         }, 1000);
@@ -132,7 +142,7 @@ export function LivePreview() {
     });
 
     return unsub;
-  }, [previewUrl, loading, activeProject, checkAndMaybeStartPreview]);
+  }, [previewUrl, loading, activeProject, pipelineRunning, checkAndMaybeStartPreview]);
 
   if (!activeProject) {
     return (
