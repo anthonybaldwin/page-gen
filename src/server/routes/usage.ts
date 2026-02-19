@@ -4,22 +4,22 @@ import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 
 export const usageRoutes = new Hono();
 
-// Get all usage records (optionally filtered by chatId)
+// Get all usage records (from billing_ledger — survives deletions)
 usageRoutes.get("/", (c) => {
   const chatId = c.req.query("chatId");
   if (chatId) {
     const usage = db
       .select()
-      .from(schema.tokenUsage)
-      .where(eq(schema.tokenUsage.chatId, chatId))
-      .orderBy(desc(schema.tokenUsage.createdAt))
+      .from(schema.billingLedger)
+      .where(eq(schema.billingLedger.chatId, chatId))
+      .orderBy(desc(schema.billingLedger.createdAt))
       .all();
     return c.json(usage);
   }
   const all = db
     .select()
-    .from(schema.tokenUsage)
-    .orderBy(desc(schema.tokenUsage.createdAt))
+    .from(schema.billingLedger)
+    .orderBy(desc(schema.billingLedger.createdAt))
     .all();
   return c.json(all);
 });
