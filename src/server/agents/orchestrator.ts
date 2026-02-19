@@ -16,6 +16,16 @@ import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite
 
 const MAX_RETRIES = 3;
 
+/** Resolve a provider model instance from a config, respecting the configured provider. */
+function resolveProviderModel(config: { provider: string; model: string }, providers: ProviderInstance) {
+  switch (config.provider) {
+    case "anthropic": return providers.anthropic?.(config.model);
+    case "openai": return providers.openai?.(config.model);
+    case "google": return providers.google?.(config.model);
+    default: return null;
+  }
+}
+
 // Abort registry — keyed by chatId
 const abortControllers = new Map<string, AbortController>();
 
@@ -566,7 +576,7 @@ async function handleQuestion(ctx: {
   const orchestratorConfig = getAgentConfigResolved("orchestrator");
   if (!orchestratorConfig) return "I couldn't process your question. Please try again.";
 
-  const model = providers.anthropic?.(orchestratorConfig.model);
+  const model = resolveProviderModel(orchestratorConfig, providers);
   if (!model) return "No model available to answer questions. Please check your API keys.";
 
   const projectSource = readProjectSource(projectPath);
@@ -671,9 +681,9 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   const prompt = `## User Request\n${userMessage}\n\n## Agent Outputs\n${digest}`;
 
   // Get the orchestrator's model
-  const model = providers.anthropic?.(orchestratorConfig.model);
+  const model = resolveProviderModel(orchestratorConfig, providers);
   if (!model) {
-    // Fallback if no Anthropic provider
+    // Fallback if no provider available
     return Array.from(agentResults.entries())
       .map(([agent, output]) => `**${agent}:** ${output}`)
       .join("\n\n");
@@ -1184,7 +1194,7 @@ export async function classifyIntent(
     return { intent: "build", scope: "full", reasoning: "Fallback: no orchestrator config" };
   }
 
-  const model = providers.anthropic?.(orchestratorConfig.model);
+  const model = resolveProviderModel(orchestratorConfig, providers);
   if (!model) {
     return { intent: "build", scope: "full", reasoning: "Fallback: no model available" };
   }
