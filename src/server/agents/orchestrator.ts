@@ -47,7 +47,7 @@ interface OrchestratorInput {
   apiKeys: Record<string, string>;
 }
 
-interface ExecutionPlan {
+export interface ExecutionPlan {
   steps: Array<{
     agentName: AgentName;
     input: string;
@@ -535,7 +535,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   return result.text;
 }
 
-interface ReviewFindings {
+export interface ReviewFindings {
   hasIssues: boolean;
   codeReviewFindings: string | null;
   qaFindings: string | null;
@@ -547,7 +547,7 @@ interface ReviewFindings {
   };
 }
 
-function detectIssues(agentResults: Map<string, string>): ReviewFindings {
+export function detectIssues(agentResults: Map<string, string>): ReviewFindings {
   const codeReviewOutput = agentResults.get("code-review") || "";
   const qaOutput = agentResults.get("qa") || "";
   const securityOutput = agentResults.get("security") || "";
@@ -595,7 +595,7 @@ function detectIssues(agentResults: Map<string, string>): ReviewFindings {
  * Routes based on [frontend]/[backend]/[styling] tags from code-review and QA findings.
  * Defaults to frontend-dev when no clear routing (backward compatible).
  */
-function determineFixAgents(findings: ReviewFindings): AgentName[] {
+export function determineFixAgents(findings: ReviewFindings): AgentName[] {
   const agents: AgentName[] = [];
   const { routingHints } = findings;
 
@@ -613,7 +613,7 @@ function determineFixAgents(findings: ReviewFindings): AgentName[] {
  * Determine which agent should fix build errors based on error content.
  * Routes to backend-dev if errors reference server files, otherwise frontend-dev.
  */
-function determineBuildFixAgent(buildErrors: string): AgentName {
+export function determineBuildFixAgent(buildErrors: string): AgentName {
   if (/server\/|api\/|backend\/|\.server\.|routes\//i.test(buildErrors)) {
     return "backend-dev";
   }
@@ -933,7 +933,7 @@ async function runReviewAgent(
  * Check if the research output indicates backend requirements.
  * Parses JSON for `requires_backend: true` features, falls back to regex heuristic.
  */
-function needsBackend(researchOutput: string): boolean {
+export function needsBackend(researchOutput: string): boolean {
   try {
     const parsed = JSON.parse(researchOutput);
     if (parsed.features && Array.isArray(parsed.features)) {
@@ -946,7 +946,7 @@ function needsBackend(researchOutput: string): boolean {
   return /requires_backend['":\s]+true|api\s*route|server[\s-]*side|database|backend|express|endpoint/i.test(researchOutput);
 }
 
-function buildExecutionPlan(userMessage: string, researchOutput?: string): ExecutionPlan {
+export function buildExecutionPlan(userMessage: string, researchOutput?: string): ExecutionPlan {
   const includeBackend = researchOutput ? needsBackend(researchOutput) : false;
 
   const steps: ExecutionPlan["steps"] = [
@@ -1003,7 +1003,7 @@ const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "s
  * Sanitize a file path from agent output.
  * Strips leading/trailing quotes, backticks, whitespace, and normalizes separators.
  */
-function sanitizeFilePath(raw: string): string {
+export function sanitizeFilePath(raw: string): string {
   return raw
     .trim()
     .replace(/^['"` ]+|['"` ]+$/g, "") // strip leading/trailing quotes, backticks, spaces
@@ -1016,7 +1016,7 @@ function sanitizeFilePath(raw: string): string {
  *   <tool_call>{"name":"write_file","parameters":{"path":"...","content":"..."}}</tool_call>
  * Fallback patterns for markdown-style output also supported.
  */
-function extractFilesFromOutput(agentOutput: string): Array<{ path: string; content: string }> {
+export function extractFilesFromOutput(agentOutput: string): Array<{ path: string; content: string }> {
   const files: Array<{ path: string; content: string }> = [];
   const seen = new Set<string>();
 
