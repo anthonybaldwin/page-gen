@@ -1,9 +1,11 @@
 import { getSessionTokenTotal } from "./token-tracker.ts";
+import { getLimit } from "../routes/settings.ts";
+import { db, schema } from "../db/index.ts";
+import { eq, sql } from "drizzle-orm";
 
-const DEFAULT_TOKEN_LIMIT = 500_000;
 const WARNING_THRESHOLD = 0.8;
 
-interface CostCheckResult {
+export interface CostCheckResult {
   allowed: boolean;
   currentTokens: number;
   limit: number;
@@ -11,22 +13,58 @@ interface CostCheckResult {
   warning: boolean;
 }
 
-export function checkCostLimit(chatId: string, limit: number = DEFAULT_TOKEN_LIMIT): CostCheckResult {
+export function checkCostLimit(chatId: string, limitOverride?: number): CostCheckResult {
+  const limit = limitOverride ?? getLimit("maxTokensPerChat");
   const currentTokens = getSessionTokenTotal(chatId);
-  const percentUsed = currentTokens / limit;
+  const percentUsed = limit > 0 ? currentTokens / limit : 0;
 
   return {
-    allowed: currentTokens < limit,
+    allowed: limit <= 0 || currentTokens < limit,
     currentTokens,
     limit,
     percentUsed,
-    warning: percentUsed >= WARNING_THRESHOLD && percentUsed < 1,
+    warning: limit > 0 && percentUsed >= WARNING_THRESHOLD && percentUsed < 1,
   };
+}
+
+export function getMaxAgentCalls(): number {
+  return getLimit("maxAgentCallsPerRun");
+}
+
+export function checkDailyCostLimit(): { allowed: boolean; currentCost: number; limit: number } {
+  const limit = getLimit("maxCostPerDay");
+  if (limit <= 0) return { allowed: true, currentCost: 0, limit: 0 };
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const result = db
+    .select({ total: sql<number>`coalesce(sum(${schema.billingLedger.costEstimate}), 0)` })
+    .from(schema.billingLedger)
+    .where(sql`${schema.billingLedger.createdAt} >= ${startOfDay.getTime()}`)
+    .get();
+
+  const currentCost = result?.total || 0;
+  return { allowed: currentCost < limit, currentCost, limit };
+}
+
+export function checkProjectCostLimit(projectId: string): { allowed: boolean; currentCost: number; limit: number } {
+  const limit = getLimit("maxCostPerProject");
+  if (limit <= 0) return { allowed: true, currentCost: 0, limit: 0 };
+
+  const result = db
+    .select({ total: sql<number>`coalesce(sum(${schema.billingLedger.costEstimate}), 0)` })
+    .from(schema.billingLedger)
+    .where(eq(schema.billingLedger.projectId, projectId))
+    .get();
+
+  const currentCost = result?.total || 0;
+  return { allowed: currentCost < limit, currentCost, limit };
 }
 
 export function getCostLimitSettings() {
   return {
-    defaultTokenLimit: DEFAULT_TOKEN_LIMIT,
+    defaultTokenLimit: getLimit("maxTokensPerChat"),
     warningThreshold: WARNING_THRESHOLD,
   };
 }

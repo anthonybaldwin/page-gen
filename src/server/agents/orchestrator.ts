@@ -8,20 +8,13 @@ import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfig } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage } from "../services/token-tracker.ts";
-import { checkCostLimit } from "../services/cost-limiter.ts";
+import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking } from "../ws.ts";
 import { broadcast } from "../ws.ts";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 
 const MAX_RETRIES = 3;
-
-// Hard cap on total agent calls per orchestration to prevent runaway costs.
-// Worst case: research(1) + architect(1) + frontend(1) + backend(1) + styling(1)
-//   + code-review(1) + security(1) + qa(1) = 8 pipeline
-//   + build fixes(~4) + remediation cycles(2 * ~6) = ~24
-// Cap at 30 gives breathing room while preventing true runaways.
-const MAX_TOTAL_AGENT_CALLS = 30;
 
 // Abort registry — keyed by chatId
 const abortControllers = new Map<string, AbortController>();
@@ -87,8 +80,9 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   if (signal.aborted) return null;
 
   // Hard cap — prevent runaway costs
-  if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping to prevent runaway costs.`);
+  const maxCalls = getMaxAgentCalls();
+  if (callCounter.value >= maxCalls) {
+    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${maxCalls}). Stopping to prevent runaway costs.`);
     return null;
   }
   callCounter.value++;
@@ -241,6 +235,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     broadcastAgentStatus(chatId, "orchestrator", "warning", {
       message: `Token usage at ${Math.round(costCheck.percentUsed * 100)}% of limit`,
     });
+  }
+
+  // Check daily cost limit
+  const dailyCheck = checkDailyCostLimit();
+  if (!dailyCheck.allowed) {
+    abortControllers.delete(chatId);
+    broadcastAgentError(chatId, "orchestrator", `Daily cost limit reached ($${dailyCheck.currentCost.toFixed(2)}/$${dailyCheck.limit.toFixed(2)}). Adjust your daily limit in Settings to continue.`);
+    return;
+  }
+
+  // Check per-project cost limit
+  const projectCheck = checkProjectCostLimit(projectId);
+  if (!projectCheck.allowed) {
+    abortControllers.delete(chatId);
+    broadcastAgentError(chatId, "orchestrator", `Project cost limit reached ($${projectCheck.currentCost.toFixed(2)}/$${projectCheck.limit.toFixed(2)}). Adjust your project limit in Settings to continue.`);
+    return;
   }
 
   // Load project name and chat title for billing ledger
@@ -904,8 +914,9 @@ async function runFixAgent(
   findings: ReviewFindings,
   ctx: RemediationContext,
 ): Promise<string | null> {
-  if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping remediation.`);
+  const maxCallsRem = getMaxAgentCalls();
+  if (ctx.callCounter.value >= maxCallsRem) {
+    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${maxCallsRem}). Stopping remediation.`);
     return null;
   }
   ctx.callCounter.value++;
@@ -1019,8 +1030,9 @@ async function runReviewAgent(
   cycle: number,
   ctx: RemediationContext,
 ): Promise<string | null> {
-  if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping re-review.`);
+  const maxCallsReview = getMaxAgentCalls();
+  if (ctx.callCounter.value >= maxCallsReview) {
+    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${maxCallsReview}). Stopping re-review.`);
     return null;
   }
   ctx.callCounter.value++;
@@ -1541,8 +1553,9 @@ async function runBuildFix(params: {
   const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal } = params;
 
-  if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Skipping build fix.`);
+  const maxCallsBuild = getMaxAgentCalls();
+  if (callCounter.value >= maxCallsBuild) {
+    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${maxCallsBuild}). Skipping build fix.`);
     return null;
   }
   callCounter.value++;
