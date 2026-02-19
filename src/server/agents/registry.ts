@@ -97,7 +97,7 @@ export function getAgentConfigResolved(name: AgentName): ResolvedAgentConfig | u
   };
 }
 
-/** Get all 9 agent configs with DB overrides applied. */
+/** Get all agent configs with DB overrides applied. */
 export function getAllAgentConfigs(): ResolvedAgentConfig[] {
   return AGENT_ROSTER.map((a) => getAgentConfigResolved(a.name)!);
 }

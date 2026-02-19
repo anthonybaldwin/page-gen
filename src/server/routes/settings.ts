@@ -73,7 +73,7 @@ settingsRoutes.put("/limits", async (c) => {
 
 const VALID_AGENT_NAMES = new Set<AgentName>([
   "orchestrator", "research", "architect", "frontend-dev", "backend-dev",
-  "styling", "code-review", "qa", "security",
+  "styling", "testing", "code-review", "qa", "security",
 ]);
 
 // Get all agent configs (with DB overrides applied)

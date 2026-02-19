@@ -5,7 +5,7 @@ import type { ResolvedAgentConfig } from "../../../shared/types.ts";
 const AGENT_NAMES = [
   "orchestrator", "research", "architect",
   "frontend-dev", "backend-dev", "styling",
-  "code-review", "qa", "security",
+  "testing", "code-review", "qa", "security",
 ] as const;
 
 export function PromptEditor() {
