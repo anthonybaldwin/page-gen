@@ -1,6 +1,10 @@
 import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync } from "fs";
 import { join } from "path";
 
+// Read versions from our own package.json so Dependabot keeps them current
+const OUR_PKG = JSON.parse(readFileSync(join(import.meta.dirname, "../../../package.json"), "utf-8"));
+const OUR_DEPS: Record<string, string> = { ...OUR_PKG.dependencies, ...OUR_PKG.devDependencies };
+
 const activeServers = new Map<string, { port: number; process: ReturnType<typeof Bun.spawn> }>();
 let nextPort = 3001;
 
@@ -64,21 +68,20 @@ function ensureProjectHasPackageJson(projectPath: string) {
   const deps = (existing.dependencies || {}) as Record<string, string>;
   const devDeps = (existing.devDependencies || {}) as Record<string, string>;
 
-  // Ensure core React deps
-  if (!deps.react) deps.react = "^19.2.0";
-  if (!deps["react-dom"]) deps["react-dom"] = "^19.2.0";
+  // Inherit versions from our own package.json (Dependabot keeps them current)
+  if (!deps.react) deps.react = OUR_DEPS.react || "^19.2.0";
+  if (!deps["react-dom"]) deps["react-dom"] = OUR_DEPS["react-dom"] || "^19.2.0";
 
-  // Ensure Vite + React plugin + Tailwind in devDeps
-  if (!devDeps.vite) devDeps.vite = "^7.3.0";
-  if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = "^5.1.0";
-  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = "^4.2.0";
-  if (!devDeps.tailwindcss) devDeps.tailwindcss = "^4.2.0";
-  if (!devDeps["@types/react"]) devDeps["@types/react"] = "^19.2.0";
-  if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = "^19.2.0";
-  // Testing deps for the testing agent
-  if (!devDeps.vitest) devDeps.vitest = "^2.0.0";
-  if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^15.0.0";
-  if (!devDeps["@testing-library/react"]) devDeps["@testing-library/react"] = "^16.0.0";
+  if (!devDeps.vite) devDeps.vite = OUR_DEPS.vite || "^7.3.0";
+  if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = OUR_DEPS["@vitejs/plugin-react"] || "^5.1.0";
+  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = OUR_DEPS["@tailwindcss/vite"] || "^4.2.0";
+  if (!devDeps.tailwindcss) devDeps.tailwindcss = OUR_DEPS.tailwindcss || "^4.2.0";
+  if (!devDeps["@types/react"]) devDeps["@types/react"] = OUR_DEPS["@types/react"] || "^19.2.0";
+  if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = OUR_DEPS["@types/react-dom"] || "^19.2.0";
+  // Testing deps (not in our package.json — pinned here)
+  if (!devDeps.vitest) devDeps.vitest = "^4.0.0";
+  if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^20.0.0";
+  if (!devDeps["@testing-library/react"]) devDeps["@testing-library/react"] = "^16.3.0";
   if (!devDeps["@testing-library/user-event"]) devDeps["@testing-library/user-event"] = "^14.0.0";
 
   const pkg = {
