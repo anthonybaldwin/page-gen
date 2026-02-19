@@ -83,6 +83,11 @@ export const billingLedger = sqliteTable("billing_ledger", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export const snapshots = sqliteTable("snapshots", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
