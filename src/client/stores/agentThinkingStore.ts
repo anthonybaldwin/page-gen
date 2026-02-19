@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export interface ThinkingBlock {
+  id: string;
   agentName: string;
   displayName: string;
   status: "started" | "streaming" | "completed" | "failed";
@@ -8,6 +9,12 @@ export interface ThinkingBlock {
   summary: string;
   expanded: boolean;
   startedAt: number;
+}
+
+function generateId(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
@@ -40,7 +47,7 @@ interface AgentThinkingState {
     chunk?: string;
     summary?: string;
   }) => void;
-  toggleExpanded: (agentName: string) => void;
+  toggleExpanded: (blockId: string) => void;
 }
 
 export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
@@ -53,10 +60,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       blocks: state.blocks.map((b) =>
         b.status === "started" || b.status === "streaming"
           ? {
-              agentName: b.agentName,
-              displayName: b.displayName,
-              startedAt: b.startedAt,
-              content: b.content,
+              ...b,
               summary: "Stopped",
               status: "failed" as const,
               expanded: false,
@@ -93,6 +97,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           : "started";
 
         return {
+          id: generateId(),
           agentName: exec.agentName,
           displayName: AGENT_DISPLAY_NAMES[exec.agentName] || exec.agentName,
           status: status as ThinkingBlock["status"],
@@ -114,6 +119,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
 
       if (status === "started") {
         const newBlock: ThinkingBlock = {
+          id: generateId(),
           agentName,
           displayName,
           status: "started",
@@ -124,7 +130,18 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         };
 
         if (idx !== -1) {
-          // Agent retrying — replace existing block instead of creating duplicate
+          const existing = blocks[idx]!;
+          if (existing.status === "completed" || existing.status === "failed") {
+            // Remediation case — existing block is done, append a new one
+            const updated = blocks.map((b) =>
+              b.expanded && b.status !== "started" && b.status !== "streaming"
+                ? { ...b, expanded: false }
+                : b
+            );
+            updated.push(newBlock);
+            return { blocks: updated };
+          }
+          // Retry case — existing block is still in-progress, replace it
           blocks[idx] = newBlock;
           return { blocks };
         }
@@ -139,28 +156,23 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         return { blocks: updated };
       }
 
-      if (idx === -1) return state;
-      const existing = blocks[idx]!;
+      // For streaming/completed/failed — find the LAST block matching agentName
+      const lastIdx = blocks.findLastIndex((b) => b.agentName === agentName);
+      if (lastIdx === -1) return state;
+      const existing = blocks[lastIdx]!;
 
       if (status === "streaming") {
-        blocks[idx] = {
-          agentName: existing.agentName,
-          displayName: existing.displayName,
-          startedAt: existing.startedAt,
-          summary: existing.summary,
+        blocks[lastIdx] = {
+          ...existing,
           status: "streaming",
           content: existing.content + (chunk || ""),
-          expanded: existing.expanded,
         };
         return { blocks };
       }
 
       if (status === "completed") {
-        blocks[idx] = {
-          agentName: existing.agentName,
-          displayName: existing.displayName,
-          startedAt: existing.startedAt,
-          content: existing.content,
+        blocks[lastIdx] = {
+          ...existing,
           status: "completed",
           summary: summary || "",
           expanded: false,
@@ -169,12 +181,8 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       }
 
       if (status === "failed") {
-        blocks[idx] = {
-          agentName: existing.agentName,
-          displayName: existing.displayName,
-          startedAt: existing.startedAt,
-          content: existing.content,
-          summary: existing.summary,
+        blocks[lastIdx] = {
+          ...existing,
           status: "failed",
           expanded: false,
         };
@@ -184,10 +192,10 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       return state;
     }),
 
-  toggleExpanded: (agentName) =>
+  toggleExpanded: (blockId) =>
     set((state) => ({
       blocks: state.blocks.map((b) =>
-        b.agentName === agentName ? { ...b, expanded: !b.expanded } : b
+        b.id === blockId ? { ...b, expanded: !b.expanded } : b
       ),
     })),
 }));
