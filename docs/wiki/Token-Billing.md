@@ -30,18 +30,34 @@ This ensures:
 
 ## Cost Estimation
 
-Per-million-token pricing used for estimates (verified Feb 2026):
+Pricing is managed by the centralized `pricing.ts` module (`src/server/services/pricing.ts`).
+
+### Default Pricing (per 1M tokens, verified Feb 2026)
 
 | Model | Input | Output |
 |-------|-------|--------|
 | claude-opus-4-6 | $5 | $25 |
 | claude-sonnet-4-6 | $3 | $15 |
-| claude-haiku-4-5 | $1 | $5 |
+| claude-haiku-4-5-20251001 | $1 | $5 |
 | gpt-5.2 | $1.75 | $14 |
 | gpt-5.2-pro | $21 | $168 |
 | gemini-2.5-flash | $0.30 | $2.50 |
 
-Unknown models fall back to Sonnet-tier pricing ($3/$15).
+### Pricing Overrides
+
+Pricing can be overridden per-model via Settings > Models or the pricing API. Overrides are stored in the `app_settings` table using `pricing.{model}.input` and `pricing.{model}.output` keys.
+
+- **Known models** use default pricing unless overridden
+- **Unknown/custom models** cost **$0** until the user configures pricing (no silent fallback)
+- Assigning an unknown model to an agent is blocked until pricing is configured
+- Deleting a pricing override reverts a known model to its default pricing
+
+### Pricing API
+
+- `GET /api/settings/pricing` — All models with effective pricing + `isOverridden`/`isKnown` flags
+- `PUT /api/settings/pricing/:model` — Upsert pricing `{ input, output }`
+- `DELETE /api/settings/pricing/:model` — Remove override (reverts known model to default)
+- `GET /api/settings/models` — Known models grouped by provider with default pricing
 
 ## Safety Limits
 
@@ -93,5 +109,5 @@ Accessible via the gear icon in the sidebar footer (to the left of the usage bad
 
 1. **API Keys** — Edit or clear provider API keys and proxy URLs
 2. **Limits** — Configure spending guardrails (max tokens, agent calls, daily/project cost caps)
-3. **Models** — Per-agent provider and model overrides (grouped by Planning, Development, Review)
+3. **Models** — Per-agent provider and model overrides with pricing visibility (searchable model dropdown, inline pricing display, pricing override via pencil icon, custom model pricing required before save)
 4. **Prompts** — View and edit each agent's system prompt with a two-pane editor

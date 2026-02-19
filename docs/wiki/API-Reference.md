@@ -128,9 +128,11 @@ Get all 9 agent configs with DB overrides applied.
 **Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
 
 ### PUT /settings/agents/:name
-Override an agent's provider and/or model.
+Override an agent's provider and/or model. Rejects unknown models without pricing configured.
 
 **Body:** `{ provider?: string, model?: string }`
+
+**Error (400):** `{ error: "Unknown model requires pricing configuration", requiresPricing: true }` — returned when model has no default or override pricing. Configure pricing via `PUT /settings/pricing/:model` first.
 
 ### GET /settings/agents/:name/prompt
 Get an agent's system prompt (custom or file default).
@@ -150,6 +152,24 @@ Validate an API key.
 
 **Body:** `{ provider: string }`
 **Headers:** `X-Api-Key-{Provider}: <key>`
+
+### GET /settings/pricing
+Get all models with effective pricing (defaults merged with DB overrides).
+
+**Response:** `Array<{ model: string, input: number, output: number, isOverridden: boolean, isKnown: boolean }>`
+
+### PUT /settings/pricing/:model
+Upsert pricing override for a model. Required for custom/unknown models before they can be assigned to agents.
+
+**Body:** `{ input: number, output: number }` — per 1M tokens (USD), must be non-negative
+
+### DELETE /settings/pricing/:model
+Remove pricing override for a model. Known models revert to default pricing; unknown models lose pricing (cost becomes $0).
+
+### GET /settings/models
+Get known models grouped by provider with their default pricing.
+
+**Response:** `Array<{ provider: string, models: Array<{ id: string, pricing: { input: number, output: number } | null }> }>`
 
 ## Agents
 
