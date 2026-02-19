@@ -436,7 +436,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       providers, apiKeys, signal,
     });
     if (!pipelineOk) {
-      await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      const postCheck = checkCostLimit(chatId);
+      const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
+      await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
       abortControllers.delete(chatId);
       return;
     }
@@ -508,7 +510,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     providers, apiKeys, signal,
   });
   if (!pipelineOk) {
-    await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+    const postCheck = checkCostLimit(chatId);
+    const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
+    await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     abortControllers.delete(chatId);
     return;
   }
@@ -543,11 +547,19 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   abortControllers.set(chatId, controller);
   const { signal } = controller;
 
-  // Check cost limits
+  // Check cost limits — if still over limit after resume, abort with clear message
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) {
     abortControllers.delete(chatId);
-    broadcastAgentError(chatId, "orchestrator", `Token limit reached. Please increase your limit to continue.`);
+    broadcast({
+      type: "agent_error",
+      payload: {
+        chatId,
+        agentName: "orchestrator",
+        error: `Token limit still exceeded (${costCheck.currentTokens}/${costCheck.limit}). Increase your limit in Settings before resuming.`,
+        errorType: "cost_limit",
+      },
+    });
     return;
   }
 
@@ -729,7 +741,15 @@ async function executePipelineSteps(ctx: {
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
       broadcastAgentStatus(chatId, "orchestrator", "paused");
-      broadcastAgentError(chatId, "orchestrator", `Token limit reached mid-pipeline. Completed through ${step.agentName}.`);
+      broadcast({
+        type: "agent_error",
+        payload: {
+          chatId,
+          agentName: "orchestrator",
+          error: `Token limit reached mid-pipeline. Completed through ${step.agentName}.`,
+          errorType: "cost_limit",
+        },
+      });
       return false;
     }
   }

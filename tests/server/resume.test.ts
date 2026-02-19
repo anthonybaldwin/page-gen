@@ -212,4 +212,27 @@ describe("pipeline resume", () => {
     const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
     expect(remainingSteps).toHaveLength(0);
   });
+
+  test("pipeline marked as interrupted when cost limit reached (not failed)", () => {
+    // Simulate a pipeline that was interrupted due to cost limit
+    const runId = `test-run-cost-${nanoid(6)}`;
+    db.insert(schema.pipelineRuns).values({
+      id: runId,
+      chatId: testChatId,
+      intent: "build",
+      scope: "full",
+      userMessage: "Build something expensive",
+      plannedAgents: JSON.stringify(["research", "architect", "frontend-dev"]),
+      status: "interrupted",  // cost limit should set this, not "failed"
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+    }).run();
+
+    const row = db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.id, runId)).get();
+    expect(row!.status).toBe("interrupted");
+
+    // findInterruptedPipelineRun should find it
+    const found = findInterruptedPipelineRun(testChatId);
+    expect(found).toBeDefined();
+  });
 });

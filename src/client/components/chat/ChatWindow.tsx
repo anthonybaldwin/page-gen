@@ -3,6 +3,7 @@ import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { TestResultsBanner } from "./TestResultsBanner.tsx";
+import { LimitsSettings } from "../billing/LimitsSettings.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
@@ -18,6 +19,8 @@ export function ChatWindow() {
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
+  const [costLimitInterrupt, setCostLimitInterrupt] = useState(false);
+  const [showLimitsInline, setShowLimitsInline] = useState(false);
   const [testResults, setTestResults] = useState<{
     passed: number; failed: number; total: number; duration: number;
     failures: Array<{ name: string; error: string }>;
@@ -28,6 +31,8 @@ export function ChatWindow() {
     setError(null);
     setThinking(false);
     setInterrupted(false);
+    setCostLimitInterrupt(false);
+    setShowLimitsInline(false);
     setTestResults(null);
     resetThinking();
     api
@@ -114,10 +119,14 @@ export function ChatWindow() {
 
       // Agent error — stop thinking and show error
       if (msg.type === "agent_error") {
-        const { agentName, error: errMsg } = msg.payload as { agentName: string; error: string };
+        const { agentName, error: errMsg, errorType } = msg.payload as { agentName: string; error: string; errorType?: string };
         if (agentName === "orchestrator") {
           setThinking(false);
-          setError(errMsg);
+          if (errorType === "cost_limit") {
+            setCostLimitInterrupt(true);
+          } else {
+            setError(errMsg);
+          }
         }
       }
 
@@ -202,6 +211,8 @@ export function ChatWindow() {
     if (!activeChat) return;
     setError(null);
     setInterrupted(false);
+    setCostLimitInterrupt(false);
+    setShowLimitsInline(false);
 
     // Optimistic: show the message immediately before API call
     const optimisticMsg: Message = {
@@ -290,6 +301,38 @@ export function ChatWindow() {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+      {costLimitInterrupt && !thinking && (
+        <div className="border-b border-amber-800 bg-amber-900/30">
+          <div className="px-4 py-2 text-amber-300 text-xs flex items-center justify-between">
+            <span>Token limit reached. Pipeline paused.</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowLimitsInline((v) => !v)}
+                className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
+              >
+                {showLimitsInline ? "Hide limits" : "Increase limit & resume"}
+              </button>
+              <button
+                onClick={() => { setCostLimitInterrupt(false); setShowLimitsInline(false); }}
+                className="text-amber-400 hover:text-amber-200"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          {showLimitsInline && (
+            <div className="px-4 pb-3 pt-1 border-t border-amber-800/50">
+              <LimitsSettings />
+              <button
+                onClick={() => { setCostLimitInterrupt(false); setShowLimitsInline(false); handleResume(); }}
+                className="mt-3 rounded bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-500 transition-colors"
+              >
+                Resume pipeline
+              </button>
+            </div>
+          )}
         </div>
       )}
       <div className="flex-1 overflow-y-auto">
