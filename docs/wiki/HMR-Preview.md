@@ -21,12 +21,12 @@ User sends message
 
 ### Per-Project Vite Dev Server
 - Each active project gets its own Vite dev server on a unique port (3001, 3002, ...)
-- Server is started lazily when user opens the Preview tab
+- Server is started lazily when the preview component mounts (always visible in the side-by-side layout)
 - The preview iframe points to `localhost:{port}`
 
 ### Auto-Scaffolding
 
-When preview is triggered (either by the orchestrator after first file extraction, or when user clicks Preview), the system ensures:
+When preview is triggered (by the orchestrator after first file extraction, or when the preview component mounts for an active project), the system ensures:
 
 1. **`package.json`** exists with `react`, `react-dom`, `vite`, `@vitejs/plugin-react`
 2. **`vite.config.ts`** includes the React plugin for JSX/TSX transformation

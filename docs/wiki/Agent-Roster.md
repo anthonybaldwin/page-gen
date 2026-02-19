@@ -167,7 +167,7 @@ After each file-producing agent (frontend-dev, backend-dev, styling), the orches
 1. Runs `bunx vite build --mode development` to check for compile errors
 2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 3. Only broadcasts `preview_ready` after a successful build
-4. The Preview tab stays disabled until the build passes
+4. The preview pane updates live once the build passes
 
 ## Token Tracking
 

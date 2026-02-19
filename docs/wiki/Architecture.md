@@ -5,11 +5,11 @@
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   React Frontend                     │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Sidebar   │  │ Chat/Preview │  │ File Explorer│  │
-│  │ (projects │  │ (main panel) │  │ (tree view)  │  │
-│  │  + chats) │  │              │  │              │  │
-│  └──────────┘  └──────────────┘  └──────────────┘  │
+│  ┌──────────┐ ┌────────┐ ┌──────────┐ ┌───────────┐ │
+│  │ Sidebar   │ │ Chat   │ │ Preview  │ │ File      │ │
+│  │ (collapse │ │ (w-96) │ │ (flex-1) │ │ Explorer  │ │
+│  │  -ible)   │ │        │ │          │ │           │ │
+│  └──────────┘ └────────┘ └──────────┘ └───────────┘ │
 │                     │ HTTP + WS                      │
 └─────────────────────┼───────────────────────────────┘
                       │
@@ -43,7 +43,7 @@
 8. Agent outputs are collected internally — not shown to the user as separate messages
 9. Agents write files to the project directory
 10. Vite dev server detects changes and pushes HMR updates
-11. Preview iframe re-renders with the new code (Preview tab auto-enables once files exist)
+11. Preview iframe re-renders with the new code (always visible side-by-side with chat)
 12. After all agents complete, the orchestrator synthesizes a single markdown summary
 13. Only the summary is saved as a chat message and displayed to the user (rendered as markdown)
 14. Token usage is tracked for every AI API call and broadcast to the client in real time

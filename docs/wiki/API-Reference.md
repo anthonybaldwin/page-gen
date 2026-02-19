@@ -22,6 +22,11 @@ Create a new project.
 
 **Body:** `{ name: string }`
 
+### PATCH /projects/:id
+Rename a project.
+
+**Body:** `{ name: string }`
+
 ### DELETE /projects/:id
 Delete a project.
 
@@ -37,6 +42,11 @@ Get a single chat by ID.
 Create a new chat.
 
 **Body:** `{ projectId: string, title: string }`
+
+### PATCH /chats/:id
+Rename a chat.
+
+**Body:** `{ title: string }`
 
 ### DELETE /chats/:id
 Delete a chat.

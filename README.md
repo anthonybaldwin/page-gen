@@ -8,7 +8,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **8 specialized AI agents** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, QA, Security
 - **Real-time agent thinking** — Expandable per-agent thinking messages stream in chat as agents work
 - **Stop & continue** — Interrupt a running pipeline and resume from where it stopped
-- **Live HMR preview** — See changes as agents write code (tab disabled until files exist)
+- **Live HMR preview** — See changes side-by-side as agents write code
 - **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
 - **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar and permanent billing history that survives deletions
 - **Snapshots** — Version your project, rollback to any point
@@ -80,7 +80,7 @@ React Frontend ←→ Hono Backend ←→ AI Providers
   Live Preview    Agent System
 ```
 
-- **3-panel layout:** Sidebar (projects/chats) → Main (chat/preview) → File Explorer
+- **4-column layout:** Collapsible sidebar (projects/chats) → Chat (fixed width) → Live Preview (flex) → File Explorer
 - **Agent pipeline:** Research → Architect → Frontend Dev → Styling → QA → Security
 - **Orchestrator summary:** Agent outputs are persisted per-agent and the orchestrator synthesizes a single markdown response shown in chat
 - **File extraction:** Agents produce code in their output; the orchestrator parses code blocks and writes files to disk automatically
