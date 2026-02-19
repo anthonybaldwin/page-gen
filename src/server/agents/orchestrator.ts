@@ -215,17 +215,6 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         agentResults.set(step.agentName, result.content);
         completedAgents.push(step.agentName);
 
-        // Persist agent output as a message so it survives refresh
-        await db.insert(schema.messages).values({
-          id: nanoid(),
-          chatId,
-          role: "assistant",
-          content: result.content,
-          agentName: step.agentName,
-          metadata: JSON.stringify({ type: "agent_output" }),
-          createdAt: Date.now(),
-        });
-
         // Extract and write files from agent output
         extractAndWriteFiles(step.agentName, result.content, projectPath, projectId);
 
@@ -397,17 +386,6 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
           agentResults.set("frontend-dev-remediation", result.content);
           completedAgents.push("frontend-dev (remediation)");
-
-          // Persist remediation output
-          await db.insert(schema.messages).values({
-            id: nanoid(),
-            chatId,
-            role: "assistant",
-            content: result.content,
-            agentName: "frontend-dev",
-            metadata: JSON.stringify({ type: "agent_output", phase: "remediation" }),
-            createdAt: Date.now(),
-          });
 
           // Extract and write remediated files
           extractAndWriteFiles("frontend-dev", result.content, projectPath, projectId);
@@ -639,42 +617,59 @@ function buildExecutionPlan(userMessage: string): ExecutionPlan {
 const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "qa", "security"]);
 
 /**
- * Extract files from agent text output. Matches patterns like:
- *   ```tsx
- *   // src/App.tsx
- *   ...code...
- *   ```
- * Or heading-style:
- *   ### src/App.tsx
- *   ```tsx
- *   ...code...
- *   ```
+ * Extract files from agent text output. Agents primarily use:
+ *   <tool_call>{"name":"write_file","parameters":{"path":"...","content":"..."}}</tool_call>
+ * Fallback patterns for markdown-style output also supported.
  */
 function extractFilesFromOutput(agentOutput: string): Array<{ path: string; content: string }> {
   const files: Array<{ path: string; content: string }> = [];
   const seen = new Set<string>();
 
-  // Pattern 1: ```lang\n// filepath\n...code...\n```
-  const codeBlockRegex = /```[\w]*\n\/\/\s*((?:src\/|\.\/)?[\w./-]+\.\w+)\n([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
-    const filePath = match[1]!.replace(/^\.\//, "");
-    const content = match[2]!.trimEnd();
-    if (!seen.has(filePath)) {
-      seen.add(filePath);
-      files.push({ path: filePath, content });
+  function addFile(filePath: string, content: string) {
+    const normalized = filePath.replace(/^\.\//, "");
+    if (normalized && content && !seen.has(normalized)) {
+      seen.add(normalized);
+      files.push({ path: normalized, content });
     }
   }
 
-  // Pattern 2: ### filepath (or **filepath** or `filepath`) followed by ```...```
+  // Primary pattern: <tool_call>{"name":"write_file","parameters":{"path":"...","content":"..."}}</tool_call>
+  const toolCallRegex = /<tool_call>\s*\n?([\s\S]*?)\n?\s*<\/tool_call>/g;
+  let match: RegExpExecArray | null;
+  while ((match = toolCallRegex.exec(agentOutput)) !== null) {
+    try {
+      const json = JSON.parse(match[1]!.trim());
+      if (json.name === "write_file" && json.parameters?.path && json.parameters?.content) {
+        addFile(json.parameters.path, json.parameters.content);
+      }
+    } catch {
+      // JSON parse might fail if content has nested tags; try to extract path/content manually
+      const rawBlock = match[1]!;
+      if (rawBlock.includes("write_file")) {
+        const pathMatch = rawBlock.match(/"path"\s*:\s*"([^"]+)"/);
+        const contentMatch = rawBlock.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
+        if (pathMatch?.[1] && contentMatch?.[1]) {
+          try {
+            const content = JSON.parse('"' + contentMatch[1] + '"');
+            addFile(pathMatch[1], content);
+          } catch {
+            // skip unparseable
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: ```lang\n// filepath\n...code...\n```
+  const codeBlockRegex = /```[\w]*\n\/\/\s*((?:src\/|\.\/)?[\w./-]+\.\w+)\n([\s\S]*?)```/g;
+  while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
+    addFile(match[1]!, match[2]!.trimEnd());
+  }
+
+  // Fallback: ### filepath (or **filepath**) followed by ```...```
   const headingBlockRegex = /(?:###\s+|[*]{2}|`)(\S+\.(?:tsx?|jsx?|css|html|json|md))(?:[*]{2}|`)?[\s\S]*?```[\w]*\n([\s\S]*?)```/g;
   while ((match = headingBlockRegex.exec(agentOutput)) !== null) {
-    const filePath = match[1]!.replace(/^\.\//, "");
-    const content = match[2]!.trimEnd();
-    if (!seen.has(filePath)) {
-      seen.add(filePath);
-      files.push({ path: filePath, content });
-    }
+    addFile(match[1]!, match[2]!.trimEnd());
   }
 
   return files;

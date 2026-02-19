@@ -31,11 +31,18 @@ export function ChatWindow() {
         setError("Failed to load messages. Is the backend server running?");
       });
 
-    // Check if orchestration is still running (e.g. after page refresh)
+    // Check if orchestration is still running and restore thinking blocks
     api
-      .get<{ running: boolean }>(`/agents/status?chatId=${activeChat.id}`)
-      .then(({ running }) => {
+      .get<{
+        running: boolean;
+        executions: Array<{ agentName: string; status: string; output: string | null; startedAt: number }>;
+      }>(`/agents/status?chatId=${activeChat.id}`)
+      .then(({ running, executions }) => {
         if (running) setThinking(true);
+        // Reconstruct thinking blocks from execution history
+        if (executions && executions.length > 0) {
+          useAgentThinkingStore.getState().loadFromExecutions(executions);
+        }
       })
       .catch(() => {});
   }, [activeChat, setMessages, resetThinking]);

@@ -1,8 +1,21 @@
 import type { Message } from "../../../shared/types.ts";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 
+function isAgentOutput(msg: Message): boolean {
+  if (!msg.metadata) return false;
+  try {
+    const meta = typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
+    return meta?.type === "agent_output";
+  } catch {
+    return false;
+  }
+}
+
 export function MessageList({ messages }: { messages: Message[] }) {
-  if (messages.length === 0) {
+  // Filter out raw agent output messages — these are shown as thinking blocks instead
+  const visibleMessages = messages.filter((m) => !isAgentOutput(m));
+
+  if (visibleMessages.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-zinc-500 text-sm">
@@ -14,7 +27,7 @@ export function MessageList({ messages }: { messages: Message[] }) {
 
   return (
     <div className="p-4 space-y-4">
-      {messages.map((msg) => (
+      {visibleMessages.map((msg) => (
         <div
           key={msg.id}
           className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}

@@ -10,10 +10,27 @@ export interface ThinkingBlock {
   startedAt: number;
 }
 
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  research: "Research Agent",
+  architect: "Architect Agent",
+  "frontend-dev": "Frontend Developer",
+  "backend-dev": "Backend Developer",
+  styling: "Styling Agent",
+  qa: "QA Agent",
+  security: "Security Reviewer",
+  orchestrator: "Orchestrator",
+};
+
 interface AgentThinkingState {
   blocks: ThinkingBlock[];
   reset: () => void;
   stopAll: () => void;
+  loadFromExecutions: (executions: Array<{
+    agentName: string;
+    status: string;
+    output: string | null;
+    startedAt: number;
+  }>) => void;
   handleThinking: (payload: {
     agentName: string;
     displayName: string;
@@ -45,6 +62,47 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           : b
       ),
     })),
+
+  loadFromExecutions: (executions) =>
+    set(() => {
+      // Skip the orchestrator summary execution
+      const agentExecs = executions.filter(
+        (e) => e.agentName !== "orchestrator"
+      );
+      if (agentExecs.length === 0) return { blocks: [] };
+
+      const blocks: ThinkingBlock[] = agentExecs.map((exec) => {
+        let content = "";
+        let summary = "";
+        if (exec.output) {
+          try {
+            const parsed = JSON.parse(exec.output);
+            content = parsed.content || "";
+            // Build summary: first sentence, max 120 chars
+            const firstSentence = content.split(/[.!?\n]/)[0]?.trim() || "";
+            summary = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
+          } catch {
+            // ignore
+          }
+        }
+        const status = exec.status === "completed" ? "completed"
+          : exec.status === "failed" ? "failed"
+          : exec.status === "running" ? "streaming"
+          : "started";
+
+        return {
+          agentName: exec.agentName,
+          displayName: AGENT_DISPLAY_NAMES[exec.agentName] || exec.agentName,
+          status: status as ThinkingBlock["status"],
+          content,
+          summary,
+          expanded: false,
+          startedAt: exec.startedAt,
+        };
+      });
+
+      return { blocks };
+    }),
 
   handleThinking: (payload) =>
     set((state) => {

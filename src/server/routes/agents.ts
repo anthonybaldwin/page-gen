@@ -75,11 +75,13 @@ agentRoutes.get("/status", async (c) => {
 
   const running = isOrchestrationRunning(chatId);
 
-  // Return execution history so the progress banner can be reconstructed on refresh
+  // Return execution history so thinking blocks can be reconstructed on refresh
   const executions = await db
     .select({
       agentName: schema.agentExecutions.agentName,
       status: schema.agentExecutions.status,
+      output: schema.agentExecutions.output,
+      startedAt: schema.agentExecutions.startedAt,
     })
     .from(schema.agentExecutions)
     .where(eq(schema.agentExecutions.chatId, chatId))
