@@ -211,7 +211,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           )
         : undefined;
 
-      result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId);
+      result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId, step.instanceId);
 
       if (result.tokenUsage) {
         const providerKey = apiKeys[config.provider];

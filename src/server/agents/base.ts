@@ -8,6 +8,16 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractSummary } from "../../shared/summary.ts";
 
+/** Resolve a human-readable display name for parallel frontend-dev instances. */
+function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
+  if (instanceId === "frontend-dev-shared") return "Frontend Dev (Setup)";
+  if (instanceId === "frontend-dev-components") return "Frontend Dev";
+  if (instanceId === "frontend-dev-app") return "Frontend Dev (App)";
+  const match = instanceId.match(/^frontend-dev-(\d+)$/);
+  if (match) return `Frontend Dev ${match[1]}`;
+  return fallback;
+}
+
 export interface AgentInput {
   userMessage: string;
   chatHistory: Array<{ role: string; content: string }>;
@@ -46,18 +56,22 @@ export async function runAgent(
   input: AgentInput,
   tools?: ToolSet,
   abortSignal?: AbortSignal,
-  chatId?: string
+  chatId?: string,
+  instanceId?: string
 ): Promise<AgentOutput> {
   const systemPrompt = loadSystemPrompt(config.name);
   const provider = getProviderModel(config, providers);
   const cid = chatId || "";
+  // Use instanceId for broadcasting (distinguishes parallel instances), base name for config
+  const broadcastName = instanceId ?? config.name;
+  const broadcastDisplayName = instanceId ? resolveInstanceDisplayName(instanceId, config.displayName) : config.displayName;
 
   if (!provider) {
     throw new Error(`No provider available for agent ${config.name} (needs ${config.provider})`);
   }
 
-  broadcastAgentStatus(cid, config.name, "running");
-  broadcastAgentThinking(cid, config.name, config.displayName, "started");
+  broadcastAgentStatus(cid, broadcastName, "running");
+  broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "started");
 
   try {
     const result = streamText({
@@ -81,7 +95,7 @@ export async function runAgent(
           pendingChunk += part.text;
           const now = Date.now();
           if (now - lastBroadcast >= THROTTLE_MS) {
-            broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
+            broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "streaming", { chunk: pendingChunk });
             pendingChunk = "";
             lastBroadcast = now;
           }
@@ -93,8 +107,8 @@ export async function runAgent(
             type: "agent_thinking",
             payload: {
               chatId: cid,
-              agentName: config.name,
-              displayName: config.displayName,
+              agentName: broadcastName,
+              displayName: broadcastDisplayName,
               status: "streaming",
               toolCall: {
                 toolName: part.toolName,
@@ -116,16 +130,16 @@ export async function runAgent(
 
     // Flush remaining text
     if (pendingChunk) {
-      broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk: pendingChunk });
+      broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "streaming", { chunk: pendingChunk });
     }
 
     const usage = await result.usage;
 
     const summary = extractSummary(fullText, config.name);
 
-    broadcastAgentStatus(cid, config.name, "completed");
-    broadcastAgentStream(cid, config.name, fullText);
-    broadcastAgentThinking(cid, config.name, config.displayName, "completed", { summary });
+    broadcastAgentStatus(cid, broadcastName, "completed");
+    broadcastAgentStream(cid, broadcastName, fullText);
+    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "completed", { summary });
 
     return {
       content: fullText,
@@ -137,8 +151,8 @@ export async function runAgent(
       },
     };
   } catch (err) {
-    broadcastAgentStatus(cid, config.name, "failed");
-    broadcastAgentThinking(cid, config.name, config.displayName, "failed");
+    broadcastAgentStatus(cid, broadcastName, "failed");
+    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
     throw err;
   }
 }
