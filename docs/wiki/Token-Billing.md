@@ -2,7 +2,7 @@
 
 ## Overview
 
-Every AI API call is tracked with full metadata. Users can view their usage in a dashboard with drill-down by agent, provider, model, and per-request detail.
+Every AI API call is tracked with full metadata. Users can view their usage in a dashboard with drill-down by agent, provider, model, and per-request detail. A permanent billing ledger ensures cost data survives chat and project deletions.
 
 ## What Is Tracked
 
@@ -16,18 +16,32 @@ Each API request records:
 - **Total tokens** — sum of input + output
 - **Cost estimate** — USD estimate based on model pricing
 
+## Dual-Write Architecture
+
+Token usage is written to **two tables**:
+
+1. **`token_usage`** (operational) — Has FK references to `chats` and `agent_executions`. Deleted when a chat or project is deleted. Used for active session views.
+2. **`billing_ledger`** (permanent) — No foreign keys. Never deleted. Includes denormalized `project_name` and `chat_title` snapshots so records are self-contained even after parent entities are removed.
+
+This ensures:
+- Active session dashboards show real-time operational data
+- Lifetime cost tracking is never lost, even after cleanup
+- The "Total spent" badge always reflects true lifetime spend
+
 ## Cost Estimation
 
-Per-million-token pricing used for estimates:
+Per-million-token pricing used for estimates (verified Feb 2026):
 
 | Model | Input | Output |
 |-------|-------|--------|
-| claude-opus-4-6 | $15 | $75 |
+| claude-opus-4-6 | $5 | $25 |
 | claude-sonnet-4-6 | $3 | $15 |
-| claude-haiku-4-5 | $0.80 | $4 |
-| gpt-5.2 | $2.50 | $10 |
-| gpt-5.2-pro | $15 | $60 |
-| gemini-2.5-flash | $0.15 | $0.60 |
+| claude-haiku-4-5 | $1 | $5 |
+| gpt-5.2 | $1.75 | $14 |
+| gpt-5.2-pro | $21 | $168 |
+| gemini-2.5-flash | $0.30 | $2.50 |
+
+Unknown models fall back to Sonnet-tier pricing ($3/$15).
 
 ## Safety Limits
 
@@ -38,15 +52,20 @@ Per-million-token pricing used for estimates:
 
 ## API Endpoints
 
+### Operational (active chats only)
 - `GET /api/usage` — List all records (filterable by chatId)
-- `GET /api/usage/summary` — Aggregate totals
 - `GET /api/usage/by-agent` — Grouped by agent
 - `GET /api/usage/by-provider` — Grouped by provider + model
+
+### Lifetime (from billing_ledger, includes deleted)
+- `GET /api/usage/summary` — Aggregate totals (reads from billing_ledger)
+- `GET /api/usage/by-project` — Grouped by project
+- `GET /api/usage/history` — Full billing history with optional filters: `?projectId`, `?chatId`, `?from`, `?to`
 
 ## Real-Time Cost Display
 
 A usage badge in the sidebar footer shows:
-- **Total spent** across all chats (updated in real time via `token_usage` WebSocket events)
+- **Total spent** across all chats, seeded from billing_ledger on page load and updated in real time via `token_usage` WebSocket events
 - **This chat** cost when a chat is active
 
 Clicking the badge opens the full usage dashboard as a modal overlay.
@@ -57,3 +76,4 @@ Clicking the badge opens the full usage dashboard as a modal overlay.
 2. **By Agent** — Token usage per agent
 3. **By Provider** — Token usage per provider/model
 4. **Request Log** — Per-request detail table
+5. **History** — Lifetime billing history with per-project and per-chat breakdown (includes deleted entities)

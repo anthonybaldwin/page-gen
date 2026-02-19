@@ -30,7 +30,7 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | role | TEXT | 'user', 'assistant', or 'system' |
 | content | TEXT | Message content |
 | agent_name | TEXT | Which agent produced this (nullable) |
-| metadata | TEXT | JSON metadata (nullable) |
+| metadata | TEXT | JSON metadata (nullable). For agent outputs: `{ "type": "agent_output" }` |
 | created_at | INTEGER | Unix timestamp (ms) |
 
 ### agent_executions
@@ -63,6 +63,27 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | cost_estimate | REAL | Estimated cost in USD |
 | created_at | INTEGER | Unix timestamp (ms) |
 
+### billing_ledger
+Permanent, append-only table with **no foreign keys**. Records survive chat/project deletion.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT PK | nanoid |
+| project_id | TEXT | Denormalized project ID (nullable) |
+| project_name | TEXT | Snapshot of project name at record time (nullable) |
+| chat_id | TEXT | Denormalized chat ID (nullable) |
+| chat_title | TEXT | Snapshot of chat title at record time (nullable) |
+| execution_id | TEXT | Associated execution ID |
+| agent_name | TEXT | Agent name |
+| provider | TEXT | anthropic, openai, google |
+| model | TEXT | Exact model ID |
+| api_key_hash | TEXT | SHA-256 hash of the API key |
+| input_tokens | INTEGER | Input token count |
+| output_tokens | INTEGER | Output token count |
+| total_tokens | INTEGER | Total tokens |
+| cost_estimate | REAL | Estimated cost in USD |
+| created_at | INTEGER | Unix timestamp (ms) |
+
 ### snapshots
 | Column | Type | Description |
 |--------|------|-------------|
@@ -79,3 +100,4 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 - All IDs use nanoid (URL-safe, compact).
 - Timestamps are Unix milliseconds (not seconds).
 - JSON fields (metadata, input, output, file_manifest) are stored as TEXT and parsed by the application.
+- `billing_ledger` is a dual-write from `token_usage`. Every token usage insert writes to both tables. `token_usage` is operational (deleted with chats); `billing_ledger` is permanent.

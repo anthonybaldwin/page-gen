@@ -75,10 +75,28 @@ Get a single snapshot.
 ## Usage
 
 ### GET /usage?chatId={id}
-Get token usage records.
+Get token usage records (operational, from `token_usage` table).
 
 ### GET /usage/summary
-Get aggregate usage summary.
+Get aggregate usage summary. Reads from `billing_ledger` for lifetime totals (includes deleted chats/projects).
+
+### GET /usage/by-agent?chatId={id}
+Get usage grouped by agent. Optional chatId filter.
+
+### GET /usage/by-provider
+Get usage grouped by provider and model.
+
+### GET /usage/by-project
+Get lifetime usage grouped by project (from `billing_ledger`).
+
+### GET /usage/history
+Get full billing history from `billing_ledger` (never deleted).
+
+**Query params:**
+- `projectId` — Filter by project
+- `chatId` — Filter by chat
+- `from` — Start timestamp (Unix ms)
+- `to` — End timestamp (Unix ms)
 
 ## Settings
 
@@ -95,6 +113,11 @@ Validate an API key.
 
 ### GET /agents/executions?chatId={id}
 List agent executions for a chat.
+
+### GET /agents/status?chatId={id}
+Check orchestration status and get execution history.
+
+**Response:** `{ running: boolean, executions: Array<{ agentName: string, status: string }> }`
 
 ### POST /agents/run
 Trigger orchestration for a chat.
@@ -118,3 +141,4 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `chat_message` — New chat message
 - `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
 - `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)
+- `files_changed` — Files written to disk (projectId, files[])
