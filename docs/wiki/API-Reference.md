@@ -122,6 +122,29 @@ Update cost/usage limits. Accepts a partial object — only provided keys are up
 
 **Response:** `{ ok: true, limits: { ... } }`
 
+### GET /settings/agents
+Get all 9 agent configs with DB overrides applied.
+
+**Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
+
+### PUT /settings/agents/:name
+Override an agent's provider and/or model.
+
+**Body:** `{ provider?: string, model?: string }`
+
+### GET /settings/agents/:name/prompt
+Get an agent's system prompt (custom or file default).
+
+**Response:** `{ prompt: string, isCustom: boolean }`
+
+### PUT /settings/agents/:name/prompt
+Set a custom system prompt for an agent.
+
+**Body:** `{ prompt: string }`
+
+### DELETE /settings/agents/:name/overrides
+Remove all DB overrides for an agent (provider, model, prompt), reverting to defaults.
+
 ### POST /settings/validate-key
 Validate an API key.
 

@@ -179,6 +179,16 @@ Every API call records:
 - Input/output tokens
 - Cost estimate (USD)
 
+## Agent Customization
+
+Each agent's provider, model, and system prompt can be overridden via **Settings → Models** and **Settings → Prompts**.
+
+- Overrides are stored in the `app_settings` table (keys: `agent.{name}.provider`, `agent.{name}.model`, `agent.{name}.prompt`)
+- The orchestrator reads resolved configs (DB overrides layered on AGENT_ROSTER defaults) at runtime
+- Custom prompts replace the default `.md` file prompts completely
+- Resetting an agent removes all DB overrides, reverting to AGENT_ROSTER defaults
+- Changes take effect on the next pipeline run — no restart required
+
 ## Cost Safety
 
 - Default limit: 500K tokens per session

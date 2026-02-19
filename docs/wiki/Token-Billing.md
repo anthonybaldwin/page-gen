@@ -45,7 +45,7 @@ Unknown models fall back to Sonnet-tier pricing ($3/$15).
 
 ## Safety Limits
 
-All limits are stored in the `app_settings` table and configurable from the Usage Dashboard → Limits tab.
+All limits are stored in the `app_settings` table and configurable from Settings → Limits.
 
 | Limit | Default | Description |
 |-------|---------|-------------|
@@ -79,12 +79,19 @@ A usage badge in the sidebar footer shows:
 
 Clicking the badge opens the full usage dashboard as a modal overlay.
 
-## Dashboard Views
+## Dashboard Views (Usage Modal)
 
 1. **Overview** — Total tokens, cost, request count
 2. **By Agent** — Token usage per agent
 3. **By Provider** — Token usage per provider/model
 4. **Request Log** — Per-request detail table
 5. **History** — Lifetime billing history with per-project and per-chat breakdown (includes deleted entities)
-6. **Limits** — Configure spending guardrails (max tokens, agent calls, daily/project cost caps)
-7. **API Keys** — Edit or clear provider API keys and proxy URLs
+
+## Settings Modal
+
+Accessible via the gear icon in the sidebar footer (to the left of the usage badge). Separate from the Usage Dashboard.
+
+1. **API Keys** — Edit or clear provider API keys and proxy URLs
+2. **Limits** — Configure spending guardrails (max tokens, agent calls, daily/project cost caps)
+3. **Models** — Per-agent provider and model overrides (grouped by Planning, Development, Review)
+4. **Prompts** — View and edit each agent's system prompt with a two-pane editor
