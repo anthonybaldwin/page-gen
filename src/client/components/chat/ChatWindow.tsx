@@ -23,6 +23,8 @@ export function ChatWindow() {
 
   // Track whether we've created an incremental test results block
   const hasStreamingTestBlock = useRef(false);
+  // Track whether the current run is a resume (don't wipe thinking blocks)
+  const isResuming = useRef(false);
 
   useEffect(() => {
     if (!activeChat) return;
@@ -148,7 +150,12 @@ export function ChatWindow() {
         const { agentName, status } = msg.payload as { agentName: string; status: string };
         if (agentName === "orchestrator") {
           if (status === "running") {
-            resetThinking();
+            if (isResuming.current) {
+              // Resume — keep existing blocks, just clear the flag
+              isResuming.current = false;
+            } else {
+              resetThinking();
+            }
             hasStreamingTestBlock.current = false;
           }
           if (status === "completed" || status === "failed") {
@@ -218,7 +225,8 @@ export function ChatWindow() {
     setInterrupted(false);
     setError(null);
     setThinking(true);
-    resetThinking();
+    isResuming.current = true;
+    // Don't resetThinking() — keep existing blocks from completed agents
     try {
       await api.post("/agents/run", {
         chatId: activeChat.id,
