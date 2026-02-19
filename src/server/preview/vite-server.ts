@@ -143,6 +143,28 @@ root.render(
 }
 
 /**
+ * Ensure vitest.config.ts exists for test execution.
+ * Does NOT overwrite — agents or users may customize the config.
+ */
+function ensureProjectHasVitestConfig(projectPath: string) {
+  const configPath = join(projectPath, "vitest.config.ts");
+  if (existsSync(configPath)) return;
+
+  const config = `import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "happy-dom",
+    globals: true,
+  },
+});
+`;
+  writeFileSync(configPath, config, "utf-8");
+}
+
+/**
  * Ensure tsconfig.json exists so Vite/esbuild correctly handles .ts files.
  * Without this, esbuild may treat .ts files as JavaScript and choke on type annotations.
  */
@@ -239,6 +261,7 @@ export async function prepareProjectForPreview(projectPath: string): Promise<voi
 
   ensureProjectHasPackageJson(fullPath);
   ensureProjectHasViteConfig(fullPath);
+  ensureProjectHasVitestConfig(fullPath);
   ensureProjectHasTsConfig(fullPath);
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);

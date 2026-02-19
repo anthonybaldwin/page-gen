@@ -2171,24 +2171,7 @@ export async function runProjectTests(
     ? projectPath
     : join(process.cwd(), projectPath);
 
-  // Ensure vitest config exists
-  const vitestConfigPath = join(fullPath, "vitest.config.ts");
-  if (!existsSync(vitestConfigPath)) {
-    const config = `import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: "happy-dom",
-    globals: true,
-  },
-});
-`;
-    writeFileSync(vitestConfigPath, config, "utf-8");
-  }
-
-  // Ensure deps are installed (vitest, happy-dom, etc.)
+  // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath);
 
   console.log(`[orchestrator] Running tests in ${fullPath}...`);
