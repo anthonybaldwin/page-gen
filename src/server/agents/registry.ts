@@ -55,7 +55,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     displayName: "QA Agent",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    description: "Reviews code, writes tests, checks for issues",
+    description: "Validates implementation against requirements; reports gaps without fixing code",
   },
   {
     name: "security",

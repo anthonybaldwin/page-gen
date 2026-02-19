@@ -835,7 +835,7 @@ function buildExecutionPlan(userMessage: string): ExecutionPlan {
 }
 
 // Agents whose output may contain file code blocks
-const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "qa", "security"]);
+const FILE_PRODUCING_AGENTS = new Set<string>(["frontend-dev", "backend-dev", "styling", "code-review"]);
 
 /**
  * Sanitize a file path from agent output.
