@@ -11,6 +11,7 @@ import { checkCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged } from "../ws.ts";
 import { broadcast } from "../ws.ts";
 import { writeFile } from "../tools/file-ops.ts";
+import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 
 const MAX_RETRIES = 3;
 
@@ -675,6 +676,9 @@ function extractFilesFromOutput(agentOutput: string): Array<{ path: string; cont
   return files;
 }
 
+// Track which orchestrations have already triggered preview prep
+const previewPrepStarted = new Set<string>();
+
 function extractAndWriteFiles(
   agentName: string,
   agentOutput: string,
@@ -687,6 +691,8 @@ function extractAndWriteFiles(
   if (files.length === 0) return [];
 
   const written: string[] = [];
+  const hasPackageJson = files.some((f) => f.path === "package.json" || f.path.endsWith("/package.json"));
+
   for (const file of files) {
     try {
       writeFile(projectPath, file.path, file.content);
@@ -698,6 +704,25 @@ function extractAndWriteFiles(
 
   if (written.length > 0) {
     broadcastFilesChanged(projectId, written);
+
+    // If the agent wrote a package.json, invalidate cached deps
+    if (hasPackageJson) {
+      invalidateProjectDeps(projectPath);
+    }
+
+    // After the first file-producing agent writes files, prepare project for preview
+    // This runs in the background — doesn't block the pipeline
+    if (!previewPrepStarted.has(projectId)) {
+      previewPrepStarted.add(projectId);
+      prepareProjectForPreview(projectPath)
+        .then(() => {
+          console.log(`[orchestrator] Project ${projectId} prepared for preview`);
+          broadcast({ type: "preview_ready", payload: { projectId } });
+        })
+        .catch((err) => {
+          console.error(`[orchestrator] Preview preparation failed:`, err);
+        });
+    }
   }
 
   return written;

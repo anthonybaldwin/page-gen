@@ -94,7 +94,7 @@ export interface AgentConfig {
 }
 
 export interface WsMessage {
-  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed";
+  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready";
   payload: Record<string, unknown>;
 }
 

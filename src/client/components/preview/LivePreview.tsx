@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
-
-const PREVIEW_BASE_PORT = 3001;
+import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 
 export function LivePreview() {
   const activeProject = useProjectStore((s) => s.activeProject);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     if (!activeProject) {
@@ -35,6 +35,25 @@ export function LivePreview() {
       });
   }, [activeProject]);
 
+  // Auto-reload iframe when agents write new files (HMR fallback)
+  useEffect(() => {
+    if (!previewUrl || !activeProject) return;
+    connectWebSocket();
+
+    const unsub = onWsMessage((msg) => {
+      if (msg.type === "files_changed" || msg.type === "preview_ready") {
+        // Give Vite a moment to pick up the changes, then reload
+        setTimeout(() => {
+          if (iframeRef.current) {
+            iframeRef.current.src = previewUrl;
+          }
+        }, 1000);
+      }
+    });
+
+    return unsub;
+  }, [previewUrl, activeProject]);
+
   if (!activeProject) {
     return (
       <div className="flex-1 flex items-center justify-center bg-zinc-950">
@@ -59,9 +78,26 @@ export function LivePreview() {
       <div className="flex-1 flex items-center justify-center bg-zinc-950">
         <div className="text-center">
           <p className="text-red-400 text-sm mb-2">{error}</p>
-          <p className="text-zinc-500 text-xs">
-            Preview will be available after agents generate code.
-          </p>
+          <button
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              fetch(`/api/files/preview/${activeProject.id}`, { method: "POST" })
+                .then((res) => res.json())
+                .then((data: { url?: string; error?: string }) => {
+                  if (data.url) setPreviewUrl(data.url);
+                  else if (data.error) setError(data.error);
+                  setLoading(false);
+                })
+                .catch(() => {
+                  setError("Failed to start preview server");
+                  setLoading(false);
+                });
+            }}
+            className="text-blue-400 hover:text-blue-300 text-xs underline"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -84,8 +120,7 @@ export function LivePreview() {
         <span className="text-xs text-zinc-400 truncate">{previewUrl}</span>
         <button
           onClick={() => {
-            const iframe = document.querySelector<HTMLIFrameElement>("#preview-iframe");
-            if (iframe) iframe.src = iframe.src;
+            if (iframeRef.current) iframeRef.current.src = previewUrl;
           }}
           className="ml-auto text-xs text-zinc-500 hover:text-zinc-300"
         >
@@ -93,6 +128,7 @@ export function LivePreview() {
         </button>
       </div>
       <iframe
+        ref={iframeRef}
         id="preview-iframe"
         src={previewUrl}
         className="flex-1 w-full bg-white"

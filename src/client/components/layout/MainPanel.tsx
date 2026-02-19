@@ -34,6 +34,7 @@ export function MainPanel() {
       if (!activeProject) return;
       const shouldCheck =
         (msg.type === "files_changed") ||
+        (msg.type === "preview_ready") ||
         (msg.type === "agent_status" && (msg.payload as { status: string }).status === "completed");
       if (shouldCheck) {
         api
