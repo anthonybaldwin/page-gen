@@ -19,7 +19,7 @@ describe("Agent Registry", () => {
   test("getAgentConfig returns correct config", () => {
     const orchestrator = getAgentConfig("orchestrator");
     expect(orchestrator).toBeDefined();
-    expect(orchestrator!.model).toBe("claude-sonnet-4-6");
+    expect(orchestrator!.model).toBe("claude-opus-4-6");
     expect(orchestrator!.provider).toBe("anthropic");
   });
 
@@ -28,22 +28,25 @@ describe("Agent Registry", () => {
     expect(result).toBeUndefined();
   });
 
-  test("orchestrator uses sonnet model", () => {
-    const config = getAgentConfig("orchestrator");
-    expect(config?.model).toBe("claude-sonnet-4-6");
-  });
-
-  test("dev agents use opus model", () => {
-    for (const name of ["frontend-dev", "backend-dev", "styling"] as const) {
+  test("planning agents use opus model", () => {
+    for (const name of ["orchestrator", "research", "architect"] as const) {
       const config = getAgentConfig(name);
       expect(config?.model).toBe("claude-opus-4-6");
     }
   });
 
-  test("research uses sonnet model", () => {
-    const config = getAgentConfig("research");
-    expect(config?.provider).toBe("anthropic");
-    expect(config?.model).toBe("claude-sonnet-4-6");
+  test("dev agents use sonnet model", () => {
+    for (const name of ["frontend-dev", "backend-dev", "styling"] as const) {
+      const config = getAgentConfig(name);
+      expect(config?.model).toBe("claude-sonnet-4-6");
+    }
+  });
+
+  test("review agents use sonnet model", () => {
+    for (const name of ["code-review", "qa"] as const) {
+      const config = getAgentConfig(name);
+      expect(config?.model).toBe("claude-sonnet-4-6");
+    }
   });
 
   test("security uses haiku model", () => {

@@ -7,37 +7,37 @@ The system uses 9 specialized AI agents, coordinated by an orchestrator. Each ag
 ## Agents
 
 ### 1. Orchestrator
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Opus 4.6 (Anthropic)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
 - **Tools:** Agent dispatch, snapshot creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
 - **Output:** After all agents complete, the orchestrator generates a clean markdown summary of what was built. This is the only message the user sees — individual agent outputs are collected internally and never shown directly in chat.
 
 ### 2. Research Agent
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Opus 4.6 (Anthropic)
 - **Role:** Analyzes user request, identifies requirements
 - **Output:** Structured JSON requirements document (includes `requires_backend` per feature for conditional pipeline)
 - **Tools:** None — receives user prompt only, outputs requirements
 
 ### 3. Architect Agent
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Opus 4.6 (Anthropic)
 - **Role:** Designs component tree, file structure, data flow
 - **Output:** Component hierarchy, file plan, dependency list
 - **Tools:** None — receives research output, produces architecture doc
 
 ### 4. Frontend Developer
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates React/HTML/CSS/JS code
 - **Tools:** `write_file` only — code is extracted from output and written to disk by the orchestrator
 
 ### 5. Backend Developer
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates API routes, server logic
 - **Tools:** `write_file` only
 - **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`)
 
 ### 6. Styling Agent
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file` only
 
@@ -71,7 +71,7 @@ Before running the pipeline, the orchestrator classifies the user's message into
 | **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
 | **question** | Asking about the project or non-code request | Direct Opus answer with project context, no pipeline |
 
-Classification uses a ~50-token Sonnet call. Fast-path: empty projects always get "build" (no API call needed).
+Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
 
 ### Build Pipeline (Full)
 
@@ -106,7 +106,7 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
 ```
 User → Orchestrator → classifyIntent() → "question"
   → Read project source for context
-  → Single Sonnet call → Direct answer (no agents, no pipeline bar)
+  → Single Opus call → Direct answer (no agents, no pipeline bar)
 ```
 
 ### Pipeline Plan Broadcasting
