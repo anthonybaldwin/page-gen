@@ -1666,7 +1666,8 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
     const normalized = sanitizeFilePath(filePath);
     if (normalized && content && !seen.has(normalized)) {
       seen.add(normalized);
-      files.push({ path: normalized, content });
+      const clean = content.replace(/\uFEFF/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      files.push({ path: normalized, content: clean });
     }
   }
 
@@ -1680,17 +1681,39 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
         addFile(json.parameters.path, json.parameters.content);
       }
     } catch {
-      // JSON parse might fail if content has nested tags; try to extract path/content manually
+      // JSON parse failed — try repairing the raw block before regex fallback
       const rawBlock = match[1]!;
       if (rawBlock.includes("write_file")) {
-        const pathMatch = rawBlock.match(/"path"\s*:\s*"([^"]+)"/);
-        const contentMatch = rawBlock.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
-        if (pathMatch?.[1] && contentMatch?.[1]) {
-          try {
-            const content = JSON.parse('"' + contentMatch[1] + '"');
-            addFile(pathMatch[1], content);
-          } catch {
-            // skip unparseable
+        // Repair step: fix common JSON encoding issues
+        let repaired = false;
+        try {
+          const repairedJson = rawBlock
+            .replace(/\uFEFF/g, "")           // strip BOM
+            .replace(/(?<!\\)\n/g, "\\n")      // escape literal newlines
+            .replace(/(?<!\\)\r/g, "\\r")      // escape literal CRs
+            .replace(/(?<!\\)\t/g, "\\t");     // escape literal tabs
+          const parsed = JSON.parse(repairedJson.trim());
+          if (parsed.name === "write_file" && parsed.parameters?.path && parsed.parameters?.content) {
+            console.warn(`[extractFiles] JSON repaired for ${parsed.parameters.path}`);
+            addFile(parsed.parameters.path, parsed.parameters.content);
+            repaired = true;
+          }
+        } catch {
+          // Repair also failed — fall through to regex
+        }
+
+        if (!repaired) {
+          // Regex fallback
+          const pathMatch = rawBlock.match(/"path"\s*:\s*"([^"]+)"/);
+          const contentMatch = rawBlock.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
+          if (pathMatch?.[1] && contentMatch?.[1]) {
+            try {
+              const content = JSON.parse('"' + contentMatch[1] + '"');
+              console.warn(`[extractFiles] Regex fallback used for ${pathMatch[1]} (${content.length} chars)`);
+              addFile(pathMatch[1], content);
+            } catch {
+              console.warn(`[extractFiles] Failed to extract file from tool_call block`);
+            }
           }
         }
       }

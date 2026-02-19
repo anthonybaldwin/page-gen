@@ -468,6 +468,51 @@ describe("extractFilesFromOutput", () => {
     const files = extractFilesFromOutput(output);
     expect(files).toHaveLength(0);
   });
+
+  test("repairs JSON with literal newlines in content", () => {
+    // Simulate AI output with unescaped newlines inside JSON content value
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "line1
+line2
+line3"}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("src/App.tsx");
+    expect(files[0]!.content).toContain("line1");
+    expect(files[0]!.content).toContain("line2");
+  });
+
+  test("strips BOM from extracted content", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "\uFEFFexport default function App() {}"}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.content).not.toContain("\uFEFF");
+    expect(files[0]!.content).toBe("export default function App() {}");
+  });
+
+  test("normalizes CRLF line endings in extracted content", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "line1\\r\\nline2\\r\\nline3"}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.content).not.toContain("\r\n");
+    expect(files[0]!.content).toBe("line1\nline2\nline3");
+  });
+
+  test("falls back to regex when JSON repair also fails", () => {
+    // Completely mangled JSON that even repair can't fix, but regex can extract
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div>; }"  INVALID}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output);
+    // Regex fallback should find the path and content
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("src/App.tsx");
+  });
 });
 
 // --- buildExecutionPlan (fix mode) ---
