@@ -518,25 +518,36 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
 interface ReviewFindings {
   hasIssues: boolean;
+  codeReviewFindings: string | null;
   qaFindings: string | null;
   securityFindings: string | null;
+  routingHints: {
+    frontendIssues: boolean;
+    backendIssues: boolean;
+    stylingIssues: boolean;
+  };
 }
 
 function detectIssues(agentResults: Map<string, string>): ReviewFindings {
+  const codeReviewOutput = agentResults.get("code-review") || "";
   const qaOutput = agentResults.get("qa") || "";
   const securityOutput = agentResults.get("security") || "";
 
-  // QA is a self-fixing agent: if it found issues, it already wrote corrected files.
-  // "QA Review: Pass" = no issues found at all.
-  // If QA output contains write_file tool calls, it found AND fixed issues — those are resolved.
-  // Only treat QA as having unresolved issues if it reported problems without writing fixes.
-  const qaNoIssues = qaOutput.includes("QA Review: Pass") || qaOutput.trim() === "";
-  const qaFixedIssues =
-    qaOutput.includes("QA Review: Fixed") ||
-    /<tool_call>[\s\S]*?write_file[\s\S]*?<\/tool_call>/.test(qaOutput);
-  const qaClean = qaNoIssues || qaFixedIssues;
+  // Code-review is a self-fixing agent (like old QA): if it found issues, it already wrote corrected files.
+  const crNoIssues = codeReviewOutput.includes("Code Review: Pass") || codeReviewOutput.trim() === "";
+  const crFixedIssues =
+    codeReviewOutput.includes("Code Review: Fixed") ||
+    /<tool_call>[\s\S]*?write_file[\s\S]*?<\/tool_call>/.test(codeReviewOutput);
+  const codeReviewClean = crNoIssues || crFixedIssues;
 
-  // Security agent only reports — it never fixes. Check for pass signals.
+  // QA is now a read-only validator — check for structured JSON pass or text pass.
+  const qaClean =
+    qaOutput.includes('"status": "pass"') ||
+    qaOutput.includes('"status":"pass"') ||
+    qaOutput.includes("QA Review: Pass") ||
+    qaOutput.trim() === "";
+
+  // Security agent only reports — check for pass signals.
   const securityClean =
     securityOutput.includes('"status": "pass"') ||
     securityOutput.includes('"status":"pass"') ||
@@ -545,11 +556,51 @@ function detectIssues(agentResults: Map<string, string>): ReviewFindings {
     securityOutput.includes("safe for production") ||
     securityOutput.trim() === "";
 
+  // Parse routing hints from categorized findings
+  const allFindings = codeReviewOutput + "\n" + qaOutput;
+  const routingHints = {
+    frontendIssues: /\[frontend\]/i.test(allFindings),
+    backendIssues: /\[backend\]/i.test(allFindings),
+    stylingIssues: /\[styling\]/i.test(allFindings),
+  };
+
   return {
-    hasIssues: !qaClean || !securityClean,
+    hasIssues: !codeReviewClean || !qaClean || !securityClean,
+    codeReviewFindings: codeReviewClean ? null : codeReviewOutput,
     qaFindings: qaClean ? null : qaOutput,
     securityFindings: securityClean ? null : securityOutput,
+    routingHints,
   };
+}
+
+/**
+ * Determine which dev agents should fix the identified issues.
+ * Routes based on [frontend]/[backend]/[styling] tags from code-review and QA findings.
+ * Defaults to frontend-dev when no clear routing (backward compatible).
+ */
+function determineFixAgents(findings: ReviewFindings): AgentName[] {
+  const agents: AgentName[] = [];
+  const { routingHints } = findings;
+
+  if (routingHints.frontendIssues) agents.push("frontend-dev");
+  if (routingHints.backendIssues) agents.push("backend-dev");
+  if (routingHints.stylingIssues) agents.push("styling");
+
+  // Default to frontend-dev if no clear routing
+  if (agents.length === 0) agents.push("frontend-dev");
+
+  return agents;
+}
+
+/**
+ * Determine which agent should fix build errors based on error content.
+ * Routes to backend-dev if errors reference server files, otherwise frontend-dev.
+ */
+function determineBuildFixAgent(buildErrors: string): AgentName {
+  if (/server\/|api\/|backend\/|\.server\.|routes\//i.test(buildErrors)) {
+    return "backend-dev";
+  }
+  return "frontend-dev";
 }
 
 // --- Remediation loop helpers ---
@@ -572,15 +623,16 @@ interface RemediationContext {
 const MAX_REMEDIATION_CYCLES = 2;
 
 /**
- * Iterative remediation loop: detects QA/security issues, runs frontend-dev
- * to fix them, then re-runs QA and security to verify. Repeats up to
+ * Iterative remediation loop: detects code-review/QA/security issues,
+ * routes fixes to the correct dev agent(s) based on finding categories,
+ * then re-runs code-review, security, and QA to verify. Repeats up to
  * MAX_REMEDIATION_CYCLES times or until all issues are resolved.
  */
 async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
   for (let cycle = 0; cycle < MAX_REMEDIATION_CYCLES; cycle++) {
     if (ctx.signal.aborted) return;
 
-    // 1. Check for issues in current QA/security output
+    // 1. Check for issues in current code-review/QA/security output
     const findings = detectIssues(ctx.agentResults);
     if (!findings.hasIssues) return; // All clean — exit loop
 
@@ -590,124 +642,151 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
 
     const cycleLabel = cycle + 1;
 
-    // 3. Run frontend-dev to fix findings
-    const remediationAgent = "frontend-dev" as AgentName;
-    const config = getAgentConfig(remediationAgent);
-    if (!config) return;
+    // 3. Determine which agent(s) should fix the findings
+    const fixAgents = determineFixAgents(findings);
 
-    const displayConfig = {
-      ...config,
-      displayName: `Frontend Developer (remediation${cycle > 0 ? ` #${cycleLabel}` : ""})`,
-    };
+    // 4. Run each fix agent
+    for (const fixAgentName of fixAgents) {
+      if (ctx.signal.aborted) return;
 
-    broadcastAgentStatus(remediationAgent, "running", { phase: "remediation", cycle: cycleLabel });
-
-    const executionId = nanoid();
-    await db.insert(schema.agentExecutions).values({
-      id: executionId,
-      chatId: ctx.chatId,
-      agentName: remediationAgent,
-      status: "running",
-      input: JSON.stringify({ phase: "remediation", cycle: cycleLabel }),
-      output: null,
-      error: null,
-      retryCount: 0,
-      startedAt: Date.now(),
-      completedAt: null,
-    });
-
-    const parts: string[] = [];
-    parts.push(`Fix the following issues found during review of: ${ctx.userMessage}`);
-    if (findings.qaFindings) parts.push(`\n## QA Findings\n${findings.qaFindings}`);
-    if (findings.securityFindings) parts.push(`\n## Security Findings\n${findings.securityFindings}`);
-    parts.push(`\nReview the original code in Previous Agent Outputs and output corrected versions of any files with issues.`);
-    parts.push(`\nIMPORTANT: Only reference and modify files that exist in Previous Agent Outputs. Do not create new files unless necessary to fix the issue.`);
-
-    try {
-      const agentInput: AgentInput = {
-        userMessage: parts.join("\n"),
-        chatHistory: ctx.chatHistory,
-        projectPath: ctx.projectPath,
-        context: {
-          projectId: ctx.projectId,
-          originalRequest: ctx.userMessage,
-          upstreamOutputs: Object.fromEntries(ctx.agentResults),
-          phase: "remediation",
-          cycle: cycleLabel,
-        },
-      };
-
-      const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal);
-
-      if (result.tokenUsage) {
-        const providerKey = ctx.apiKeys[config.provider];
-        if (providerKey) {
-          const record = trackTokenUsage({
-            executionId,
-            chatId: ctx.chatId,
-            agentName: remediationAgent,
-            provider: config.provider,
-            model: config.model,
-            apiKey: providerKey,
-            inputTokens: result.tokenUsage.inputTokens,
-            outputTokens: result.tokenUsage.outputTokens,
-            projectId: ctx.projectId,
-            projectName: ctx.projectName,
-            chatTitle: ctx.chatTitle,
-          });
-          broadcastTokenUsage({
-            chatId: ctx.chatId,
-            agentName: remediationAgent,
-            provider: config.provider,
-            model: config.model,
-            inputTokens: result.tokenUsage.inputTokens,
-            outputTokens: result.tokenUsage.outputTokens,
-            totalTokens: result.tokenUsage.totalTokens,
-            costEstimate: record.costEstimate,
-          });
-        }
-      }
-
-      await db.update(schema.agentExecutions)
-        .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
-        .where(eq(schema.agentExecutions.id, executionId));
-
-      ctx.agentResults.set("frontend-dev-remediation", result.content);
-      ctx.completedAgents.push(`frontend-dev (remediation #${cycleLabel})`);
-
-      // Extract and write remediated files
-      extractAndWriteFiles("frontend-dev", result.content, ctx.projectPath, ctx.projectId);
-    } catch (err) {
-      if (!ctx.signal.aborted) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        await db.update(schema.agentExecutions)
-          .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
-          .where(eq(schema.agentExecutions.id, executionId));
-        broadcastAgentError(remediationAgent, `Remediation failed: ${errorMsg}`);
-      }
-      return; // Can't continue loop if remediation failed
+      const fixResult = await runFixAgent(fixAgentName, cycleLabel, findings, ctx);
+      if (!fixResult) return; // Fix agent failed — can't continue
     }
 
     if (ctx.signal.aborted) return;
 
-    // 4. Re-run QA on updated code
-    const qaResult = await runReviewAgent("qa", cycleLabel, ctx);
-    if (!qaResult || ctx.signal.aborted) return;
+    // 5. Re-run code-review on updated code
+    const crResult = await runReviewAgent("code-review", cycleLabel, ctx);
+    if (!crResult || ctx.signal.aborted) return;
 
-    // 5. Re-run Security on updated code
+    // 6. Re-run Security on updated code
     const secResult = await runReviewAgent("security", cycleLabel, ctx);
     if (!secResult || ctx.signal.aborted) return;
 
-    // Loop continues — detectIssues() at top checks the fresh QA/security output
+    // 7. Re-run QA on updated code
+    const qaResult = await runReviewAgent("qa", cycleLabel, ctx);
+    if (!qaResult || ctx.signal.aborted) return;
+
+    // Loop continues — detectIssues() at top checks the fresh output
   }
 }
 
 /**
- * Re-run a review agent (QA or Security) on updated code after remediation.
+ * Run a dev agent to fix remediation findings.
+ * Returns the agent's output content, or null on failure.
+ */
+async function runFixAgent(
+  agentName: AgentName,
+  cycle: number,
+  findings: ReviewFindings,
+  ctx: RemediationContext,
+): Promise<string | null> {
+  const config = getAgentConfig(agentName);
+  if (!config) return null;
+
+  const displayConfig = {
+    ...config,
+    displayName: `${config.displayName} (remediation${cycle > 1 ? ` #${cycle}` : ""})`,
+  };
+
+  broadcastAgentStatus(agentName, "running", { phase: "remediation", cycle });
+
+  const executionId = nanoid();
+  await db.insert(schema.agentExecutions).values({
+    id: executionId,
+    chatId: ctx.chatId,
+    agentName,
+    status: "running",
+    input: JSON.stringify({ phase: "remediation", cycle }),
+    output: null,
+    error: null,
+    retryCount: 0,
+    startedAt: Date.now(),
+    completedAt: null,
+  });
+
+  const parts: string[] = [];
+  parts.push(`Fix the following issues found during review of: ${ctx.userMessage}`);
+  if (findings.codeReviewFindings) parts.push(`\n## Code Review Findings\n${findings.codeReviewFindings}`);
+  if (findings.qaFindings) parts.push(`\n## QA Findings\n${findings.qaFindings}`);
+  if (findings.securityFindings) parts.push(`\n## Security Findings\n${findings.securityFindings}`);
+  parts.push(`\nReview the original code in Previous Agent Outputs and output corrected versions of any files with issues.`);
+  parts.push(`\nIMPORTANT: Only reference and modify files that exist in Previous Agent Outputs. Do not create new files unless necessary to fix the issue.`);
+
+  try {
+    const agentInput: AgentInput = {
+      userMessage: parts.join("\n"),
+      chatHistory: ctx.chatHistory,
+      projectPath: ctx.projectPath,
+      context: {
+        projectId: ctx.projectId,
+        originalRequest: ctx.userMessage,
+        upstreamOutputs: Object.fromEntries(ctx.agentResults),
+        phase: "remediation",
+        cycle,
+      },
+    };
+
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal);
+
+    if (result.tokenUsage) {
+      const providerKey = ctx.apiKeys[config.provider];
+      if (providerKey) {
+        const record = trackTokenUsage({
+          executionId,
+          chatId: ctx.chatId,
+          agentName,
+          provider: config.provider,
+          model: config.model,
+          apiKey: providerKey,
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          projectId: ctx.projectId,
+          projectName: ctx.projectName,
+          chatTitle: ctx.chatTitle,
+        });
+        broadcastTokenUsage({
+          chatId: ctx.chatId,
+          agentName,
+          provider: config.provider,
+          model: config.model,
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          totalTokens: result.tokenUsage.totalTokens,
+          costEstimate: record.costEstimate,
+        });
+      }
+    }
+
+    await db.update(schema.agentExecutions)
+      .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
+      .where(eq(schema.agentExecutions.id, executionId));
+
+    ctx.agentResults.set(`${agentName}-remediation`, result.content);
+    ctx.completedAgents.push(`${agentName} (remediation #${cycle})`);
+
+    // Extract and write remediated files
+    extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId);
+
+    return result.content;
+  } catch (err) {
+    if (!ctx.signal.aborted) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await db.update(schema.agentExecutions)
+        .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
+        .where(eq(schema.agentExecutions.id, executionId));
+      broadcastAgentError(agentName, `Remediation failed: ${errorMsg}`);
+    }
+    return null;
+  }
+}
+
+/**
+ * Re-run a review agent (code-review, QA, or Security) on updated code after remediation.
  * Overwrites the agent's entry in agentResults so detectIssues() checks fresh output.
  */
 async function runReviewAgent(
-  agentName: "qa" | "security",
+  agentName: "code-review" | "qa" | "security",
   cycle: number,
   ctx: RemediationContext,
 ): Promise<string | null> {
@@ -735,13 +814,15 @@ async function runReviewAgent(
     completedAt: null,
   });
 
-  const reviewPrompt = agentName === "qa"
-    ? `Re-review all code after remediation cycle #${cycle}. The frontend developer has attempted to fix the issues you previously identified. Check if the fixes are correct, look for any new issues introduced by the fixes, and fix any problems by outputting corrected files. Original request: ${ctx.userMessage}`
-    : `Re-scan all code after remediation cycle #${cycle}. The frontend developer has attempted to fix the security issues you previously identified. Check if the fixes are correct and scan for any new vulnerabilities introduced by the fixes. Original request: ${ctx.userMessage}`;
+  const reviewPrompts: Record<string, string> = {
+    "code-review": `Re-review all code after remediation cycle #${cycle}. Dev agents have attempted to fix the issues you previously identified. Check if the fixes are correct, look for any new issues, and fix any remaining problems by outputting corrected files. Original request: ${ctx.userMessage}`,
+    qa: `Re-validate the implementation after remediation cycle #${cycle}. Dev agents have attempted to fix the issues you previously identified. Check if requirements are now met and report any remaining gaps. Original request: ${ctx.userMessage}`,
+    security: `Re-scan all code after remediation cycle #${cycle}. Dev agents have attempted to fix the security issues you previously identified. Check if the fixes are correct and scan for any new vulnerabilities. Original request: ${ctx.userMessage}`,
+  };
 
   try {
     const agentInput: AgentInput = {
-      userMessage: reviewPrompt,
+      userMessage: reviewPrompts[agentName]!,
       chatHistory: ctx.chatHistory,
       projectPath: ctx.projectPath,
       context: {
@@ -788,9 +869,9 @@ async function runReviewAgent(
       .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
 
-    // QA can produce file fixes — extract and write them
-    if (agentName === "qa") {
-      extractAndWriteFiles("qa", result.content, ctx.projectPath, ctx.projectId);
+    // Code-review can produce file fixes — extract and write them
+    if (agentName === "code-review") {
+      extractAndWriteFiles("code-review", result.content, ctx.projectPath, ctx.projectId);
     }
 
     // Overwrite the agent's entry so detectIssues() checks fresh output next cycle
@@ -1051,7 +1132,8 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
 }
 
 /**
- * Run frontend-dev agent to fix build errors.
+ * Run a dev agent to fix build errors. Routes to backend-dev if errors
+ * reference server files, otherwise defaults to frontend-dev.
  * Returns the agent's output content, or null on failure.
  */
 async function runBuildFix(params: {
@@ -1074,12 +1156,12 @@ async function runBuildFix(params: {
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) return null;
 
-  const fixAgent = "frontend-dev" as AgentName;
+  const fixAgent = determineBuildFixAgent(buildErrors);
   const config = getAgentConfig(fixAgent);
   if (!config) return null;
 
   broadcastAgentStatus(fixAgent, "running", { phase: "build-fix" });
-  broadcastAgentThinking(fixAgent, "Frontend Developer", "started");
+  broadcastAgentThinking(fixAgent, config.displayName, "started");
 
   const execId = nanoid();
   await db.insert(schema.agentExecutions).values({
@@ -1145,7 +1227,7 @@ async function runBuildFix(params: {
       .set({ status: "completed", output: JSON.stringify(result), completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, execId));
 
-    extractAndWriteFiles("frontend-dev", result.content, projectPath, projectId);
+    extractAndWriteFiles(fixAgent, result.content, projectPath, projectId);
 
     broadcastAgentStatus(fixAgent, "completed", { phase: "build-fix" });
     return result.content;
