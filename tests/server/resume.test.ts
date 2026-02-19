@@ -51,7 +51,7 @@ describe("pipeline resume", () => {
       intent: "build",
       scope: "full",
       userMessage: "Build a calculator",
-      plannedAgents: JSON.stringify(["research", "architect", "testing", "frontend-dev", "styling", "code-review", "security", "qa"]),
+      plannedAgents: JSON.stringify(["research", "architect", "frontend-dev", "styling", "code-review", "security", "qa"]),
       status: "running",
       startedAt: Date.now(),
       completedAt: null,
@@ -63,7 +63,7 @@ describe("pipeline resume", () => {
     expect(row!.intent).toBe("build");
     expect(row!.scope).toBe("full");
     expect(row!.status).toBe("running");
-    expect(JSON.parse(row!.plannedAgents)).toContain("testing");
+    expect(JSON.parse(row!.plannedAgents)).toContain("architect");
   });
 
   test("findInterruptedPipelineRun returns null when no interrupted runs", () => {
@@ -191,14 +191,13 @@ describe("pipeline resume", () => {
   });
 
   test("resume filters execution plan to skip completed agents", () => {
-    const completedAgentNames = new Set(["architect", "testing", "frontend-dev"]);
+    const completedAgentNames = new Set(["architect", "frontend-dev"]);
     const plan = buildExecutionPlan("Build a calculator", "some research output", "build");
 
     const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
     const remainingNames = remainingSteps.map((s) => s.agentName);
 
     expect(remainingNames).not.toContain("architect");
-    expect(remainingNames).not.toContain("testing");
     expect(remainingNames).not.toContain("frontend-dev");
     expect(remainingNames).toContain("styling");
     expect(remainingNames).toContain("code-review");

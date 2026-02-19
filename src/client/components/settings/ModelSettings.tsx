@@ -3,9 +3,9 @@ import { api } from "../../lib/api.ts";
 import type { ResolvedAgentConfig, ModelPricing } from "../../../shared/types.ts";
 
 const AGENT_GROUPS: { label: string; agents: string[] }[] = [
-  { label: "Planning", agents: ["orchestrator", "research", "architect"] },
+  { label: "Planning", agents: ["orchestrator", "research", "architect", "testing"] },
   { label: "Development", agents: ["frontend-dev", "backend-dev", "styling"] },
-  { label: "Quality", agents: ["testing", "code-review", "qa", "security"] },
+  { label: "Quality", agents: ["code-review", "qa", "security"] },
 ];
 
 const PROVIDERS = ["anthropic", "openai", "google"];

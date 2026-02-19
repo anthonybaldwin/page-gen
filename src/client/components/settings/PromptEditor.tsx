@@ -3,9 +3,9 @@ import { api } from "../../lib/api.ts";
 import type { ResolvedAgentConfig } from "../../../shared/types.ts";
 
 const AGENT_NAMES = [
-  "orchestrator", "research", "architect",
+  "orchestrator", "research", "architect", "testing",
   "frontend-dev", "backend-dev", "styling",
-  "testing", "code-review", "qa", "security",
+  "code-review", "qa", "security",
 ] as const;
 
 export function PromptEditor() {
