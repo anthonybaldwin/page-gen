@@ -11,7 +11,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Live HMR preview** — See changes side-by-side as agents write code
 - **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
 - **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar and permanent billing history that survives deletions
-- **Snapshots** — Version your project, rollback to any point
+- ~~**Snapshots** — Version your project, rollback to any point~~ **TODO**
 - **Local-first** — All data in SQLite, API keys encrypted at rest in localStorage, no cloud dependency
 
 ## Tech Stack
