@@ -463,6 +463,73 @@ describe("extractFilesFromOutput", () => {
   });
 });
 
+// --- buildExecutionPlan (fix mode) ---
+
+describe("buildExecutionPlan (fix mode)", () => {
+  test("fix mode skips research and architect", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("research");
+    expect(names).not.toContain("architect");
+  });
+
+  test("fix mode with frontend scope routes to frontend-dev", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("frontend-dev");
+    expect(names).not.toContain("backend-dev");
+    expect(names).not.toContain("styling");
+  });
+
+  test("fix mode with backend scope routes to backend-dev", () => {
+    const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("backend-dev");
+    expect(names).not.toContain("frontend-dev");
+  });
+
+  test("fix mode with styling scope routes to styling", () => {
+    const plan = buildExecutionPlan("fix the colors", undefined, "fix", "styling");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("styling");
+    expect(names).not.toContain("frontend-dev");
+    expect(names).not.toContain("backend-dev");
+  });
+
+  test("fix mode with full scope routes to frontend-dev + backend-dev", () => {
+    const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("frontend-dev");
+    expect(names).toContain("backend-dev");
+  });
+
+  test("fix mode always ends with code-review, security, qa", () => {
+    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    const lastThree = names.slice(-3);
+    expect(lastThree).toEqual(["code-review", "security", "qa"]);
+  });
+
+  test("fix mode includes user message in step inputs", () => {
+    const plan = buildExecutionPlan("fix the button color", undefined, "fix", "frontend");
+    for (const step of plan.steps) {
+      expect(step.input).toContain("fix the button color");
+    }
+  });
+
+  test("build mode with default params is unchanged", () => {
+    const plan = buildExecutionPlan("Build a landing page");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
+  });
+
+  test("build mode with explicit intent param is unchanged", () => {
+    const plan = buildExecutionPlan("Build a landing page", undefined, "build");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["architect", "frontend-dev", "styling", "code-review", "security", "qa"]);
+  });
+});
+
 // --- classifyIntent ---
 
 describe("classifyIntent", () => {

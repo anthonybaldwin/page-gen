@@ -268,7 +268,79 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const completedAgents: string[] = [];
   const callCounter: CallCounter = { value: 0 };
 
-  // --- Phase 1: Run research agent to determine requirements ---
+  // --- Intent classification ---
+  const hasFiles = projectHasFiles(projectPath);
+  const classification = await classifyIntent(userMessage, hasFiles, providers);
+  console.log(`[orchestrator] Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
+
+  // --- Question mode: direct answer, no pipeline ---
+  if (classification.intent === "question") {
+    broadcast({
+      type: "pipeline_plan",
+      payload: { chatId, agents: [] },
+    });
+
+    const answer = await handleQuestion({
+      chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, providers, apiKeys,
+    });
+
+    await db.insert(schema.messages).values({
+      id: nanoid(), chatId, role: "assistant",
+      content: answer,
+      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+    });
+
+    broadcast({
+      type: "chat_message",
+      payload: { chatId, agentName: "orchestrator", content: answer },
+    });
+
+    broadcastAgentStatus(chatId, "orchestrator", "completed");
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  // --- Fix mode: skip research/architect, inject project source ---
+  if (classification.intent === "fix") {
+    const projectSource = readProjectSource(projectPath);
+    if (projectSource) {
+      agentResults.set("project-source", projectSource);
+    }
+
+    const plan = buildExecutionPlan(userMessage, undefined, "fix", classification.scope);
+
+    // Broadcast pipeline plan so client knows which agents to display
+    broadcast({
+      type: "pipeline_plan",
+      payload: { chatId, agents: plan.steps.map((s) => s.agentName) },
+    });
+
+    // Execute fix pipeline
+    const pipelineOk = await executePipelineSteps({
+      plan, chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    });
+    if (!pipelineOk) {
+      abortControllers.delete(chatId);
+      return;
+    }
+
+    // Remediation + final build + summary (shared with build mode)
+    await finishPipeline({
+      chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    });
+
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  // --- Build mode: full pipeline (research → plan → execute → remediate) ---
+
+  // Phase 1: Run research agent
   const researchResult = await runPipelineStep({
     step: {
       agentName: "research",
@@ -291,11 +363,60 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Phase 2: Build dynamic plan from research output, execute remaining steps ---
+  // Phase 2: Build plan and broadcast it
   const researchOutput = agentResults.get("research") || "";
-  const plan = buildExecutionPlan(userMessage, researchOutput);
+  const plan = buildExecutionPlan(userMessage, researchOutput, "build");
 
-  // Execute each step sequentially
+  broadcast({
+    type: "pipeline_plan",
+    payload: { chatId, agents: ["research", ...plan.steps.map((s) => s.agentName)] },
+  });
+
+  // Execute build pipeline
+  const pipelineOk = await executePipelineSteps({
+    plan, chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
+  if (!pipelineOk) {
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  // Remediation + final build + summary
+  await finishPipeline({
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
+
+  abortControllers.delete(chatId);
+}
+
+/**
+ * Execute all steps in a pipeline plan sequentially.
+ * Returns true if all steps completed, false if aborted/failed.
+ */
+async function executePipelineSteps(ctx: {
+  plan: ExecutionPlan;
+  chatId: string;
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  chatTitle: string;
+  userMessage: string;
+  chatHistory: Array<{ role: string; content: string }>;
+  agentResults: Map<string, string>;
+  completedAgents: string[];
+  callCounter: CallCounter;
+  providers: ProviderInstance;
+  apiKeys: Record<string, string>;
+  signal: AbortSignal;
+}): Promise<boolean> {
+  const { plan, chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal } = ctx;
+
   for (const step of plan.steps) {
     if (signal.aborted) {
       await db.insert(schema.messages).values({
@@ -304,8 +425,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
       broadcastAgentStatus(chatId, "orchestrator", "stopped");
-      abortControllers.delete(chatId);
-      return;
+      return false;
     }
 
     const stepResult = await runPipelineStep({
@@ -321,25 +441,48 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
       broadcastAgentStatus(chatId, "orchestrator", "stopped");
-      abortControllers.delete(chatId);
-      return;
+      return false;
     }
 
     if (!stepResult) {
-      abortControllers.delete(chatId);
-      return; // HALT — runPipelineStep already handled error broadcasting
+      return false; // HALT — runPipelineStep already handled error broadcasting
     }
 
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
       broadcastAgentStatus(chatId, "orchestrator", "paused");
       broadcastAgentError(chatId, "orchestrator", `Token limit reached mid-pipeline. Completed through ${step.agentName}.`);
-      abortControllers.delete(chatId);
-      return;
+      return false;
     }
   }
 
-  // --- Remediation loop: fix QA/security issues and re-verify (max 2 cycles) ---
+  return true;
+}
+
+/**
+ * Shared pipeline finish: remediation loop, final build check, summary generation.
+ * Used by both build and fix modes.
+ */
+async function finishPipeline(ctx: {
+  chatId: string;
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  chatTitle: string;
+  userMessage: string;
+  chatHistory: Array<{ role: string; content: string }>;
+  agentResults: Map<string, string>;
+  completedAgents: string[];
+  callCounter: CallCounter;
+  providers: ProviderInstance;
+  apiKeys: Record<string, string>;
+  signal: AbortSignal;
+}): Promise<void> {
+  const { chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal } = ctx;
+
+  // Remediation loop
   if (!signal.aborted) {
     await runRemediationLoop({
       chatId, projectId, projectPath, projectName, chatTitle,
@@ -348,7 +491,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     });
   }
 
-  // --- Final build check: catch any remaining compile errors ---
+  // Final build check
   if (!signal.aborted) {
     const finalBuildErrors = await checkProjectBuild(projectPath);
     if (finalBuildErrors && !signal.aborted) {
@@ -360,51 +503,117 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         agentResults.set("final-build-fix", fixResult);
         completedAgents.push("frontend-dev (final build fix)");
       }
-      // Final re-check after fix
       const finalRecheck = await checkProjectBuild(projectPath);
       if (!finalRecheck) {
         broadcast({ type: "preview_ready", payload: { projectId } });
       }
     } else {
-      // Build clean — enable preview
       broadcast({ type: "preview_ready", payload: { projectId } });
     }
   }
 
-  // Generate a single summary from all agent outputs
+  // Generate summary
   const summary = await generateSummary({
-    userMessage,
-    agentResults,
-    chatId,
-    projectId,
-    projectName,
-    chatTitle,
-    providers,
-    apiKeys,
+    userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys,
   });
 
-  // Save only the orchestrator summary as the chat message
   await db.insert(schema.messages).values({
-    id: nanoid(),
-    chatId,
-    role: "assistant",
+    id: nanoid(), chatId, role: "assistant",
     content: summary,
-    agentName: "orchestrator",
-    metadata: null,
-    createdAt: Date.now(),
+    agentName: "orchestrator", metadata: null, createdAt: Date.now(),
   });
 
   broadcast({
     type: "chat_message",
-    payload: {
-      chatId,
-      agentName: "orchestrator",
-      content: summary,
-    },
+    payload: { chatId, agentName: "orchestrator", content: summary },
   });
 
   broadcastAgentStatus(chatId, "orchestrator", "completed");
-  abortControllers.delete(chatId);
+}
+
+const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a page builder app. The user is asking a question about their project.
+Answer their question based on the project source code provided. Be concise and helpful.
+If the project has no files yet, let the user know and suggest they describe what they'd like to build.`;
+
+/**
+ * Handle a "question" intent by answering directly with the orchestrator model.
+ * No agent pipeline — just one Opus call with project context.
+ */
+async function handleQuestion(ctx: {
+  chatId: string;
+  projectId: string;
+  projectPath: string;
+  projectName: string;
+  chatTitle: string;
+  userMessage: string;
+  chatHistory: Array<{ role: string; content: string }>;
+  providers: ProviderInstance;
+  apiKeys: Record<string, string>;
+}): Promise<string> {
+  const { chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, providers, apiKeys } = ctx;
+
+  const orchestratorConfig = getAgentConfig("orchestrator");
+  if (!orchestratorConfig) return "I couldn't process your question. Please try again.";
+
+  const model = providers.anthropic?.(orchestratorConfig.model);
+  if (!model) return "No model available to answer questions. Please check your API keys.";
+
+  const projectSource = readProjectSource(projectPath);
+  const prompt = projectSource
+    ? `## Project Source\n${projectSource}\n\n## Question\n${userMessage}`
+    : `## Question\n${userMessage}\n\n(This project has no files yet.)`;
+
+  try {
+    const result = await generateText({
+      model,
+      system: QUESTION_SYSTEM_PROMPT,
+      prompt,
+    });
+
+    // Track token usage
+    if (result.usage) {
+      const providerKey = apiKeys[orchestratorConfig.provider];
+      if (providerKey) {
+        const execId = nanoid();
+        db.insert(schema.agentExecutions).values({
+          id: execId, chatId,
+          agentName: "orchestrator",
+          status: "completed",
+          input: JSON.stringify({ type: "question", userMessage }),
+          output: JSON.stringify({ answer: result.text }),
+          error: null, retryCount: 0,
+          startedAt: Date.now(), completedAt: Date.now(),
+        }).run();
+
+        const record = trackTokenUsage({
+          executionId: execId, chatId,
+          agentName: "orchestrator",
+          provider: orchestratorConfig.provider,
+          model: orchestratorConfig.model,
+          apiKey: providerKey,
+          inputTokens: result.usage.inputTokens || 0,
+          outputTokens: result.usage.outputTokens || 0,
+          projectId, projectName, chatTitle,
+        });
+
+        broadcastTokenUsage({
+          chatId, agentName: "orchestrator",
+          provider: orchestratorConfig.provider,
+          model: orchestratorConfig.model,
+          inputTokens: result.usage.inputTokens || 0,
+          outputTokens: result.usage.outputTokens || 0,
+          totalTokens: (result.usage.inputTokens || 0) + (result.usage.outputTokens || 0),
+          costEstimate: record.costEstimate,
+        });
+      }
+    }
+
+    return result.text;
+  } catch (err) {
+    console.error("[orchestrator] Question handling failed:", err);
+    return "I encountered an error processing your question. Please try again.";
+  }
 }
 
 const SUMMARY_SYSTEM_PROMPT = `You are the orchestrator for a page builder. Present the finished result to the user.
@@ -1034,7 +1243,59 @@ export function projectHasFiles(projectPath: string): boolean {
   return files.length > 0;
 }
 
-export function buildExecutionPlan(userMessage: string, researchOutput?: string): ExecutionPlan {
+export function buildExecutionPlan(
+  userMessage: string,
+  researchOutput?: string,
+  intent: OrchestratorIntent = "build",
+  scope: IntentScope = "full"
+): ExecutionPlan {
+  // --- Fix mode: skip research/architect, route to relevant dev agent(s) ---
+  if (intent === "fix") {
+    const steps: ExecutionPlan["steps"] = [];
+
+    // Route to dev agent(s) based on scope
+    if (scope === "frontend" || scope === "full") {
+      steps.push({
+        agentName: "frontend-dev",
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+      });
+    }
+    if (scope === "backend" || scope === "full") {
+      steps.push({
+        agentName: "backend-dev",
+        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+      });
+    }
+    if (scope === "styling") {
+      steps.push({
+        agentName: "styling",
+        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+      });
+    }
+
+    // Always append reviewers
+    steps.push(
+      {
+        agentName: "code-review",
+        input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: steps.map((s) => s.agentName),
+      },
+      {
+        agentName: "security",
+        input: `Security review all code changes (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: ["code-review"],
+      },
+      {
+        agentName: "qa",
+        input: `Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+        dependsOn: ["security"],
+      },
+    );
+
+    return { steps };
+  }
+
+  // --- Build mode: full pipeline (unchanged) ---
   const includeBackend = researchOutput ? needsBackend(researchOutput) : false;
 
   const steps: ExecutionPlan["steps"] = [
