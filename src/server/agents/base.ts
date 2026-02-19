@@ -37,17 +37,19 @@ export async function runAgent(
   providers: ProviderInstance,
   input: AgentInput,
   tools?: Record<string, unknown>,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  chatId?: string
 ): Promise<AgentOutput> {
   const systemPrompt = loadSystemPrompt(config.name);
   const provider = getProviderModel(config, providers);
+  const cid = chatId || "";
 
   if (!provider) {
     throw new Error(`No provider available for agent ${config.name} (needs ${config.provider})`);
   }
 
-  broadcastAgentStatus(config.name, "running");
-  broadcastAgentThinking(config.name, config.displayName, "started");
+  broadcastAgentStatus(cid, config.name, "running");
+  broadcastAgentThinking(cid, config.name, config.displayName, "started");
 
   try {
     const result = streamText({
@@ -61,7 +63,7 @@ export async function runAgent(
     let fullText = "";
     for await (const chunk of result.textStream) {
       fullText += chunk;
-      broadcastAgentThinking(config.name, config.displayName, "streaming", { chunk });
+      broadcastAgentThinking(cid, config.name, config.displayName, "streaming", { chunk });
     }
 
     const usage = await result.usage;
@@ -70,9 +72,9 @@ export async function runAgent(
     const firstSentence = fullText.split(/[.!?\n]/)[0]?.trim() || "";
     const summary = firstSentence.length > 120 ? firstSentence.slice(0, 117) + "..." : firstSentence;
 
-    broadcastAgentStatus(config.name, "completed");
-    broadcastAgentStream(config.name, fullText);
-    broadcastAgentThinking(config.name, config.displayName, "completed", { summary });
+    broadcastAgentStatus(cid, config.name, "completed");
+    broadcastAgentStream(cid, config.name, fullText);
+    broadcastAgentThinking(cid, config.name, config.displayName, "completed", { summary });
 
     return {
       content: fullText,
@@ -83,8 +85,8 @@ export async function runAgent(
       },
     };
   } catch (err) {
-    broadcastAgentStatus(config.name, "failed");
-    broadcastAgentThinking(config.name, config.displayName, "failed");
+    broadcastAgentStatus(cid, config.name, "failed");
+    broadcastAgentThinking(cid, config.name, config.displayName, "failed");
     throw err;
   }
 }

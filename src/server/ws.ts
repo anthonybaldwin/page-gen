@@ -11,28 +11,29 @@ export function broadcast(message: WsMessage) {
   serverRef.publish("agents", JSON.stringify(message));
 }
 
-export function broadcastAgentStatus(agentName: string, status: string, details?: Record<string, unknown>) {
+export function broadcastAgentStatus(chatId: string, agentName: string, status: string, details?: Record<string, unknown>) {
   broadcast({
     type: "agent_status",
-    payload: { agentName, status, ...details },
+    payload: { chatId, agentName, status, ...details },
   });
 }
 
-export function broadcastAgentStream(agentName: string, chunk: string) {
+export function broadcastAgentStream(chatId: string, agentName: string, chunk: string) {
   broadcast({
     type: "agent_stream",
-    payload: { agentName, chunk },
+    payload: { chatId, agentName, chunk },
   });
 }
 
-export function broadcastAgentError(agentName: string, error: string) {
+export function broadcastAgentError(chatId: string, agentName: string, error: string) {
   broadcast({
     type: "agent_error",
-    payload: { agentName, error },
+    payload: { chatId, agentName, error },
   });
 }
 
 export function broadcastAgentThinking(
+  chatId: string,
   agentName: string,
   displayName: string,
   status: "started" | "streaming" | "completed" | "failed",
@@ -40,7 +41,7 @@ export function broadcastAgentThinking(
 ) {
   broadcast({
     type: "agent_thinking",
-    payload: { agentName, displayName, status, ...extra },
+    payload: { chatId, agentName, displayName, status, ...extra },
   });
 }
 

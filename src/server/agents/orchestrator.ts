@@ -88,14 +88,14 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
   // Hard cap — prevent runaway costs
   if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping to prevent runaway costs.`);
+    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping to prevent runaway costs.`);
     return null;
   }
   callCounter.value++;
 
   const config = getAgentConfig(step.agentName);
   if (!config) {
-    broadcastAgentError("orchestrator", `Unknown agent: ${step.agentName}`);
+    broadcastAgentError(chatId, "orchestrator", `Unknown agent: ${step.agentName}`);
     return null;
   }
 
@@ -131,7 +131,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         },
       };
 
-      result = await runAgent(config, providers, agentInput, undefined, signal);
+      result = await runAgent(config, providers, agentInput, undefined, signal, chatId);
 
       if (result.tokenUsage) {
         const providerKey = apiKeys[config.provider];
@@ -196,7 +196,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         await db.update(schema.agentExecutions)
           .set({ status: "retrying", retryCount: attempt + 1 })
           .where(eq(schema.agentExecutions.id, executionId));
-        broadcastAgentStatus(step.agentName, "retrying", { attempt: attempt + 1 });
+        broadcastAgentStatus(chatId, step.agentName, "retrying", { attempt: attempt + 1 });
       }
     }
   }
@@ -208,8 +208,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     await db.update(schema.agentExecutions)
       .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
-    broadcastAgentError(step.agentName, errorMsg);
-    broadcastAgentError("orchestrator", `Pipeline halted: ${step.agentName} failed after ${MAX_RETRIES} retries`);
+    broadcastAgentError(chatId, step.agentName, errorMsg);
+    broadcastAgentError(chatId, "orchestrator", `Pipeline halted: ${step.agentName} failed after ${MAX_RETRIES} retries`);
     await db.insert(schema.messages).values({
       id: nanoid(), chatId, role: "system",
       content: `Agent ${step.agentName} failed: ${errorMsg}`,
@@ -233,24 +233,13 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) {
     abortControllers.delete(chatId);
-    broadcast({
-      type: "agent_error",
-      payload: {
-        agentName: "orchestrator",
-        error: `Token limit reached (${costCheck.currentTokens}/${costCheck.limit}). Please increase your limit to continue.`,
-      },
-    });
+    broadcastAgentError(chatId, "orchestrator", `Token limit reached (${costCheck.currentTokens}/${costCheck.limit}). Please increase your limit to continue.`);
     return;
   }
 
   if (costCheck.warning) {
-    broadcast({
-      type: "agent_status",
-      payload: {
-        agentName: "orchestrator",
-        status: "warning",
-        message: `Token usage at ${Math.round(costCheck.percentUsed * 100)}% of limit`,
-      },
+    broadcastAgentStatus(chatId, "orchestrator", "warning", {
+      message: `Token usage at ${Math.round(costCheck.percentUsed * 100)}% of limit`,
     });
   }
 
@@ -272,7 +261,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     content: m.content,
   }));
 
-  broadcastAgentStatus("orchestrator", "running");
+  broadcastAgentStatus(chatId, "orchestrator", "running");
 
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
@@ -296,7 +285,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
         agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
-      broadcastAgentStatus("orchestrator", "stopped");
+      broadcastAgentStatus(chatId, "orchestrator", "stopped");
     }
     abortControllers.delete(chatId);
     return;
@@ -314,7 +303,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
         agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
-      broadcastAgentStatus("orchestrator", "stopped");
+      broadcastAgentStatus(chatId, "orchestrator", "stopped");
       abortControllers.delete(chatId);
       return;
     }
@@ -331,7 +320,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
         agentName: "orchestrator", metadata: null, createdAt: Date.now(),
       });
-      broadcastAgentStatus("orchestrator", "stopped");
+      broadcastAgentStatus(chatId, "orchestrator", "stopped");
       abortControllers.delete(chatId);
       return;
     }
@@ -343,14 +332,8 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
-      broadcastAgentStatus("orchestrator", "paused");
-      broadcast({
-        type: "agent_error",
-        payload: {
-          agentName: "orchestrator",
-          error: `Token limit reached mid-pipeline. Completed through ${step.agentName}.`,
-        },
-      });
+      broadcastAgentStatus(chatId, "orchestrator", "paused");
+      broadcastAgentError(chatId, "orchestrator", `Token limit reached mid-pipeline. Completed through ${step.agentName}.`);
       abortControllers.delete(chatId);
       return;
     }
@@ -420,7 +403,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     },
   });
 
-  broadcastAgentStatus("orchestrator", "completed");
+  broadcastAgentStatus(chatId, "orchestrator", "completed");
   abortControllers.delete(chatId);
 }
 
@@ -713,7 +696,7 @@ async function runFixAgent(
   ctx: RemediationContext,
 ): Promise<string | null> {
   if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping remediation.`);
+    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping remediation.`);
     return null;
   }
   ctx.callCounter.value++;
@@ -726,7 +709,7 @@ async function runFixAgent(
     displayName: `${config.displayName} (remediation${cycle > 1 ? ` #${cycle}` : ""})`,
   };
 
-  broadcastAgentStatus(agentName, "running", { phase: "remediation", cycle });
+  broadcastAgentStatus(ctx.chatId, agentName, "running", { phase: "remediation", cycle });
 
   const executionId = nanoid();
   await db.insert(schema.agentExecutions).values({
@@ -764,7 +747,7 @@ async function runFixAgent(
       },
     };
 
-    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal);
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal, ctx.chatId);
 
     if (result.tokenUsage) {
       const providerKey = ctx.apiKeys[config.provider];
@@ -812,7 +795,7 @@ async function runFixAgent(
       await db.update(schema.agentExecutions)
         .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
         .where(eq(schema.agentExecutions.id, executionId));
-      broadcastAgentError(agentName, `Remediation failed: ${errorMsg}`);
+      broadcastAgentError(ctx.chatId, agentName, `Remediation failed: ${errorMsg}`);
     }
     return null;
   }
@@ -828,7 +811,7 @@ async function runReviewAgent(
   ctx: RemediationContext,
 ): Promise<string | null> {
   if (ctx.callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping re-review.`);
+    broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Stopping re-review.`);
     return null;
   }
   ctx.callCounter.value++;
@@ -841,7 +824,7 @@ async function runReviewAgent(
 
   const displayConfig = { ...config, displayName: `${config.displayName} (re-review #${cycle})` };
 
-  broadcastAgentStatus(agentName, "running", { phase: "re-review", cycle });
+  broadcastAgentStatus(ctx.chatId, agentName, "running", { phase: "re-review", cycle });
 
   const executionId = nanoid();
   await db.insert(schema.agentExecutions).values({
@@ -877,7 +860,7 @@ async function runReviewAgent(
       },
     };
 
-    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal);
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal, ctx.chatId);
 
     if (result.tokenUsage) {
       const providerKey = ctx.apiKeys[config.provider];
@@ -923,7 +906,7 @@ async function runReviewAgent(
       await db.update(schema.agentExecutions)
         .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
         .where(eq(schema.agentExecutions.id, executionId));
-      broadcastAgentError(agentName, `Re-review failed: ${errorMsg}`);
+      broadcastAgentError(ctx.chatId, agentName, `Re-review failed: ${errorMsg}`);
     }
     return null;
   }
@@ -1193,7 +1176,7 @@ async function runBuildFix(params: {
     userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal } = params;
 
   if (callCounter.value >= MAX_TOTAL_AGENT_CALLS) {
-    broadcastAgentError("orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Skipping build fix.`);
+    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${MAX_TOTAL_AGENT_CALLS}). Skipping build fix.`);
     return null;
   }
   callCounter.value++;
@@ -1205,8 +1188,8 @@ async function runBuildFix(params: {
   const config = getAgentConfig(fixAgent);
   if (!config) return null;
 
-  broadcastAgentStatus(fixAgent, "running", { phase: "build-fix" });
-  broadcastAgentThinking(fixAgent, config.displayName, "started");
+  broadcastAgentStatus(chatId, fixAgent, "running", { phase: "build-fix" });
+  broadcastAgentThinking(chatId, fixAgent, config.displayName, "started");
 
   const execId = nanoid();
   await db.insert(schema.agentExecutions).values({
@@ -1237,7 +1220,7 @@ async function runBuildFix(params: {
       },
     };
 
-    const result = await runAgent(config, providers, fixInput, undefined, signal);
+    const result = await runAgent(config, providers, fixInput, undefined, signal, chatId);
 
     if (result.tokenUsage) {
       const providerKey = apiKeys[config.provider];
@@ -1274,7 +1257,7 @@ async function runBuildFix(params: {
 
     extractAndWriteFiles(fixAgent, result.content, projectPath, projectId);
 
-    broadcastAgentStatus(fixAgent, "completed", { phase: "build-fix" });
+    broadcastAgentStatus(chatId, fixAgent, "completed", { phase: "build-fix" });
     return result.content;
   } catch (err) {
     if (!signal.aborted) {
@@ -1282,9 +1265,9 @@ async function runBuildFix(params: {
       await db.update(schema.agentExecutions)
         .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
         .where(eq(schema.agentExecutions.id, execId));
-      broadcastAgentError(fixAgent, `Build fix failed: ${errorMsg}`);
+      broadcastAgentError(chatId, fixAgent, `Build fix failed: ${errorMsg}`);
     }
-    broadcastAgentStatus(fixAgent, "failed", { phase: "build-fix" });
+    broadcastAgentStatus(chatId, fixAgent, "failed", { phase: "build-fix" });
     return null;
   }
 }
