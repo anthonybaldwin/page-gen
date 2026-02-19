@@ -1,6 +1,7 @@
 import { db, schema } from "../db/index.ts";
 import { nanoid } from "nanoid";
 import { hashApiKey } from "../providers/registry.ts";
+import { estimateCost } from "./pricing.ts";
 import { eq, sql } from "drizzle-orm";
 
 interface TrackTokensParams {
@@ -78,19 +79,4 @@ export function getUsageByAgent(chatId: string) {
     .from(schema.tokenUsage)
     .where(eq(schema.tokenUsage.chatId, chatId))
     .all();
-}
-
-// Cost estimation per 1M tokens (USD) — verified Feb 2026
-const PRICING: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-6": { input: 5, output: 25 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-haiku-4-5-20251001": { input: 1, output: 5 },
-  "gpt-5.2": { input: 1.75, output: 14 },
-  "gpt-5.2-pro": { input: 21, output: 168 },
-  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
-};
-
-function estimateCost(provider: string, model: string, inputTokens: number, outputTokens: number): number {
-  const pricing = PRICING[model] || { input: 3, output: 15 };
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
