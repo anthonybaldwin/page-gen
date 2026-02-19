@@ -68,11 +68,24 @@ agentRoutes.post("/run", async (c) => {
   return c.json({ status: "started", chatId: body.chatId });
 });
 
-// Check if orchestration is running for a chat
+// Check if orchestration is running for a chat, with execution history
 agentRoutes.get("/status", async (c) => {
   const chatId = c.req.query("chatId");
   if (!chatId) return c.json({ error: "chatId required" }, 400);
-  return c.json({ running: isOrchestrationRunning(chatId) });
+
+  const running = isOrchestrationRunning(chatId);
+
+  // Return execution history so the progress banner can be reconstructed on refresh
+  const executions = await db
+    .select({
+      agentName: schema.agentExecutions.agentName,
+      status: schema.agentExecutions.status,
+    })
+    .from(schema.agentExecutions)
+    .where(eq(schema.agentExecutions.chatId, chatId))
+    .all();
+
+  return c.json({ running, executions });
 });
 
 // Stop orchestration

@@ -188,7 +188,7 @@ export function ChatWindow() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <AgentStatusPanel />
+      <AgentStatusPanel chatId={activeChat?.id ?? null} />
       {error && (
         <div className="px-4 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs flex items-center justify-between">
           <span>{error}</span>

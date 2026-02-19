@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
+import { api } from "../../lib/api.ts";
 
 interface AgentState {
   name: string;
@@ -26,6 +27,7 @@ const STATUS_ICONS: Record<string, string> = {
   completed: "\u2713", // ✓
   failed: "\u2717",    // ✗
   retrying: "\u21BB",  // ↻
+  stopped: "\u25A0",   // ■
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,12 +36,45 @@ const STATUS_COLORS: Record<string, string> = {
   completed: "text-green-400",
   failed: "text-red-400",
   retrying: "text-orange-400",
+  stopped: "text-zinc-400",
 };
 
-export function AgentStatusPanel() {
+interface Props {
+  chatId: string | null;
+}
+
+export function AgentStatusPanel({ chatId }: Props) {
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pipelineActive, setPipelineActive] = useState(false);
+
+  // Reconstruct progress state from DB on mount / chat change
+  useEffect(() => {
+    if (!chatId) return;
+
+    api
+      .get<{ running: boolean; executions: Array<{ agentName: string; status: string }> }>(
+        `/agents/status?chatId=${chatId}`
+      )
+      .then(({ running, executions }) => {
+        if (executions.length === 0) return;
+
+        // Deduplicate: keep the latest status per agent (last entry wins)
+        const agentMap: Record<string, AgentState> = {};
+        for (const exec of executions) {
+          const display = PIPELINE_AGENTS.find((a) => a.name === exec.agentName)?.displayName || exec.agentName;
+          agentMap[exec.agentName] = {
+            name: exec.agentName,
+            displayName: display,
+            status: exec.status as AgentState["status"],
+            stream: "",
+          };
+        }
+        setAgents(agentMap);
+        setPipelineActive(running);
+      })
+      .catch(() => {});
+  }, [chatId]);
 
   useEffect(() => {
     connectWebSocket();
@@ -56,7 +91,7 @@ export function AgentStatusPanel() {
         if (status === "running" || status === "retrying") {
           setPipelineActive(true);
         }
-        if (agentName === "orchestrator" && status === "completed") {
+        if (agentName === "orchestrator" && (status === "completed" || status === "stopped")) {
           setPipelineActive(false);
         }
 
