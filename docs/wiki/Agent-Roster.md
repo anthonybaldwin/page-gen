@@ -49,7 +49,7 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 - **Position (build mode):** After architect, before frontend-dev — tests define expected behavior before implementation
 - **Position (fix mode):** First step — writes tests that verify the fix before dev agents make changes
 - **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
-- **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed in a per-test checklist UI with streaming results.
+- **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
 
 ### 8. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -83,21 +83,24 @@ Before running the pipeline, the orchestrator classifies the user's message into
 
 Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
 
-### Build Pipeline (TDD)
+### Build Pipeline (TDD, Parallelized)
 
 ```
 User → Orchestrator → classifyIntent() → "build"
   → Phase 1: Research (determines requirements + backend needs)
   → Phase 2: Dynamic plan from research output
       → Architect → Testing (write tests from spec)
-      → Frontend Dev → [run tests] → [Backend Dev if needed] → [run tests]
-      → Styling → [run tests] → Code Review → Security
-      → QA (validate requirements)
-  → Remediation Loop (max 2 cycles)
+      → Frontend Dev ─┬─ [run tests]    (parallel if backend needed)
+      → Backend Dev  ─┘─ [run tests]
+      → Styling (waits for all dev agents)
+      → Code Review ─┐
+      → Security     ├─ (parallel, all depend on Styling)
+      → QA           ─┘
+  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
 
-### Fix Pipeline (TDD)
+### Fix Pipeline (TDD, Parallelized)
 
 ```
 User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|styling|full)
@@ -108,8 +111,10 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
       backend  → backend-dev → [run tests]
       styling  → styling → [run tests]
       full     → frontend-dev + backend-dev → [run tests]
-  → Code Review → Security → QA
-  → Remediation Loop (max 2 cycles)
+  → Code Review ─┐
+  → Security     ├─ (parallel, all depend on last dev agent)
+  → QA           ─┘
+  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
 
@@ -120,6 +125,21 @@ User → Orchestrator → classifyIntent() → "question"
   → Read project source for context
   → Single Opus call → Direct answer (no agents, no pipeline bar)
 ```
+
+### Parallelization Details
+
+The pipeline executor uses dependency-aware batch scheduling:
+- Steps whose `dependsOn` are all in the completed set run concurrently as a batch
+- When a batch completes, newly unblocked steps form the next batch
+- Halts on first failure within any batch
+- Cost limit checked after each batch completes
+
+**Parallel groups in build mode:**
+- `frontend-dev` and `backend-dev` both depend on `testing` → run in parallel
+- `styling` depends on all dev agents → waits for both to complete
+- `code-review`, `security`, and `qa` all depend on `styling` → run in parallel
+
+**Remediation re-reviews** also run in parallel (`Promise.all` for code-review, security, qa).
 
 ### Pipeline Plan Broadcasting
 
@@ -147,10 +167,8 @@ After the initial code-review, security, and QA agents run, the orchestrator che
 
 1. **Route findings** to the correct dev agent(s) based on `[frontend]`/`[backend]`/`[styling]` tags from code-review and QA output. Defaults to frontend-dev when no clear routing.
 2. **Dev agent(s)** receive the findings and output corrected files
-3. **Code Reviewer** re-reviews the updated code (display name shows "re-review #N")
-4. **Security Reviewer** re-scans the updated code
-5. **QA Agent** re-validates against requirements
-6. If issues persist, the loop repeats (max 2 cycles)
+3. **Re-review agents run in parallel:** Code Reviewer, Security Reviewer, and QA Agent all re-evaluate simultaneously
+4. If issues persist, the loop repeats (max 2 cycles)
 
 Each cycle checks the cost limit before proceeding. The loop exits early if:
 - All issues are resolved (code-review passes + security passes + QA passes)
@@ -163,6 +181,16 @@ Each cycle checks the cost limit before proceeding. The loop exits early if:
 **Key design principle:** Only dev agents (frontend-dev, backend-dev, styling) write code. All review agents (code-review, security, qa) are read-only reporters. This prevents two agents from fighting over the same files.
 
 In the UI, re-review agents show their cycle number (e.g., "Code Reviewer (re-review #1)") so the user can track the iteration.
+
+### Thinking Block History
+
+When remediation routes back to an agent that already ran (e.g., frontend-dev runs again to fix review findings), the UI **appends a new thinking block** instead of replacing the original. This preserves the full history so users can see both the original output and the remediation output.
+
+Blocks are identified by unique IDs. The `toggleExpanded` action targets blocks by ID, not agent name, so expanding one "Frontend Developer" block doesn't affect others.
+
+### Inline Test Results
+
+Test results appear **inline in the thinking block timeline** at the point where tests ran, rather than as a separate banner at the bottom. This makes it clear which dev agent's output triggered the test run. The `TestResultsBanner` component is rendered inside `AgentThinkingMessage` when a block has `blockType: "test-results"`.
 
 ### File Extraction (Hardened)
 
@@ -210,3 +238,7 @@ Each agent's provider, model, and system prompt can be overridden via **Settings
 - Pause at 100% — user must confirm to continue
 - Hard cap: configurable agent call limit per orchestration (default 30, set in Settings → Limits)
 - Remediation improvement check: exits if issues aren't decreasing between cycles
+
+## Streaming Optimization
+
+Agent output is streamed to the client via WebSocket, but broadcasts are **throttled to ~7 messages/sec** (150ms batching) to reduce noise and client re-renders. Chunks are accumulated and sent in batches. The final remaining chunk is always flushed.
