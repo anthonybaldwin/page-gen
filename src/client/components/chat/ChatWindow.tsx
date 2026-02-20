@@ -4,7 +4,7 @@ import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
-import { useAgentThinkingStore } from "../../stores/agentThinkingStore.ts";
+import { useAgentThinkingStore, type ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
 import { api } from "../../lib/api.ts";
 import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
@@ -168,6 +168,16 @@ export function ChatWindow() {
         }
       }
 
+      // Pipeline interrupted — show interruption UI immediately (no refresh needed)
+      if (msg.type === "pipeline_interrupted") {
+        const payload = msg.payload as { reason?: string };
+        setInterrupted(true);
+        if (payload.reason === "cost_limit") {
+          setCostLimitInterrupt(true);
+        }
+        setThinking(false);
+      }
+
       // Agent error — stop thinking and show error
       if (msg.type === "agent_error") {
         const { agentName, error: errMsg, errorType } = msg.payload as { agentName: string; error: string; errorType?: string };
@@ -175,6 +185,7 @@ export function ChatWindow() {
           setThinking(false);
           if (errorType === "cost_limit") {
             setCostLimitInterrupt(true);
+            setInterrupted(true);
           } else {
             setError(errMsg);
           }
@@ -382,15 +393,12 @@ export function ChatWindow() {
         </div>
       )}
       <div className="flex-1 overflow-y-auto">
-        <MessageList messages={messages} />
-        {blocks.map((block) => (
-          <AgentThinkingMessage
-            key={block.id}
-            block={block}
-            onToggle={() => toggleExpanded(block.id)}
-          />
-        ))}
-        {thinking && blocks.length === 0 && <ThinkingIndicator />}
+        <MergedTimeline
+          messages={messages}
+          blocks={blocks}
+          thinking={thinking}
+          onToggle={toggleExpanded}
+        />
         <div ref={messagesEndRef} />
       </div>
       <MessageInput onSend={handleSend} disabled={thinking} onStop={handleStop} />
@@ -410,5 +418,68 @@ function ThinkingIndicator() {
         <span className="text-xs text-zinc-400 ml-1">Agents working...</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Merged timeline: interleaves messages and thinking blocks chronologically.
+ * Ensures assistant messages (e.g., orchestrator summary) appear AFTER the
+ * agent thinking blocks they relate to, not above them.
+ */
+function MergedTimeline({
+  messages,
+  blocks,
+  thinking,
+  onToggle,
+}: {
+  messages: Message[];
+  blocks: ThinkingBlock[];
+  thinking: boolean;
+  onToggle: (id: string) => void;
+}) {
+  // If no blocks, just render messages normally
+  if (blocks.length === 0) {
+    return (
+      <>
+        <MessageList messages={messages} />
+        {thinking && <ThinkingIndicator />}
+      </>
+    );
+  }
+
+  // Find the timestamp boundary: first thinking block marks where agents started
+  const firstBlockTime = Math.min(...blocks.map((b) => b.startedAt));
+
+  // Split messages: before agents started vs after
+  const beforeBlocks: Message[] = [];
+  const afterBlocks: Message[] = [];
+  for (const msg of messages) {
+    // Agent output messages are hidden (shown as thinking blocks)
+    if (msg.metadata) {
+      try {
+        const meta = typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
+        if (meta?.type === "agent_output") continue;
+      } catch { /* skip */ }
+    }
+    if (msg.createdAt < firstBlockTime) {
+      beforeBlocks.push(msg);
+    } else {
+      afterBlocks.push(msg);
+    }
+  }
+
+  return (
+    <>
+      {beforeBlocks.length > 0 && <MessageList messages={beforeBlocks} />}
+      {blocks.map((block) => (
+        <AgentThinkingMessage
+          key={block.id}
+          block={block}
+          onToggle={() => onToggle(block.id)}
+        />
+      ))}
+      {thinking && blocks.length === 0 && <ThinkingIndicator />}
+      {afterBlocks.length > 0 && <MessageList messages={afterBlocks} />}
+    </>
   );
 }

@@ -203,6 +203,43 @@ function manifestifyDevOutputs(result: Record<string, string>): Record<string, s
 }
 
 /**
+ * Extract assigned file paths from a parallel dev agent's input string.
+ * Returns empty array if the input doesn't match the expected pattern.
+ */
+export function extractAssignedFiles(stepInput: string): string[] {
+  const match = stepInput.match(/Implement ONLY these files[^:]*:\s*([\s\S]+?)\.\s*Do NOT/);
+  if (!match?.[1]) return [];
+  return match[1].split(",").map((f) => f.trim()).filter(Boolean);
+}
+
+/**
+ * Truncate architect output to only include file_plan entries relevant to a specific dev agent.
+ * Preserves design_system, component_tree, and top-level metadata.
+ * Falls back to full output if JSON parsing fails.
+ */
+export function truncateArchitectForAgent(architectOutput: string, agentFiles: string[]): string {
+  if (agentFiles.length === 0) return architectOutput;
+  try {
+    const parsed = JSON.parse(architectOutput);
+    if (parsed.file_plan && Array.isArray(parsed.file_plan)) {
+      const fileSet = new Set(agentFiles.map((f) => f.replace(/^\.\//, "")));
+      const filtered = {
+        ...parsed,
+        file_plan: parsed.file_plan.filter((entry: { path?: string }) => {
+          if (!entry.path) return false;
+          const p = entry.path.replace(/^\.\//, "");
+          return fileSet.has(p);
+        }),
+      };
+      return JSON.stringify(filtered);
+    }
+  } catch {
+    // Not valid JSON — return truncated original
+  }
+  return truncateOutput(architectOutput, 10_000);
+}
+
+/**
  * Filter upstream outputs so each agent only receives relevant data.
  * Reduces prompt size significantly — agents don't need outputs from unrelated agents.
  * Tool-using agents' outputs are replaced with file manifests (they wrote to disk).
@@ -214,6 +251,7 @@ export function filterUpstreamOutputs(
   agentResults: Map<string, string>,
   phase?: string,
   projectPath?: string,
+  assignedFiles?: string[],
 ): Record<string, string> {
   const all = Object.fromEntries(agentResults);
   const key = instanceId ?? agentName;
@@ -250,9 +288,13 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
-  // frontend-dev-N (parallel instances) → architect + design system
+  // frontend-dev-N (parallel instances) → architect (truncated to assigned files) + design system
   if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
     const result = pick(["architect"]);
+    // Truncate architect output to only include file_plan entries for this agent's files
+    if (assignedFiles && assignedFiles.length > 0 && result["architect"]) {
+      result["architect"] = truncateArchitectForAgent(result["architect"], assignedFiles);
+    }
     injectDesignSystem(result);
     return truncateAllOutputs(result);
   }
@@ -466,8 +508,11 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     completedAt: null,
   });
 
+  // Extract assigned files for parallel dev agents (used to truncate architect output)
+  const assignedFiles = step.instanceId ? extractAssignedFiles(step.input) : undefined;
+
   // Pre-flight cost estimate: estimate input tokens before calling agent
-  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath);
+  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath, assignedFiles);
   const estimatedPromptChars = step.input.length
     + Object.values(preflightUpstream).reduce((sum, v) => sum + v.length, 0)
     + chatHistory.reduce((sum, m) => sum + m.content.length, 0);
@@ -730,6 +775,15 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     } catch {
       // Non-critical — don't block pipeline
     }
+  }
+
+  // --- Auto-resume: check for interrupted pipeline before classifying intent ---
+  // Prevents "Continue?" from being classified as a new build request
+  const interruptedId = findInterruptedPipelineRun(chatId);
+  if (interruptedId) {
+    log("orchestrator", `Found interrupted pipeline ${interruptedId} — auto-resuming`);
+    abortControllers.delete(chatId);
+    return resumeOrchestration({ ...input, pipelineRunId: interruptedId });
   }
 
   // Collect agent outputs internally — only the final summary is shown to user
@@ -1079,6 +1133,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   // Check cost limits — if still over limit after resume, abort with clear message
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) {
+    log("orchestrator", `Resume blocked: cost limit (${costCheck.currentTokens}/${costCheck.limit})`);
     abortControllers.delete(chatId);
     broadcast({
       type: "agent_error",
@@ -1310,6 +1365,7 @@ async function executePipelineSteps(ctx: {
 
     if (ready.length === 0) {
       // Deadlock — remaining steps have unmet deps that will never resolve
+      log("orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet deps. completedSet=[${[...completedSet].join(", ")}]`);
       broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet dependencies`);
       return false;
     }
@@ -1344,6 +1400,7 @@ async function executePipelineSteps(ctx: {
     // Check for failures
     const failed = results.find((r) => !r.result);
     if (failed) {
+      log("orchestrator", `Pipeline halted: agent ${failed.stepKey} failed`);
       return false; // HALT — runPipelineStep already handled error broadcasting
     }
 
@@ -1380,6 +1437,7 @@ async function executePipelineSteps(ctx: {
     // Cost check after each batch
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
+      log("orchestrator", `Pipeline interrupted: token limit (${midCheck.currentTokens}/${midCheck.limit}) after batch: ${readyNames.join(", ")}`);
       broadcastAgentStatus(chatId, "orchestrator", "paused");
       broadcast({
         type: "agent_error",
@@ -1388,6 +1446,16 @@ async function executePipelineSteps(ctx: {
           agentName: "orchestrator",
           error: `Token limit reached mid-pipeline. Completed through batch: ${readyNames.join(", ")}.`,
           errorType: "cost_limit",
+        },
+      });
+      broadcast({
+        type: "pipeline_interrupted",
+        payload: {
+          chatId,
+          reason: "cost_limit",
+          completedAgents: [...completedSet],
+          skippedAgents: notReady.map((s) => s.instanceId ?? s.agentName),
+          tokens: { current: midCheck.currentTokens, limit: midCheck.limit },
         },
       });
       return false;
@@ -1502,8 +1570,20 @@ async function handleQuestion(ctx: {
   if (!questionModel) return "No model available to answer questions. Please check your API keys.";
 
   const projectSource = readProjectSource(projectPath);
+
+  // Detect incomplete pipeline: if App.tsx is missing and pipeline was interrupted,
+  // make sure the LLM doesn't say "everything looks complete"
+  let pipelineWarning = "";
+  const interruptedPipeline = findInterruptedPipelineRun(chatId);
+  if (interruptedPipeline) {
+    const hasAppTsx = existsSync(join(projectPath, "src", "App.tsx"));
+    if (!hasAppTsx) {
+      pipelineWarning = "\n\nIMPORTANT: The previous build pipeline was interrupted before completion. The project is missing its root App.tsx and has not been styled or reviewed. Do NOT say the project is complete. Inform the user the pipeline needs to be resumed.\n";
+    }
+  }
+
   const prompt = projectSource
-    ? `## Project Source\n${projectSource}\n\n## Question\n${userMessage}`
+    ? `## Project Source\n${projectSource}${pipelineWarning}\n\n## Question\n${userMessage}`
     : `## Question\n${userMessage}\n\n(This project has no files yet.)`;
 
   try {
@@ -1533,8 +1613,8 @@ async function handleQuestion(ctx: {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const qAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
-        const cacheCreation = Number(qAnthropicMeta?.cacheCreationInputTokens) || 0;
-        const cacheRead = Number(qAnthropicMeta?.cacheReadInputTokens) || 0;
+        const cacheCreation = Number(qAnthropicMeta?.cacheCreationInputTokens ?? qAnthropicMeta?.cache_creation_input_tokens) || 0;
+        const cacheRead = Number(qAnthropicMeta?.cacheReadInputTokens ?? qAnthropicMeta?.cache_read_input_tokens) || 0;
 
         const record = trackTokenUsage({
           executionId: execId, chatId,
@@ -1656,8 +1736,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       const outputTokens = result.usage.outputTokens || 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
-      const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens) || 0;
-      const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens) || 0;
+      const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens ?? sAnthropicMeta?.cache_creation_input_tokens) || 0;
+      const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens ?? sAnthropicMeta?.cache_read_input_tokens) || 0;
 
       const summaryExecId = nanoid();
       db.insert(schema.agentExecutions).values({
@@ -2789,7 +2869,10 @@ async function runBuildFix(params: {
   callCounter.value++;
 
   const costCheck = checkCostLimit(chatId);
-  if (!costCheck.allowed) return null;
+  if (!costCheck.allowed) {
+    log("orchestrator", "Build fix skipped: cost limit reached");
+    return null;
+  }
 
   const fixAgent = determineBuildFixAgent(buildErrors);
   const config = getAgentConfigResolved(fixAgent);

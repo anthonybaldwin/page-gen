@@ -22,7 +22,14 @@ const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "testing": 2048,
 };
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
-const MAX_TOOL_STEPS = 10;
+
+/** Per-agent tool step limits — fewer steps = less context resend overhead. */
+const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
+  "frontend-dev": 8,
+  "backend-dev": 8,
+  "styling": 8,
+};
+const DEFAULT_MAX_TOOL_STEPS = 10;
 
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
@@ -96,12 +103,13 @@ export async function runAgent(
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
     const maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS[config.name] || DEFAULT_MAX_OUTPUT_TOKENS;
+    const maxToolSteps = AGENT_MAX_TOOL_STEPS[config.name] || DEFAULT_MAX_TOOL_STEPS;
     const result = streamText({
       model: provider,
       system: systemPrompt,
       prompt: builtPrompt,
       maxOutputTokens,
-      ...(tools ? { tools, stopWhen: stepCountIs(MAX_TOOL_STEPS) } : {}),
+      ...(tools ? { tools, stopWhen: stepCountIs(maxToolSteps) } : {}),
       ...(abortSignal ? { abortSignal } : {}),
     });
 
@@ -170,8 +178,14 @@ export async function runAgent(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const meta = (step as any).providerMetadata?.anthropic;
         if (meta && typeof meta === "object") {
-          cacheCreationInputTokens += Number(meta.cacheCreationInputTokens) || 0;
-          cacheReadInputTokens += Number(meta.cacheReadInputTokens) || 0;
+          // Try both camelCase (AI SDK v4) and snake_case (raw Anthropic response)
+          const creation = Number(meta.cacheCreationInputTokens ?? meta.cache_creation_input_tokens) || 0;
+          const read = Number(meta.cacheReadInputTokens ?? meta.cache_read_input_tokens) || 0;
+          if (creation > 0 || read > 0) {
+            log("pipeline", `cache tokens step: creation=${creation} read=${read} keys=[${Object.keys(meta).join(", ")}]`);
+          }
+          cacheCreationInputTokens += creation;
+          cacheReadInputTokens += read;
         }
       }
     } catch {

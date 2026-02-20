@@ -21,7 +21,8 @@ interface TrackTokensParams {
 }
 
 export function trackTokenUsage(params: TrackTokensParams) {
-  const totalTokens = params.inputTokens + params.outputTokens;
+  const totalTokens = params.inputTokens + params.outputTokens
+    + (params.cacheCreationInputTokens || 0) + (params.cacheReadInputTokens || 0);
   const costEstimate = estimateCost(
     params.provider, params.model,
     params.inputTokens, params.outputTokens,
@@ -78,7 +79,8 @@ export function trackTokenUsage(params: TrackTokensParams) {
  * where there is no matching agentExecutions or chats record.
  */
 export function trackBillingOnly(params: Omit<TrackTokensParams, "executionId" | "chatId"> & { chatId?: string; executionId?: string }) {
-  const totalTokens = params.inputTokens + params.outputTokens;
+  const totalTokens = params.inputTokens + params.outputTokens
+    + (params.cacheCreationInputTokens || 0) + (params.cacheReadInputTokens || 0);
   const costEstimate = estimateCost(
     params.provider, params.model,
     params.inputTokens, params.outputTokens,
@@ -192,7 +194,8 @@ export function finalizeTokenUsage(
   provider: string,
   model: string,
 ): void {
-  const totalTokens = actual.inputTokens + actual.outputTokens;
+  const totalTokens = actual.inputTokens + actual.outputTokens
+    + (actual.cacheCreationInputTokens || 0) + (actual.cacheReadInputTokens || 0);
   const costEstimate = estimateCost(
     provider, model,
     actual.inputTokens, actual.outputTokens,

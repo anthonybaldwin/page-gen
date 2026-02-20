@@ -16,6 +16,8 @@ import {
   truncateOutput,
   buildFileManifest,
   filterUpstreamOutputs,
+  extractAssignedFiles,
+  truncateArchitectForAgent,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
@@ -1407,5 +1409,81 @@ describe("buildPrompt", () => {
     });
     expect(prompt).toContain("architecture plan here");
     expect(prompt).toContain("build something");
+  });
+});
+
+// --- extractAssignedFiles ---
+
+describe("extractAssignedFiles", () => {
+  test("extracts file paths from standard parallel dev input", () => {
+    const input = "Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): src/components/Hero.tsx, src/components/Footer.tsx. Do NOT create any files outside this list — other agents handle the rest. Original request: build me a landing page";
+    const files = extractAssignedFiles(input);
+    expect(files).toEqual(["src/components/Hero.tsx", "src/components/Footer.tsx"]);
+  });
+
+  test("extracts single file", () => {
+    const input = "Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): src/components/Hero.tsx. Do NOT create any files outside this list — other agents handle the rest. Original request: test";
+    const files = extractAssignedFiles(input);
+    expect(files).toEqual(["src/components/Hero.tsx"]);
+  });
+
+  test("returns empty array for non-matching input", () => {
+    const input = "Implement ONLY src/App.tsx: import and compose all components";
+    const files = extractAssignedFiles(input);
+    expect(files).toEqual([]);
+  });
+
+  test("returns empty array for empty string", () => {
+    expect(extractAssignedFiles("")).toEqual([]);
+  });
+});
+
+// --- truncateArchitectForAgent ---
+
+describe("truncateArchitectForAgent", () => {
+  const fullArchitect = JSON.stringify({
+    design_system: { colors: { primary: "#3b82f6" } },
+    component_tree: ["App", "Hero", "Footer"],
+    file_plan: [
+      { action: "create", path: "src/components/Hero.tsx", description: "Hero section" },
+      { action: "create", path: "src/components/Footer.tsx", description: "Footer section" },
+      { action: "create", path: "src/components/Nav.tsx", description: "Navigation" },
+      { action: "create", path: "src/App.tsx", description: "Root app" },
+    ],
+  });
+
+  test("filters file_plan to only assigned files", () => {
+    const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx", "src/components/Footer.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.file_plan).toHaveLength(2);
+    expect(parsed.file_plan[0].path).toBe("src/components/Hero.tsx");
+    expect(parsed.file_plan[1].path).toBe("src/components/Footer.tsx");
+  });
+
+  test("preserves design_system and component_tree", () => {
+    const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.design_system).toEqual({ colors: { primary: "#3b82f6" } });
+    expect(parsed.component_tree).toEqual(["App", "Hero", "Footer"]);
+  });
+
+  test("returns truncated output for invalid JSON", () => {
+    const result = truncateArchitectForAgent("not json at all", ["src/components/Hero.tsx"]);
+    expect(result).toBe("not json at all");
+  });
+
+  test("strips ./ prefix when matching", () => {
+    const architect = JSON.stringify({
+      file_plan: [{ action: "create", path: "./src/Hero.tsx" }],
+    });
+    const result = truncateArchitectForAgent(architect, ["src/Hero.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.file_plan).toHaveLength(1);
+  });
+
+  test("returns empty file_plan when no matches", () => {
+    const result = truncateArchitectForAgent(fullArchitect, ["src/nonexistent.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.file_plan).toHaveLength(0);
   });
 });
