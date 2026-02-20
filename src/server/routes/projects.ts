@@ -3,7 +3,9 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { mkdirSync, rmSync } from "fs";
+import { resolve } from "path";
 import { abortOrchestration } from "../agents/orchestrator.ts";
+import { stopPreviewServer } from "../preview/vite-server.ts";
 
 export const projectRoutes = new Hono();
 
@@ -82,9 +84,10 @@ projectRoutes.delete("/:id", async (c) => {
   await db.delete(schema.chats).where(eq(schema.chats.projectId, id));
   await db.delete(schema.projects).where(eq(schema.projects.id, id));
 
-  // Remove project directory from disk
+  // Stop any running preview server, then remove project directory from disk
+  stopPreviewServer(id);
   try {
-    rmSync(`./projects/${id}`, { recursive: true, force: true });
+    rmSync(resolve("projects", id), { recursive: true, force: true });
   } catch {
     // Directory may not exist — safe to ignore
   }
