@@ -674,6 +674,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     } catch (err) {
       if (signal.aborted) break;
       lastError = err instanceof Error ? err : new Error(String(err));
+      logError("orchestrator", `Agent ${stepKey} attempt ${attempt} error: ${lastError.message}`, err);
       if (attempt < MAX_RETRIES) {
         await db.update(schema.agentExecutions)
           .set({ status: "retrying", retryCount: attempt + 1 })
@@ -687,11 +688,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
   if (!result) {
     const errorMsg = lastError?.message || "Unknown error";
+    log("orchestrator", `Agent ${stepKey} failed after ${MAX_RETRIES} retries. Last error: ${errorMsg}`);
     await db.update(schema.agentExecutions)
       .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
     broadcastAgentError(chatId, stepKey, errorMsg);
-    broadcastAgentError(chatId, "orchestrator", `Pipeline halted: ${stepKey} failed after ${MAX_RETRIES} retries`);
+    broadcastAgentError(chatId, "orchestrator", `Pipeline halted: ${stepKey} failed after ${MAX_RETRIES} retries — ${errorMsg}`);
     await db.insert(schema.messages).values({
       id: nanoid(), chatId, role: "system",
       content: `Agent ${stepKey} failed: ${errorMsg}`,
