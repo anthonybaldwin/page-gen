@@ -1,5 +1,6 @@
+import React, { Suspense } from "react";
 import type { Message } from "../../../shared/types.ts";
-import { MarkdownContent } from "./MarkdownContent.tsx";
+const MarkdownContent = React.lazy(() => import("./MarkdownContent.tsx").then(m => ({ default: m.MarkdownContent })));
 import { Badge } from "../ui/badge.tsx";
 
 function isAgentOutput(msg: Message): boolean {
@@ -52,7 +53,9 @@ export function MessageList({ messages }: { messages: Message[] }) {
             {msg.role === "user" ? (
               <div className="whitespace-pre-wrap">{msg.content}</div>
             ) : (
-              <MarkdownContent content={msg.content} />
+              <Suspense fallback={<div className="whitespace-pre-wrap">{msg.content}</div>}>
+                <MarkdownContent content={msg.content} />
+              </Suspense>
             )}
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
@@ -6,9 +6,9 @@ import { useThemeStore } from "../../stores/themeStore.ts";
 import { api } from "../../lib/api.ts";
 import type { Project, Chat } from "../../../shared/types.ts";
 import { UsageBadge } from "../billing/UsageBadge.tsx";
-import { UsageDashboard } from "../billing/UsageDashboard.tsx";
+const UsageDashboard = React.lazy(() => import("../billing/UsageDashboard.tsx").then(m => ({ default: m.UsageDashboard })));
 import { SettingsButton } from "../settings/SettingsButton.tsx";
-import { SettingsModal } from "../settings/SettingsModal.tsx";
+const SettingsModal = React.lazy(() => import("../settings/SettingsModal.tsx").then(m => ({ default: m.SettingsModal })));
 import { SnapshotList } from "../snapshots/SnapshotList.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
@@ -375,7 +375,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <DialogHeader className="sr-only">
             <DialogTitle>Usage Dashboard</DialogTitle>
           </DialogHeader>
-          <UsageDashboard onClose={() => setShowUsage(false)} />
+          <Suspense fallback={<div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>}>
+            <UsageDashboard onClose={() => setShowUsage(false)} />
+          </Suspense>
         </DialogContent>
       </Dialog>
 
@@ -385,7 +387,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <DialogHeader className="sr-only">
             <DialogTitle>Settings</DialogTitle>
           </DialogHeader>
-          <SettingsModal onClose={() => setShowSettings(false)} />
+          <Suspense fallback={<div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>}>
+            <SettingsModal onClose={() => setShowSettings(false)} />
+          </Suspense>
         </DialogContent>
       </Dialog>
     </aside>

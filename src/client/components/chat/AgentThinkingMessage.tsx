@@ -1,5 +1,5 @@
-import { useRef, useEffect, useMemo, useState } from "react";
-import { MarkdownContent } from "./MarkdownContent.tsx";
+import React, { Suspense, useRef, useEffect, useMemo, useState } from "react";
+const MarkdownContent = React.lazy(() => import("./MarkdownContent.tsx").then(m => ({ default: m.MarkdownContent })));
 import { TestResultsBanner } from "./TestResultsBanner.tsx";
 import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
@@ -247,7 +247,9 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
               {showRaw ? (
                 <pre className="whitespace-pre-wrap break-words font-mono text-muted-foreground/60">{content}</pre>
               ) : (
-                <MarkdownContent content={cleanContent} />
+                <Suspense fallback={<div className="whitespace-pre-wrap">{cleanContent}</div>}>
+                  <MarkdownContent content={cleanContent} />
+                </Suspense>
               )}
               {isActive && (
                 <span className="inline-block w-1.5 h-3 bg-primary animate-pulse rounded-sm align-middle ml-0.5" />
