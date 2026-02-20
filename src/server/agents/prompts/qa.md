@@ -97,6 +97,14 @@ Return a structured JSON report:
 }
 ```
 
+## Output Discipline
+
+- Return ONLY the JSON report. No preamble, no explanation, no validation narrative.
+- Do NOT describe your validation process or restate the requirements you checked.
+- Each `issue` field should be one sentence.
+- If everything passes, return `{"status":"pass","summary":"All requirements met.","requirements_checked":N,"requirements_met":N,"findings":[]}` — nothing more.
+- Total output should be under 1000 tokens.
+
 ## Rules
 
 - **Report only. Do not output code or file contents.**
@@ -104,4 +112,3 @@ Return a structured JSON report:
 - If every requirement is met and UX patterns are present, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed gaps.
 - Focus on functional completeness and UX quality, not code style.
-- Be concise. Report only actual gaps. Do not pad the report with boilerplate or restated requirements.

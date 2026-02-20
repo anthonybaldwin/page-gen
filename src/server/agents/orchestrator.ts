@@ -1473,9 +1473,10 @@ async function finishPipeline(ctx: {
   broadcastAgentStatus(chatId, "orchestrator", "completed");
 }
 
-const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a page builder app. The user is asking a question about their project.
-Answer their question based on the project source code provided. Be concise and helpful.
-If the project has no files yet, let the user know and suggest they describe what they'd like to build.`;
+const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a React + TypeScript + Tailwind CSS page builder.
+Answer the user's question based on the project source code provided.
+Keep answers to 2-3 short paragraphs max. Be direct — answer the question, don't restate it.
+If the project has no files yet, say so in one sentence and suggest they describe what they'd like to build.`;
 
 /**
  * Handle a "question" intent by answering directly with the orchestrator model.
@@ -1511,6 +1512,7 @@ async function handleQuestion(ctx: {
       model: questionModel,
       system: QUESTION_SYSTEM_PROMPT,
       prompt,
+      maxOutputTokens: 2048,
     });
     logLLMOutput("orchestrator", "orchestrator-question", result.text);
 
@@ -1642,6 +1644,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
     model: summaryModel,
     system: SUMMARY_SYSTEM_PROMPT,
     prompt,
+    maxOutputTokens: 1024,
   });
   logLLMOutput("orchestrator", "orchestrator-summary", result.text);
 
@@ -1810,7 +1813,7 @@ interface RemediationContext {
   signal: AbortSignal;
 }
 
-const MAX_REMEDIATION_CYCLES = 1;
+const MAX_REMEDIATION_CYCLES = 2;
 
 /**
  * Iterative remediation loop: detects code-review/QA/security issues,

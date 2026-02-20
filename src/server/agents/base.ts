@@ -9,6 +9,21 @@ import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 import { log, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 
+/** Per-agent output token caps to reduce chattiness and speed up generation. */
+const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  "research": 2048,
+  "architect": 4096,
+  "frontend-dev": 8192,
+  "backend-dev": 8192,
+  "styling": 8192,
+  "code-review": 2048,
+  "security": 2048,
+  "qa": 2048,
+  "testing": 2048,
+};
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+const MAX_TOOL_STEPS = 10;
+
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
   if (instanceId === "frontend-dev-components") return "Frontend Dev";
@@ -80,11 +95,13 @@ export async function runAgent(
     log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars system=${systemPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
+    const maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS[config.name] || DEFAULT_MAX_OUTPUT_TOKENS;
     const result = streamText({
       model: provider,
       system: systemPrompt,
       prompt: builtPrompt,
-      ...(tools ? { tools, stopWhen: stepCountIs(15) } : {}),
+      maxOutputTokens,
+      ...(tools ? { tools, stopWhen: stepCountIs(MAX_TOOL_STEPS) } : {}),
       ...(abortSignal ? { abortSignal } : {}),
     });
 

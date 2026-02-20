@@ -87,6 +87,13 @@ You MUST output a JSON test plan. Do NOT write test files — dev agents will wr
 - Third-party library internals.
 - Trivial getters or pass-through components.
 
+## Output Discipline
+
+- Return ONLY the JSON test plan. No preamble, no explanation, no reasoning.
+- Each test `behavior` should be one sentence describing the expected observable result.
+- Do NOT narrate your analysis of the code. Just produce the test plan.
+- Total output should be under 1500 tokens.
+
 ## Available Tools
 
 You have two tools — call them directly (the system handles execution):

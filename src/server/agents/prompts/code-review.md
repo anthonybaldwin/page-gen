@@ -102,10 +102,17 @@ Return a structured JSON report:
 }
 ```
 
+## Output Discipline
+
+- Return ONLY the JSON report. No preamble, no explanation, no analysis narrative.
+- Do NOT restate what you checked or describe your review process.
+- Each `issue` field should be one sentence. Each `fix` field should be one sentence.
+- If no issues, return `{"status":"pass","summary":"No issues found.","findings":[]}` — nothing more.
+- Total output should be under 1000 tokens.
+
 ## Rules
 
 - **Report only. Do not output code or file contents.**
 - Prioritize critical issues (crashes, type errors, missing exports) over medium/low severity.
 - If no issues are found, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed bugs.
-- Be concise. Report only actual issues.

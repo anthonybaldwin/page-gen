@@ -94,6 +94,15 @@ Return a JSON requirements document:
 }
 ```
 
+## Output Discipline
+
+- Return ONLY the JSON object. No explanatory prose, no preamble, no markdown wrapping.
+- Keep the `summary` field to one sentence.
+- Each component `description` should be one sentence.
+- Each feature `description` should be one sentence.
+- Do not repeat information across fields. If it's in `components`, don't restate it in `features`.
+- Total output should be under 1500 tokens.
+
 ## Rules
 
 - Always include responsive design as a requirement unless explicitly told otherwise.

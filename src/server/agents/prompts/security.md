@@ -68,10 +68,17 @@ Return a structured security report:
 }
 ```
 
+## Output Discipline
+
+- Return ONLY the JSON report. No preamble, no explanation, no scan narrative.
+- Do NOT describe your scanning process or list what you checked.
+- Each `issue` field should be one sentence. Each `recommendation` field should be one sentence.
+- If no issues, return `{"status":"pass","summary":"No security issues found.","findings":[]}` — nothing more.
+- Total output should be under 1000 tokens.
+
 ## Rules
 
 - A `critical` finding means the overall status must be `fail`.
 - Do not modify source code. Report only. The orchestrator handles remediation.
 - If no issues are found, return status `pass` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed findings.
-- Be concise. Report only actual findings. Do not pad the report with boilerplate or restated scan patterns.
