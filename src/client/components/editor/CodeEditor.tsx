@@ -205,7 +205,7 @@ export function CodeEditor() {
           value={currentContent}
           onChange={updateContent}
           extensions={extensions}
-          theme={resolvedTheme === "dark" ? "dark" : "light"}
+          theme="none"
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,
