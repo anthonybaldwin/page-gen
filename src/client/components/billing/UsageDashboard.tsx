@@ -7,6 +7,7 @@ import { RequestLog } from "./RequestLog.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Card, CardContent } from "../ui/card.tsx";
 import { Button } from "../ui/button.tsx";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
 import { X } from "lucide-react";
 
 interface UsageSummary {
@@ -137,32 +138,34 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
 
           {/* Filter bar */}
           <div className="flex items-center gap-3 px-4 pb-3">
-            <select
-              value={selectedChat}
-              onChange={(e) => setSelectedChat(e.target.value)}
-              className="rounded-md bg-transparent border border-input px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring max-w-[200px]"
+            <Select
+              value={selectedChat || "__all__"}
+              onValueChange={(val) => setSelectedChat(val === "__all__" ? "" : val)}
             >
-              <option value="">All chats</option>
-              {chatOptions.map((opt) => (
-                <option key={opt.chatId} value={opt.chatId || ""}>
-                  {opt.chatTitle || "Unknown"} ({opt.projectName || "?"})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-8 text-xs max-w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__" className="text-xs">All chats</SelectItem>
+                {chatOptions.map((opt) => (
+                  <SelectItem key={opt.chatId} value={opt.chatId || "__null__"} className="text-xs">
+                    {opt.chatTitle || "Unknown"} ({opt.projectName || "?"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            <div className="flex rounded-md border border-input overflow-hidden">
+            <div className="flex gap-1">
               {(Object.keys(TIMEFRAME_LABELS) as Timeframe[]).map((tf) => (
-                <button
+                <Button
                   key={tf}
+                  variant={timeframe === tf ? "secondary" : "outline"}
+                  size="sm"
                   onClick={() => setTimeframe(tf)}
-                  className={`px-2 py-1 text-xs transition-colors ${
-                    timeframe === tf
-                      ? "bg-accent text-accent-foreground"
-                      : "bg-transparent text-muted-foreground hover:text-foreground"
-                  }`}
+                  className="h-7 text-xs px-2"
                 >
                   {TIMEFRAME_LABELS[tf]}
-                </button>
+                </Button>
               ))}
             </div>
 
