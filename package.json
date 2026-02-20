@@ -11,7 +11,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
-    "dev:docker": "docker compose up --build"
+    "dev:docker": "docker compose up --build",
+    "dev:docker:d": "docker compose up --build -d"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.0",
