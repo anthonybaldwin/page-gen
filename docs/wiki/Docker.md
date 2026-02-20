@@ -21,6 +21,8 @@ The dev Docker setup bind-mounts your project source into the container. Inside 
 
 Your source code edits on the host are immediately visible inside the container. Vite's file watcher picks up changes and pushes HMR updates to the browser — the same experience as running locally, but all generated code executes inside the container.
 
+The source bind mount is **read-only** (`:ro`). Generated project code running inside the container cannot modify your Page Gen source files or tamper with the backend. Named volumes for `data/`, `logs/`, and `projects/` override the read-only flag at those paths, so the backend can still write where it needs to.
+
 An anonymous volume (`/app/node_modules`) keeps the container's dependencies separate from any host `node_modules/`, avoiding platform mismatches.
 
 ### Production build
@@ -36,7 +38,7 @@ docker run -p 3000:3000 -p 3001-3020:3001-3020 pagegen
 
 | Volume | Container path | Purpose |
 |--------|---------------|---------|
-| Bind mount (`.`) | `/app` | Your project source — live-synced for HMR |
+| Bind mount (`.`, read-only) | `/app` | Your project source — live-synced for HMR, not writable by container |
 | Anonymous | `/app/node_modules` | Container's deps — isolated from host |
 | `pagegen-data` | `/app/data` | SQLite DB — project records, chat history, billing, settings |
 | `pagegen-logs` | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |

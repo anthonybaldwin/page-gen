@@ -8,7 +8,7 @@ services:
       - "3001-3020:3001-3020"
       - "5173:5173"
     volumes:
-      - .:/app
+      - .:/app:ro
       - /app/node_modules
       - pagegen-data:/app/data
       - pagegen-logs:/app/logs
