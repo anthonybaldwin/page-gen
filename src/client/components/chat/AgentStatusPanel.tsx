@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
 
@@ -10,6 +10,19 @@ interface AgentState {
   error?: string;
   phase?: string;
   testBadge?: { passed: number; total: number };
+  startedAt?: number;
+  completedAt?: number;
+}
+
+/** Returns elapsed time string like "12s" or "1m 5s" */
+function formatElapsed(startedAt?: number, completedAt?: number): string {
+  if (!startedAt) return "";
+  const end = completedAt || Date.now();
+  const seconds = Math.floor((end - startedAt) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}m ${secs}s`;
 }
 
 const DEFAULT_PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
@@ -73,6 +86,19 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineAgents, setPipelineAgents] = useState(DEFAULT_PIPELINE_AGENTS);
+  const [, setTick] = useState(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Tick every second to update elapsed time for running agents
+  useEffect(() => {
+    if (pipelineActive) {
+      tickRef.current = setInterval(() => setTick((t) => t + 1), 1000);
+    } else if (tickRef.current) {
+      clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, [pipelineActive]);
 
   // Reset all state and reconstruct from DB on chat change
   useEffect(() => {
@@ -154,17 +180,22 @@ export function AgentStatusPanel({ chatId }: Props) {
           return;
         }
 
-        setAgents((prev) => ({
-          ...prev,
-          [agentName]: {
-            ...prev[agentName],
-            name: agentName,
-            displayName: display,
-            status: status as AgentState["status"],
-            stream: prev[agentName]?.stream || "",
-            phase,
-          },
-        }));
+        setAgents((prev) => {
+          const existing = prev[agentName];
+          return {
+            ...prev,
+            [agentName]: {
+              ...existing,
+              name: agentName,
+              displayName: display,
+              status: status as AgentState["status"],
+              stream: existing?.stream || "",
+              phase,
+              startedAt: status === "running" ? Date.now() : existing?.startedAt,
+              completedAt: (status === "completed" || status === "failed") ? Date.now() : existing?.completedAt,
+            },
+          };
+        });
       }
 
       if (msg.type === "agent_stream") {
@@ -262,6 +293,11 @@ export function AgentStatusPanel({ chatId }: Props) {
                 <span className={status === "running" ? "text-zinc-200" : "text-zinc-500"}>
                   {agent.displayName}
                   {state?.phase === "remediation" && " (fixing)"}
+                  {(status === "running" || status === "completed" || status === "failed") && state?.startedAt && (
+                    <span className="ml-1 text-zinc-600 font-normal">
+                      ({formatElapsed(state.startedAt, status === "running" ? undefined : state?.completedAt)})
+                    </span>
+                  )}
                 </span>
                 {state?.testBadge && (
                   <span className={`ml-1 text-[10px] font-medium ${

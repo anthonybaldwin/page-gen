@@ -8,6 +8,7 @@ import { UsageBadge } from "../billing/UsageBadge.tsx";
 import { UsageDashboard } from "../billing/UsageDashboard.tsx";
 import { SettingsButton } from "../settings/SettingsButton.tsx";
 import { SettingsModal } from "../settings/SettingsModal.tsx";
+import { SnapshotList } from "../snapshots/SnapshotList.tsx";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -303,6 +304,13 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </>
         )}
       </div>
+
+      {/* Snapshots */}
+      {activeProject && (
+        <div className="border-t border-zinc-800">
+          <SnapshotList />
+        </div>
+      )}
 
       <div className="flex items-center border-t border-zinc-800">
         <SettingsButton onClick={() => setShowSettings(true)} />

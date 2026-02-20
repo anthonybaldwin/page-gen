@@ -6,6 +6,20 @@ let ws: WebSocket | null = null;
 let handlers: WsHandler[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Message coalescing: buffer messages for 50ms and process in batch
+let messageBuffer: WsMessage[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const FLUSH_INTERVAL = 50; // ms
+
+function flushMessages() {
+  const batch = messageBuffer;
+  messageBuffer = [];
+  flushTimer = null;
+  for (const msg of batch) {
+    handlers.forEach((handler) => handler(msg));
+  }
+}
+
 export function connectWebSocket() {
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
@@ -26,7 +40,10 @@ export function connectWebSocket() {
   ws.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data) as WsMessage;
-      handlers.forEach((handler) => handler(message));
+      messageBuffer.push(message);
+      if (!flushTimer) {
+        flushTimer = setTimeout(flushMessages, FLUSH_INTERVAL);
+      }
     } catch {
       console.warn("[ws] failed to parse message:", event.data);
     }

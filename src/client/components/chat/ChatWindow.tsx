@@ -12,7 +12,7 @@ import type { Message, TestDetail } from "../../../shared/types.ts";
 import { nanoid } from "nanoid";
 
 export function ChatWindow() {
-  const { activeChat, messages, setMessages, addMessage } = useChatStore();
+  const { activeChat, messages, setMessages, addMessage, renameChat } = useChatStore();
   const { blocks, reset: resetThinking, stopAll, handleThinking, addTestResults, updateTestResults, toggleExpanded } = useAgentThinkingStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -195,6 +195,12 @@ export function ChatWindow() {
         );
       }
 
+      // Chat auto-title event
+      if (msg.type === "chat_renamed") {
+        const { chatId: renamedChatId, title } = msg.payload as { chatId: string; title: string };
+        renameChat(renamedChatId, title);
+      }
+
       // Token usage events
       if (msg.type === "token_usage") {
         const payload = msg.payload as {
@@ -212,7 +218,7 @@ export function ChatWindow() {
     });
 
     return unsub;
-  }, [activeChat, addMessage, resetThinking, stopAll, handleThinking, addTestResults, updateTestResults]);
+  }, [activeChat, addMessage, renameChat, resetThinking, stopAll, handleThinking, addTestResults, updateTestResults]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -280,28 +286,15 @@ export function ChatWindow() {
     addMessage(optimisticMsg);
     setThinking(true);
 
-    // Persist to backend
+    // Persist message + trigger orchestration in a single API call
     try {
-      await api.post<Message>("/messages", {
+      await api.post("/messages/send", {
         chatId: activeChat.id,
-        role: "user",
         content,
       });
     } catch (err) {
-      console.error("[chat] Failed to save message:", err);
-      setError("Failed to save message. Check that the backend server is running (bun run dev).");
-      setThinking(false);
-      return;
-    }
-
-    // Trigger agent orchestration
-    try {
-      await api.post("/agents/run", {
-        chatId: activeChat.id,
-        message: content,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Agent orchestration failed";
+      const msg = err instanceof Error ? err.message : "Failed to send message";
+      console.error("[chat] Send failed:", err);
       setError(msg);
       setThinking(false);
     }

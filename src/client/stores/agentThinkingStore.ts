@@ -213,7 +213,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           ...existing,
           status: "completed",
           summary: summary || "",
-          expanded: false,
+          expanded: existing.expanded, // Preserve user's expansion state
         };
         return { blocks };
       }
@@ -222,7 +222,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         blocks[lastIdx] = {
           ...existing,
           status: "failed",
-          expanded: false,
+          expanded: existing.expanded, // Preserve user's expansion state
         };
         return { blocks };
       }

@@ -126,9 +126,10 @@ export function LivePreview() {
       // Only start the preview on preview_ready (sent after a successful build check)
       if (msg.type === "preview_ready") {
         if (previewUrl && iframeRef.current) {
+          // Use a short delay for HMR to settle, not the old 1s wait
           setTimeout(() => {
             if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
-          }, 1000);
+          }, 300);
         } else if (!previewUrl && !loading) {
           checkAndMaybeStartPreview(activeProject.id);
         }
@@ -137,7 +138,7 @@ export function LivePreview() {
       if (msg.type === "files_changed" && !pipelineRunning && previewUrl && iframeRef.current) {
         setTimeout(() => {
           if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
-        }, 1000);
+        }, 300);
       }
     });
 
