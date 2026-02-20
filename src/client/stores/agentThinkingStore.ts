@@ -146,7 +146,6 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
     set((state) => {
       const { agentName, displayName, status, chunk, summary, toolCall } = payload;
       const blocks = [...state.blocks];
-      const idx = blocks.findIndex((b) => b.agentName === agentName);
 
       if (status === "started") {
         const newBlock: ThinkingBlock = {
@@ -160,10 +159,14 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           startedAt: Date.now(),
         };
 
-        if (idx !== -1) {
-          const existing = blocks[idx]!;
+        // Use findLastIndex to check the MOST RECENT block for this agent,
+        // not the first — avoids ghost entries when build-fix/remediation
+        // creates multiple blocks for the same agent name.
+        const lastIdx = blocks.findLastIndex((b) => b.agentName === agentName);
+        if (lastIdx !== -1) {
+          const existing = blocks[lastIdx]!;
           if (existing.status === "completed" || existing.status === "failed") {
-            // Remediation case — existing block is done, append a new one
+            // Remediation/build-fix case — existing block is done, append a new one
             const updated = blocks.map((b) =>
               b.expanded && b.status !== "started" && b.status !== "streaming"
                 ? { ...b, expanded: false }
@@ -173,7 +176,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
             return { blocks: updated };
           }
           // Retry case — existing block is still in-progress, replace it
-          blocks[idx] = newBlock;
+          blocks[lastIdx] = newBlock;
           return { blocks };
         }
 

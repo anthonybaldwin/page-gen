@@ -2923,8 +2923,11 @@ async function runBuildFix(params: {
   const config = getAgentConfigResolved(fixAgent);
   if (!config) return null;
 
+  const buildFixConfig = {
+    ...config,
+    displayName: `${config.displayName} (build fix)`,
+  };
   broadcastAgentStatus(chatId, fixAgent, "running", { phase: "build-fix" });
-  broadcastAgentThinking(chatId, fixAgent, config.displayName, "started");
 
   const execId = nanoid();
   await db.insert(schema.agentExecutions).values({
@@ -2970,7 +2973,7 @@ async function runBuildFix(params: {
       });
     }
 
-    const result = await runAgent(config, providers, fixInput, fixTools.tools, signal, chatId);
+    const result = await runAgent(buildFixConfig, providers, fixInput, fixTools.tools, signal, chatId);
 
     if (result.tokenUsage && bfProviderKey && bfProvisionalIds) {
       finalizeTokenUsage(bfProvisionalIds, {
