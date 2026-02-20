@@ -357,19 +357,44 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   return { url: `http://localhost:${port}`, port };
 }
 
-export function stopPreviewServer(projectId: string) {
+export async function stopPreviewServer(projectId: string) {
   const entry = activeServers.get(projectId);
-  if (entry) {
-    entry.process.kill();
-    releasePort(entry.port);
-    activeServers.delete(projectId);
+  if (!entry) return;
+
+  const { port, process: proc } = entry;
+  activeServers.delete(projectId);
+
+  // Kill the process tree. On Windows, process.kill() only kills the parent
+  // (bunx) and orphans the Vite child — use taskkill /T to kill the tree.
+  if (process.platform === "win32" && proc.pid) {
+    try {
+      Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {
+        stdout: "ignore", stderr: "ignore",
+      });
+    } catch {
+      proc.kill();
+    }
+  } else {
+    proc.kill();
   }
+
+  // Wait for the process to actually exit (max 3s) before releasing the port
+  const deadline = Date.now() + 3000;
+  while (proc.exitCode === null && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (proc.exitCode === null) {
+    log("preview", `Process for ${projectId} didn't exit in 3s — force-killing`);
+    proc.kill(9);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  releasePort(port);
+  log("preview", `Stopped preview server for ${projectId} (port ${port})`);
 }
 
-export function stopAllPreviewServers() {
-  for (const [id] of activeServers) {
-    stopPreviewServer(id);
-  }
+export async function stopAllPreviewServers() {
+  await Promise.all([...activeServers.keys()].map((id) => stopPreviewServer(id)));
 }
 
 export function getPreviewUrl(projectId: string): string | null {

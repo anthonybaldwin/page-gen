@@ -85,7 +85,7 @@ projectRoutes.delete("/:id", async (c) => {
   await db.delete(schema.projects).where(eq(schema.projects.id, id));
 
   // Stop any running preview server, then remove project directory from disk
-  stopPreviewServer(id);
+  await stopPreviewServer(id);
   try {
     rmSync(resolve("projects", id), { recursive: true, force: true });
   } catch {

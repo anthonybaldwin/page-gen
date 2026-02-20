@@ -105,14 +105,9 @@ export function LivePreview() {
     const gen = ++switchGenRef.current;
     const prevId = prevProjectRef.current;
     const newId = activeProject?.id ?? null;
-
-    // Stop old preview server (fire-and-forget)
-    if (prevId && prevId !== newId) {
-      fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
-    }
     prevProjectRef.current = newId;
 
-    // Reset all state
+    // Reset all state immediately
     setPreviewUrl(null);
     setLoading(false);
     setError(null);
@@ -121,10 +116,17 @@ export function LivePreview() {
 
     if (!activeProject) return;
 
-    checkAndMaybeStartPreview(activeProject.id, gen);
-
-    // Cleanup on unmount only — do NOT return cleanup that kills the current
-    // project's server on every re-render (which happens when deps change).
+    // Await the old server stop BEFORE starting the new one — the backend
+    // waits for the Vite process tree to actually die and releases the port,
+    // preventing the new server from colliding with an orphaned process.
+    const stopThenStart = async () => {
+      if (prevId && prevId !== newId) {
+        await fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
+      }
+      if (switchGenRef.current !== gen) return; // project changed again while waiting
+      checkAndMaybeStartPreview(activeProject.id, gen);
+    };
+    stopThenStart();
   }, [activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Health check polling

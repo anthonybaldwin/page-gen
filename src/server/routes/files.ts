@@ -114,9 +114,9 @@ fileRoutes.post("/preview/:projectId", async (c) => {
 });
 
 // Stop preview server for a project
-fileRoutes.delete("/preview/:projectId", (c) => {
+fileRoutes.delete("/preview/:projectId", async (c) => {
   const projectId = c.req.param("projectId");
-  stopPreviewServer(projectId);
+  await stopPreviewServer(projectId);
   return c.json({ ok: true });
 });
 
