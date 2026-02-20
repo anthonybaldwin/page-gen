@@ -72,6 +72,40 @@ function resolveProviderModel(config: { provider: string; model: string }, provi
 }
 
 /**
+ * Extract the design_system JSON from the architect's output and format it
+ * as a readable section for downstream agents. Mutates the result object
+ * by adding a "design-system" key if the architect output contains one.
+ */
+function injectDesignSystem(result: Record<string, string>): void {
+  const architectOutput = result["architect"];
+  if (!architectOutput) return;
+
+  try {
+    const parsed = JSON.parse(architectOutput);
+    if (parsed.design_system) {
+      const ds = parsed.design_system;
+      const lines: string[] = ["## Design System (from architect)"];
+
+      if (ds.colors) {
+        const colorEntries = Object.entries(ds.colors).map(([k, v]) => `${k}: ${v}`).join(" | ");
+        lines.push(`Colors: ${colorEntries}`);
+      }
+      if (ds.typography) {
+        const typoEntries = Object.entries(ds.typography).map(([k, v]) => `${k}=${v}`).join(", ");
+        lines.push(`Typography: ${typoEntries}`);
+      }
+      if (ds.spacing) lines.push(`Spacing: ${ds.spacing}`);
+      if (ds.radius) lines.push(`Radius: ${ds.radius}`);
+      if (ds.shadows) lines.push(`Shadows: ${ds.shadows}`);
+
+      result["design-system"] = lines.join("\n");
+    }
+  } catch {
+    // Architect output not valid JSON — skip design system injection
+  }
+}
+
+/**
  * Filter upstream outputs so each agent only receives relevant data.
  * Reduces prompt size significantly — agents don't need outputs from unrelated agents.
  */
@@ -99,20 +133,26 @@ export function filterUpstreamOutputs(
     return result;
   };
 
-  // frontend-dev-N (parallel instances) → only architect
+  // frontend-dev-N (parallel instances) → architect + design system
   if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
-    return pick(["architect"]);
+    const result = pick(["architect"]);
+    injectDesignSystem(result);
+    return result;
   }
 
-  // frontend-dev-app → architect + all frontend-dev-* outputs
+  // frontend-dev-app → architect + all frontend-dev-* outputs + design system
   if (key === "frontend-dev-app") {
     const keys = ["architect", ...Object.keys(all).filter(k => k.startsWith("frontend-dev-") && k !== "frontend-dev-app")];
-    return pick(keys);
+    const result = pick(keys);
+    injectDesignSystem(result);
+    return result;
   }
 
   // frontend-dev (single instance, non-parallel) → architect + research
   if (agentName === "frontend-dev") {
-    return pick(["architect", "research"]);
+    const result = pick(["architect", "research"]);
+    injectDesignSystem(result);
+    return result;
   }
 
   // backend-dev → architect + research
@@ -120,9 +160,11 @@ export function filterUpstreamOutputs(
     return pick(["architect", "research"]);
   }
 
-  // styling → architect only
+  // styling → architect only (design system injected for easy consumption)
   if (agentName === "styling") {
-    return pick(["architect"]);
+    const result = pick(["architect"]);
+    injectDesignSystem(result);
+    return result;
   }
 
   // Review agents (code-review, security, qa) → only dev agent outputs (they need to see the code)
@@ -411,9 +453,13 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
                 agentResults.set(`${stepKey}-test-fix`, testFixResult);
                 completedAgents.push(`${stepKey} (test fix)`);
               }
-              // Re-run tests once after fix
+              // Smart re-run: only re-run failed test files, not the full suite
               if (!signal.aborted) {
-                await runProjectTests(projectPath, chatId, projectId);
+                const failedFiles = testResult.testDetails
+                  ?.filter((t) => t.status === "failed")
+                  .map((t) => t.suite)
+                  .filter((v, i, a) => a.indexOf(v) === i); // unique
+                await runProjectTests(projectPath, chatId, projectId, failedFiles);
               }
             }
           }
@@ -511,6 +557,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   broadcastAgentStatus(chatId, "orchestrator", "running");
 
+  // Auto-title: if chat has a generic title and this is the first real message, generate a title
+  if (chatTitle === "New Chat" || chatTitle === "Unknown") {
+    const autoTitle = userMessage.length <= 60
+      ? userMessage
+      : userMessage.slice(0, 57).replace(/\s+\S*$/, "") + "...";
+    try {
+      db.update(schema.chats)
+        .set({ title: autoTitle, updatedAt: Date.now() })
+        .where(eq(schema.chats.id, chatId))
+        .run();
+      broadcast({ type: "chat_renamed", payload: { chatId, title: autoTitle } });
+    } catch {
+      // Non-critical — don't block pipeline
+    }
+  }
+
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
@@ -577,6 +639,55 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
+  // --- Quick-edit mode: styling-only changes skip full pipeline for ~5s turnaround ---
+  if (classification.intent === "fix" && classification.scope === "styling" && hasFiles) {
+    log("orchestrator", "Quick-edit mode: routing directly to styling agent");
+    const projectSource = readProjectSource(projectPath);
+    if (projectSource) {
+      agentResults.set("project-source", projectSource);
+    }
+
+    const quickPlan: ExecutionPlan = {
+      steps: [{
+        agentName: "styling",
+        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+      }],
+    };
+
+    const pipelineRunId = nanoid();
+    await db.insert(schema.pipelineRuns).values({
+      id: pipelineRunId, chatId,
+      intent: "fix", scope: "styling", userMessage,
+      plannedAgents: JSON.stringify(["styling"]),
+      status: "running", startedAt: Date.now(), completedAt: null,
+    });
+
+    broadcast({ type: "pipeline_plan", payload: { chatId, agents: ["styling"] } });
+
+    const pipelineOk = await executePipelineSteps({
+      plan: quickPlan, chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    });
+    if (!pipelineOk) {
+      const postCheck = checkCostLimit(chatId);
+      const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
+      await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      abortControllers.delete(chatId);
+      return;
+    }
+
+    await finishPipeline({
+      chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    });
+
+    await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+    abortControllers.delete(chatId);
+    return;
+  }
+
   // --- Fix mode: skip research/architect, inject project source ---
   if (classification.intent === "fix") {
     const projectSource = readProjectSource(projectPath);
@@ -632,19 +743,33 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Build mode: full pipeline (research → architect → parallel dev → styling → review) ---
+  // --- Build mode: full pipeline (research + architect → parallel dev → styling → review) ---
 
-  // Phase 1: Run research agent standalone
-  const researchResult = await runPipelineStep({
-    step: {
-      agentName: "research",
-      input: `Analyze this request and produce structured requirements: ${userMessage}`,
-    },
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
-    providers, apiKeys, signal,
-  });
-  if (!researchResult || signal.aborted) {
+  // Phase 1: Run research + architect in PARALLEL (saves ~60-90s)
+  // Both receive user message directly; architect prompt is updated to work with or without research results.
+  log("orchestrator", "Running research + architect in parallel");
+  const [researchResult, architectResult] = await Promise.all([
+    runPipelineStep({
+      step: {
+        agentName: "research",
+        input: `Analyze this request and produce structured requirements: ${userMessage}`,
+      },
+      chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    }),
+    runPipelineStep({
+      step: {
+        agentName: "architect",
+        input: `Design the component architecture, design system, and test plan for this request. If the research agent's requirements are available in Previous Agent Outputs, use them. Otherwise, infer requirements directly from the user's request. Original request: ${userMessage}`,
+      },
+      chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      providers, apiKeys, signal,
+    }),
+  ]);
+
+  if ((!researchResult && !architectResult) || signal.aborted) {
     if (signal.aborted) {
       await db.insert(schema.messages).values({
         id: nanoid(), chatId, role: "system",
@@ -657,31 +782,13 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // Phase 2: Run architect standalone (so we can parse its file_plan before building the rest of the pipeline)
-  const researchOutput = agentResults.get("research") || "";
-  const architectResult = await runPipelineStep({
-    step: {
-      agentName: "architect",
-      input: `Design the component architecture and test plan based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-    },
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
-    providers, apiKeys, signal,
-  });
-  if (!architectResult || signal.aborted) {
-    if (signal.aborted) {
-      await db.insert(schema.messages).values({
-        id: nanoid(), chatId, role: "system",
-        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-      });
-      broadcastAgentStatus(chatId, "orchestrator", "stopped");
-    }
-    abortControllers.delete(chatId);
-    return;
+  // If architect failed but research succeeded, we can still try the fallback single-dev pipeline
+  if (!architectResult) {
+    log("orchestrator", "Architect failed but research succeeded — using fallback pipeline");
   }
 
   // Phase 3: Parse architect output and build parallel dev steps (or fall back to single frontend-dev)
+  const researchOutput = agentResults.get("research") || "";
   const architectOutput = agentResults.get("architect") || "";
   const groupedPlan = parseArchitectFilePlan(architectOutput);
 
@@ -1086,11 +1193,11 @@ async function executePipelineSteps(ctx: {
       completedSet.add(r.stepKey);
     }
 
-    // Consolidated build check after parallel batch — all agents have written their files
+    // Consolidated build check after parallel batch — only if file-writing agents were in the batch
     if (isParallelBatch && !signal.aborted) {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
-        log("orchestrator", `Running consolidated build check after parallel batch`);
+        log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
         const buildErrors = await checkProjectBuild(projectPath);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
@@ -1318,7 +1425,23 @@ IMPORTANT rules:
 - Do NOT list "Suggested Next Steps" or "Issues Found" — the agents already handled those internally.
 - Do NOT include raw JSON, tool calls, or internal agent data.
 - If QA or security flagged minor issues, silently note them as areas for future improvement at most — never as a prominent section.
-- The tone should be: "Here's what we built for you" — not "Here's a report of what went wrong."`;
+- EXCEPTION: If security found CRITICAL vulnerabilities (XSS, injection, credential exposure), you MUST mention them briefly: "Before publishing, you'll want to address [brief description]." Do not hide critical security issues.
+- The tone should be: "Here's what we built for you" — not "Here's a report of what went wrong."
+
+Example of a great summary:
+---
+## Your landing page is ready!
+
+Here's what we built:
+- **Hero section** with headline, subtext, and a signup CTA button
+- **Features grid** showcasing 6 product highlights with icons
+- **Contact form** with email validation and success confirmation
+- **Responsive design** — looks great on mobile, tablet, and desktop
+
+Key files: \`src/components/Hero.tsx\`, \`src/components/Features.tsx\`, \`src/components/ContactForm.tsx\`, \`src/App.tsx\`
+
+Try clicking the signup button or submitting the contact form to see it in action!
+---`;
 
 interface SummaryInput {
   userMessage: string;
@@ -1524,7 +1647,7 @@ interface RemediationContext {
   signal: AbortSignal;
 }
 
-const MAX_REMEDIATION_CYCLES = 1;
+const MAX_REMEDIATION_CYCLES = 2;
 
 /**
  * Iterative remediation loop: detects code-review/QA/security issues,
@@ -1853,7 +1976,16 @@ Rules:
 - scope "frontend": UI components, React, layout, HTML
 - scope "backend": API routes, server logic, database
 - scope "styling": CSS, colors, fonts, spacing, visual polish
-- scope "full": Multiple areas or unclear`;
+- scope "full": Multiple areas or unclear
+
+Examples:
+- "Build me a landing page with a hero and contact form" → {"intent":"build","scope":"full","reasoning":"New page request with multiple sections"}
+- "The submit button isn't working" → {"intent":"fix","scope":"frontend","reasoning":"Bug report about existing button behavior"}
+- "Change the header color to blue" → {"intent":"fix","scope":"styling","reasoning":"Visual change to existing element"}
+- "Add a REST API for user signup" → {"intent":"build","scope":"backend","reasoning":"New API endpoint that doesn't exist yet"}
+- "How does the routing work?" → {"intent":"question","scope":"full","reasoning":"Asking about project architecture"}
+
+Tie-breaking: If ambiguous between build and fix, prefer "fix" when the project already has files.`;
 
 /**
  * Classify the user's intent using the orchestrator model.
@@ -2676,7 +2808,8 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
 export async function runProjectTests(
   projectPath: string,
   chatId: string,
-  projectId: string
+  projectId: string,
+  failedTestFiles?: string[]
 ): Promise<TestRunResult | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
@@ -2691,8 +2824,14 @@ export async function runProjectTests(
 
   try {
     const jsonOutputFile = join(fullPath, "vitest-results.json");
+    const vitestArgs = ["bunx", "vitest", "run", "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile];
+    // Smart re-run: only run specific failed test files instead of full suite
+    if (failedTestFiles && failedTestFiles.length > 0) {
+      vitestArgs.push(...failedTestFiles);
+      log("orchestrator", `Smart test re-run: only running ${failedTestFiles.length} failed file(s)`);
+    }
     const proc = Bun.spawn(
-      ["bunx", "vitest", "run", "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile],
+      vitestArgs,
       {
         cwd: fullPath,
         stdout: "pipe",
