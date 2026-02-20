@@ -11,11 +11,8 @@ services:
       - .:/app:ro
       - /app/node_modules
       - ./data:/app/data
-      - pagegen-logs:/app/logs
+      - ./logs:/app/logs
       - ./projects:/app/projects
     environment:
       - PREVIEW_HOST=0.0.0.0
       - LOG_FORMAT=json
-
-volumes:
-  pagegen-logs:
