@@ -10,6 +10,8 @@ export interface TestResults {
   failures: Array<{ name: string; error: string }>;
   testDetails?: TestDetail[];
   streaming?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
 }
 
 export interface ToolCallEntry {
@@ -119,7 +121,9 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
               status: "completed" as const,
               content: "",
               summary: results.failed === 0
-                ? `All ${results.total} tests passed`
+                ? results.skipped
+                  ? results.skipReason || "Tests skipped"
+                  : `All ${results.total} tests passed`
                 : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
               expanded: false,
               startedAt: exec.startedAt,
@@ -245,7 +249,9 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         summary: results.streaming
           ? `Running tests... ${results.passed} passed${results.failed > 0 ? `, ${results.failed} failed` : ""}`
           : results.failed === 0
-            ? `All ${results.total} tests passed`
+            ? results.skipped
+              ? results.skipReason || "Tests skipped"
+              : `All ${results.total} tests passed`
             : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
         expanded: false,
         startedAt: Date.now(),
@@ -266,7 +272,9 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         summary: results.streaming
           ? `Running tests... ${results.passed} passed${results.failed > 0 ? `, ${results.failed} failed` : ""}`
           : results.failed === 0
-            ? `All ${results.total} tests passed`
+            ? results.skipped
+              ? results.skipReason || "Tests skipped"
+              : `All ${results.total} tests passed`
             : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
         testResults: results,
       };

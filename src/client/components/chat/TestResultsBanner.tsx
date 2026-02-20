@@ -16,6 +16,8 @@ interface TestResults {
   failures: TestFailure[];
   testDetails?: TestDetail[];
   streaming?: boolean;
+  skipped?: boolean;
+  skipReason?: string;
 }
 
 interface Props {
@@ -43,7 +45,7 @@ export function TestResultsBanner({ results }: Props) {
       <div className="mx-4 my-2 rounded-lg border border-border bg-muted/50 px-4 py-3">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Circle className="h-3 w-3" />
-          <span>No tests found</span>
+          <span>{results.skipReason || "No tests found"}</span>
         </div>
       </div>
     );

@@ -770,6 +770,34 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
                 await runProjectTests(projectPath, chatId, projectId, failedFiles);
               }
             }
+          } else if (!agentResults.has("test-results-skipped")) {
+            const skipped = {
+              chatId,
+              projectId,
+              passed: 0,
+              failed: 0,
+              total: 0,
+              duration: 0,
+              failures: [] as Array<{ name: string; error: string }>,
+              testDetails: [] as Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>,
+              skipped: true,
+              skipReason: "Tests skipped: no test files found",
+            };
+            broadcastTestResults(skipped);
+            await db.insert(schema.agentExecutions).values({
+              id: nanoid(),
+              chatId,
+              agentName: "test-results",
+              status: "completed",
+              input: JSON.stringify({ projectId, skipped: true }),
+              output: JSON.stringify(skipped),
+              error: null,
+              retryCount: 0,
+              startedAt: Date.now(),
+              completedAt: Date.now(),
+            });
+            log("orchestrator", "Tests skipped: no test files found");
+            agentResults.set("test-results-skipped", "Tests skipped: no test files found");
           }
         }
       }

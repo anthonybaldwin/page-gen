@@ -200,4 +200,21 @@ describe("agentThinkingStore", () => {
       expect(blocks[1]!.status).toBe("completed"); // was already completed → unchanged
     });
   });
+
+  describe("test results summaries", () => {
+    test("uses skip reason for skipped test blocks", () => {
+      const store = getStore();
+      store.addTestResults({
+        passed: 0,
+        failed: 0,
+        total: 0,
+        duration: 0,
+        failures: [],
+        skipped: true,
+        skipReason: "Tests skipped: no test files found",
+      });
+      expect(getStore().blocks).toHaveLength(1);
+      expect(getStore().blocks[0]!.summary).toBe("Tests skipped: no test files found");
+    });
+  });
 });

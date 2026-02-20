@@ -139,6 +139,8 @@ export function ChatWindow() {
           passed: number; failed: number; total: number; duration: number;
           failures: Array<{ name: string; error: string }>;
           testDetails?: TestDetail[];
+          skipped?: boolean;
+          skipReason?: string;
         };
         if (hasStreamingTestBlock.current) {
           updateTestResults({ ...payload, streaming: false });

@@ -78,6 +78,8 @@ export function broadcastTestResults(payload: {
   duration: number;
   failures: Array<{ name: string; error: string }>;
   testDetails?: Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>;
+  skipped?: boolean;
+  skipReason?: string;
 }) {
   broadcast({
     type: "test_results",
