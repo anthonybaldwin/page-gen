@@ -38,7 +38,7 @@ graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
   Classify -->|build| Research --> Architect
 
-  Architect --> FD["Frontend Dev"] --> BD["Backend Dev\n(conditional)"] --> Styling
+  Architect --> FD["Frontend Dev"] --> BD["Backend Dev<br>(conditional)"] --> Styling
 
   Styling --> P3
 
@@ -49,7 +49,7 @@ graph TD
     Security
   end
 
-  P3 --> Rem["Remediation Loop\n(max 2 cycles)"]
+  P3 --> Rem["Remediation Loop<br>(max 2 cycles)"]
   Rem --> Summary
 ```
 
@@ -58,8 +58,8 @@ graph TD
 graph LR
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
   Classify -->|fix| TP["Test Planner"]
-  TP --> Dev["Dev Agent(s)\nby scope"]
-  Dev --> Rev["Reviewers\n(parallel)"]
+  TP --> Dev["Dev Agent(s)<br>by scope"]
+  Dev --> Rev["Reviewers<br>(parallel)"]
   Rev --> Rem["Remediation"]
   Rem --> Summary
 ```

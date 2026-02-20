@@ -9,6 +9,10 @@ This file is the primary instruction source for all coding agents in this repo.
 - Keep commit history clean and intentional.
 - Before pushing, squash obvious noise commits.
 
+## Git Staging (Mandatory)
+
+Always stage files explicitly by name. Never use `git commit -am`, `git add -A`, or `git add .`. Only stage the files you actually modified for the current task.
+
 ## Commit Frequency
 
 Commit after every meaningful change:
@@ -158,7 +162,18 @@ If touching orchestrator, billing/tokens, snapshots, providers, or security-sens
 
 Any new feature/system must update `docs/wiki/` in same commit.
 
-When `docs/wiki/` changes, sync the GitHub wiki clone immediately after commit.
+When `docs/wiki/` changes, sync the GitHub wiki clone immediately after commit:
+
+```bash
+git clone <repo>.wiki.git /tmp/wiki-sync
+cp docs/wiki/*.md /tmp/wiki-sync/
+cd /tmp/wiki-sync && git add -A && git commit -m "docs: sync wiki from docs/wiki" && git push
+rm -rf /tmp/wiki-sync
+```
+
+**Wiki sync commit message must always be:** `docs: sync wiki from docs/wiki`
+
+No bullet lists, no details — keep it clean. The main repo commit already has the context.
 
 ## Principles
 

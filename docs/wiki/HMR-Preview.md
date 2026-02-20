@@ -9,12 +9,12 @@ Users see their page update live in the preview as agents write/modify files dur
 ```mermaid
 graph TD
   A["User sends message"] --> B["Orchestrator creates plan"]
-  B --> C["Agents write files\nto /projects/{id}/src/..."]
-  C --> D["File extraction writes to disk\nbroadcasts files_changed"]
-  D --> E["Preview preparation\nscaffold package.json, vite.config,\nmain.tsx, bun install"]
-  E --> F["Vite dev server detects changes\n(fs watcher)"]
+  B --> C["Agents write files<br>to /projects/{id}/src/..."]
+  C --> D["File extraction writes to disk<br>broadcasts files_changed"]
+  D --> E["Preview preparation<br>scaffold package.json, vite.config,<br>main.tsx, bun install"]
+  E --> F["Vite dev server detects changes<br>(fs watcher)"]
   F --> G["HMR pushes update to iframe"]
-  G --> H["User sees live preview\nupdate instantly"]
+  G --> H["User sees live preview<br>update instantly"]
 ```
 
 ## Implementation

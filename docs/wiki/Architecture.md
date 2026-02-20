@@ -6,9 +6,9 @@
 graph TB
   subgraph FE["React Frontend"]
     direction LR
-    SB["Sidebar\n(collapsible)"]
-    CH["Chat\n(resizable)"]
-    PV["Preview\n(flex-1)"]
+    SB["Sidebar<br>(collapsible)"]
+    CH["Chat<br>(resizable)"]
+    PV["Preview<br>(flex-1)"]
     FX["File Explorer"]
   end
 
@@ -16,9 +16,9 @@ graph TB
 
   subgraph BE["Hono Backend"]
     direction TB
-    REST["REST API\nRoutes"] ~~~ WSH["WebSocket\nHandler"] ~~~ AGT["Agent System\n+ Orchestrator"]
-    DB[("SQLite\nDrizzle ORM")] ~~~ AIP["AI Providers\nAnthropic · OpenAI · Google"]
-    VITE["Per-Project Vite Dev Server\nHMR Preview"]
+    REST["REST API<br>Routes"] ~~~ WSH["WebSocket<br>Handler"] ~~~ AGT["Agent System<br>+ Orchestrator"]
+    DB[("SQLite<br>Drizzle ORM")] ~~~ AIP["AI Providers<br>Anthropic · OpenAI · Google"]
+    VITE["Per-Project Vite Dev Server<br>HMR Preview"]
   end
 
   REST --> DB

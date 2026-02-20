@@ -101,12 +101,12 @@ Quick-edit mode triggers when `scope: "styling"` and the project already has fil
 ```mermaid
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|"build\n(scope gates backend)"| Research
+  Classify -->|"build<br>(scope gates backend)"| Research
 
   Research --> Architect
 
   Architect --> FD["Frontend Dev"]
-  FD --> BD["Backend Dev\n(only if scope + research require it)"]
+  FD --> BD["Backend Dev<br>(only if scope + research require it)"]
   BD --> Styling
 
   Styling --> P3
@@ -116,7 +116,7 @@ graph TD
     CR["Code Review"] ~~~ Sec["Security"] ~~~ QA["QA"]
   end
 
-  P3 --> Rem["Remediation Loop\n(max 2 cycles, re-reviews in parallel)"]
+  P3 --> Rem["Remediation Loop<br>(max 2 cycles, re-reviews in parallel)"]
   Rem --> Build["Final Build Check"]
   Build --> Summary
 ```
@@ -130,16 +130,16 @@ graph TD
 ```mermaid
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|fix| Read["Read existing\nproject source"]
+  Classify -->|fix| Read["Read existing<br>project source"]
   Read --> TP["Test Planner"]
   TP --> Route{"Route by scope"}
 
   Route -->|frontend| FD["frontend-dev"]
   Route -->|backend| BD["backend-dev"]
   Route -->|styling| STY["styling"]
-  Route -->|full| FULL["frontend-dev +\nbackend-dev"]
+  Route -->|full| FULL["frontend-dev +<br>backend-dev"]
 
-  FD & BD & STY & FULL --> Tests["Write tests + code\nRun tests"]
+  FD & BD & STY & FULL --> Tests["Write tests + code<br>Run tests"]
   Tests --> P3
 
   subgraph P3["Parallel Reviews"]
@@ -147,7 +147,7 @@ graph TD
     CR["Code Review"] ~~~ Sec["Security"] ~~~ QA["QA"]
   end
 
-  P3 --> Rem["Remediation Loop\n(max 2 cycles)"]
+  P3 --> Rem["Remediation Loop<br>(max 2 cycles)"]
   Rem --> Build["Final Build Check"]
   Build --> Summary
 ```
@@ -159,9 +159,9 @@ graph TD
 ```mermaid
 graph LR
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|question| Read["Read project\nsource"]
+  Classify -->|question| Read["Read project<br>source"]
   Read --> Sonnet["Single Sonnet call"]
-  Sonnet --> Answer["Direct answer\n(no agents, no pipeline bar)"]
+  Sonnet --> Answer["Direct answer<br>(no agents, no pipeline bar)"]
 ```
 
 ### Parallelization Details
