@@ -110,7 +110,7 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
 
           {/* Summary cards */}
           {summary && (
-            <div className="grid grid-cols-4 gap-3 px-4 pb-3">
+            <div className="grid grid-cols-5 gap-3 px-4 pb-3">
               <Card className="shadow-none">
                 <CardContent className="p-3">
                   <p className="text-xs text-muted-foreground">Total Tokens</p>
@@ -121,17 +121,23 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
                 <CardContent className="p-3">
                   <p className="text-xs text-muted-foreground">Input Tokens</p>
                   <p className="text-lg font-bold text-foreground">{summary.totalInputTokens.toLocaleString()}</p>
-                  {(summary.totalCacheCreationTokens > 0 || summary.totalCacheReadTokens > 0) && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      + {summary.totalCacheCreationTokens.toLocaleString()} cache write &middot; {summary.totalCacheReadTokens.toLocaleString()} cache read
-                    </p>
-                  )}
                 </CardContent>
               </Card>
               <Card className="shadow-none">
                 <CardContent className="p-3">
                   <p className="text-xs text-muted-foreground">Output Tokens</p>
                   <p className="text-lg font-bold text-foreground">{summary.totalOutputTokens.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Cached Tokens</p>
+                  <p className="text-lg font-bold text-foreground">{(summary.totalCacheCreationTokens + summary.totalCacheReadTokens).toLocaleString()}</p>
+                  {(summary.totalCacheCreationTokens > 0 || summary.totalCacheReadTokens > 0) && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {summary.totalCacheCreationTokens.toLocaleString()} write &middot; {summary.totalCacheReadTokens.toLocaleString()} read
+                    </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="shadow-none">
