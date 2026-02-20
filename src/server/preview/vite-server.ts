@@ -16,7 +16,9 @@ const pendingInstalls = new Map<string, Promise<void>>();
 function ensureProjectHasViteConfig(projectPath: string) {
   const configPath = join(projectPath, "vite.config.ts");
 
-  // Always overwrite with our known-good config to ensure React + Tailwind plugins are present
+  // Only write if missing — rewriting kills the running Vite dev server (file watcher detects config change)
+  if (existsSync(configPath)) return;
+
   const config = `import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
