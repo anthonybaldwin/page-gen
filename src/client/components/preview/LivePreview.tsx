@@ -64,43 +64,55 @@ export function LivePreview() {
   const [serverAlive, setServerAlive] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const prevProjectRef = useRef<string | null>(null);
+  // Monotonic counter to detect stale async responses after project switches
+  const switchGenRef = useRef(0);
 
-  const startPreview = useCallback(async (projectId: string) => {
+  const startPreview = useCallback(async (projectId: string, gen: number) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/files/preview/${projectId}`, { method: "POST" });
       const data: { url?: string; error?: string } = await res.json();
+      // Only apply if this is still the active generation
+      if (switchGenRef.current !== gen) return;
       if (data.url) {
         setPreviewUrl(data.url);
       } else if (data.error) {
         setError(data.error);
       }
     } catch {
+      if (switchGenRef.current !== gen) return;
       setError("Failed to start preview server");
     }
-    setLoading(false);
+    if (switchGenRef.current === gen) setLoading(false);
   }, []);
 
-  const checkAndMaybeStartPreview = useCallback(async (projectId: string) => {
+  const checkAndMaybeStartPreview = useCallback(async (projectId: string, gen: number) => {
     try {
       const tree = await api.get<FileNode[]>(`/files/tree/${projectId}`);
+      if (switchGenRef.current !== gen) return;
       if (hasAppComponent(tree)) {
         setReady(true);
-        await startPreview(projectId);
+        await startPreview(projectId, gen);
       }
     } catch {
       // tree fetch failed — stay in placeholder
     }
   }, [startPreview]);
 
+  // Project switching — stop old server, reset state, start new one
   useEffect(() => {
+    const gen = ++switchGenRef.current;
     const prevId = prevProjectRef.current;
-    if (prevId && prevId !== activeProject?.id) {
+    const newId = activeProject?.id ?? null;
+
+    // Stop old preview server (fire-and-forget)
+    if (prevId && prevId !== newId) {
       fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
     }
-    prevProjectRef.current = activeProject?.id ?? null;
+    prevProjectRef.current = newId;
 
+    // Reset all state
     setPreviewUrl(null);
     setLoading(false);
     setError(null);
@@ -109,17 +121,16 @@ export function LivePreview() {
 
     if (!activeProject) return;
 
-    checkAndMaybeStartPreview(activeProject.id);
+    checkAndMaybeStartPreview(activeProject.id, gen);
 
-    return () => {
-      if (activeProject) {
-        fetch(`/api/files/preview/${activeProject.id}`, { method: "DELETE" }).catch(() => {});
-      }
-    };
-  }, [activeProject, checkAndMaybeStartPreview]);
+    // Cleanup on unmount only — do NOT return cleanup that kills the current
+    // project's server on every re-render (which happens when deps change).
+  }, [activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Health check polling
   useEffect(() => {
     if (!previewUrl || !activeProject) return;
+    const projectId = activeProject.id;
     let cancelled = false;
 
     const check = async () => {
@@ -130,7 +141,7 @@ export function LivePreview() {
         if (!cancelled) {
           setServerAlive(false);
           if (!loading) {
-            checkAndMaybeStartPreview(activeProject.id);
+            checkAndMaybeStartPreview(projectId, switchGenRef.current);
           }
         }
       }
@@ -140,10 +151,12 @@ export function LivePreview() {
     check();
 
     return () => { cancelled = true; clearInterval(interval); };
-  }, [previewUrl, activeProject, loading, checkAndMaybeStartPreview]);
+  }, [previewUrl, activeProject?.id, loading, checkAndMaybeStartPreview]);
 
+  // WebSocket events — scoped to active project
   useEffect(() => {
     if (!activeProject) return;
+    const projectId = activeProject.id;
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
@@ -155,25 +168,46 @@ export function LivePreview() {
         }
       }
 
+      // Only handle preview events for the currently active project
+      const msgProjectId = (msg.payload as Record<string, unknown>).projectId as string | undefined;
+
       if (msg.type === "preview_ready") {
+        if (msgProjectId && msgProjectId !== projectId) return;
         setServerAlive(true);
-        if (previewUrl && iframeRef.current) {
-          setTimeout(() => {
-            if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
-          }, 300);
+        if (iframeRef.current) {
+          const url = previewUrl;
+          if (url) {
+            setTimeout(() => {
+              if (iframeRef.current) iframeRef.current.src = url;
+            }, 300);
+          }
         } else if (!previewUrl && !loading) {
-          checkAndMaybeStartPreview(activeProject.id);
+          checkAndMaybeStartPreview(projectId, switchGenRef.current);
         }
       }
-      if (msg.type === "files_changed" && !pipelineRunning && previewUrl && iframeRef.current) {
-        setTimeout(() => {
-          if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
-        }, 300);
+      if (msg.type === "files_changed") {
+        if (msgProjectId && msgProjectId !== projectId) return;
+        if (!pipelineRunning && previewUrl && iframeRef.current) {
+          const url = previewUrl;
+          setTimeout(() => {
+            if (iframeRef.current) iframeRef.current.src = url;
+          }, 300);
+        }
       }
     });
 
     return unsub;
-  }, [previewUrl, loading, activeProject, pipelineRunning, checkAndMaybeStartPreview]);
+  }, [previewUrl, loading, activeProject?.id, pipelineRunning, checkAndMaybeStartPreview]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const id = prevProjectRef.current;
+      if (id) {
+        fetch(`/api/files/preview/${id}`, { method: "DELETE" }).catch(() => {});
+      }
+    };
+  }, []);
 
   if (!activeProject) {
     return (
@@ -206,7 +240,7 @@ export function LivePreview() {
           <Button
             variant="link"
             size="sm"
-            onClick={() => startPreview(activeProject.id)}
+            onClick={() => startPreview(activeProject.id, switchGenRef.current)}
           >
             Retry
           </Button>
@@ -242,6 +276,7 @@ export function LivePreview() {
         <iframe
           ref={iframeRef}
           id="preview-iframe"
+          key={previewUrl}
           src={previewUrl}
           className={`absolute inset-0 w-full h-full ${showOverlay ? "invisible" : ""}`}
           sandbox="allow-scripts allow-same-origin allow-forms"
