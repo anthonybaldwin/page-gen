@@ -1073,13 +1073,12 @@ describe("buildParallelDevSteps", () => {
     }
   });
 
-  test("component batches depend on shared step when it exists", () => {
+  test("component batches depend only on architect (not shared) for max parallelism", () => {
     const plan = makePlan(6, 1);
     const steps = buildParallelDevSteps(plan, "", "Build app");
     const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
     for (const step of componentSteps) {
-      expect(step.dependsOn).toContain("frontend-dev-shared");
-      expect(step.dependsOn).toContain("architect");
+      expect(step.dependsOn).toEqual(["architect"]);
     }
   });
 

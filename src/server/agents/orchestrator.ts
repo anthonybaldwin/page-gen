@@ -1878,7 +1878,6 @@ export function buildParallelDevSteps(
       const instanceId = batchCount === 1 ? "frontend-dev-components" : `frontend-dev-${i + 1}`;
       const fileList = batch.map((f) => f.path).join(", ");
       const deps: string[] = ["architect"];
-      if (groupedPlan.shared.length > 0) deps.push("frontend-dev-shared");
 
       steps.push({
         agentName: "frontend-dev",
