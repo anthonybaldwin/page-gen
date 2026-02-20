@@ -38,7 +38,7 @@ Agent-generated `package.json` is merged — any deps the agent specifies are pr
 
 ### File Extraction → Preview
 
-After each file-producing agent completes (`frontend-dev`, `backend-dev`, `styling`, `qa`, `security`):
+After each file-producing agent completes (`frontend-dev`, `backend-dev`, `styling`):
 1. Agent text output is parsed for `<tool_call>` write_file calls
 2. Files are written to disk via `file-ops.ts`
 3. `files_changed` WebSocket event is broadcast

@@ -61,6 +61,13 @@ Create a new message.
 
 **Body:** `{ chatId: string, role: string, content: string, agentName?: string, metadata?: object }`
 
+### POST /messages/send
+Atomic message creation + orchestration trigger. Persists the user message and starts (or resumes) the pipeline in one call.
+
+**Body:** `{ chatId: string, content: string, resume?: boolean }`
+
+**Response (201):** `{ message: object, status: "started" }`
+
 ## Files
 
 ### GET /files/tree/:projectId
@@ -74,6 +81,11 @@ Write file content.
 
 **Body:** `{ path: string, content: string }`
 
+### POST /files/preview/:projectId
+Start (or return existing) preview dev server for a project.
+
+**Response:** `{ url: string }` — the localhost URL of the running Vite dev server.
+
 ## Snapshots
 
 ### GET /snapshots?projectId={id}
@@ -81,6 +93,16 @@ List snapshots for a project.
 
 ### GET /snapshots/:id
 Get a single snapshot.
+
+### POST /snapshots
+Create a snapshot.
+
+**Body:** `{ projectId: string, label?: string, chatId?: string }`
+
+### POST /snapshots/:id/rollback
+Rollback project files to a snapshot's state.
+
+**Response:** `{ ok: true, restoredTo: string }`
 
 ## Usage
 
@@ -232,4 +254,6 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
   - `testDetails` — Array of per-test results: `{ suite, name, status, error?, duration? }`
 - `test_result_incremental` — Individual test result streamed as vitest runs (chatId, projectId, suite, name, status, error?, duration?)
 - `pipeline_plan` — Broadcast at pipeline start with the list of agent names to display in the status bar
+- `pipeline_interrupted` — Pipeline was interrupted by server restart, can be resumed
 - `preview_ready` — Broadcast after a successful build check, triggers preview iframe reload
+- `chat_renamed` — Chat title was auto-generated (chatId, title)

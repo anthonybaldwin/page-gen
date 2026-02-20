@@ -7,8 +7,8 @@ Snapshots capture the complete file state of a project at a point in time. They 
 ## How It Works
 
 ### Creation
-- **Auto-snapshot:** Created automatically after each orchestration run completes
-- **Manual snapshot:** Users can create snapshots via the UI at any time
+- **Auto-snapshot (planned, not yet implemented):** Intended to be created automatically after each orchestration run completes. `finishPipeline()` does not currently call `createSnapshot()`.
+- **Manual snapshot (API only):** The `POST /api/snapshots` endpoint works, but the UI is not wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` exist as orphaned components — no panel or sidebar entry exposes them yet.
 - Each snapshot stores a complete file manifest (JSON mapping of path → content)
 
 ### Rollback

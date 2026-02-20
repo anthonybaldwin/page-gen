@@ -241,14 +241,16 @@ Agents use the Vercel AI SDK's native `tool()` definitions instead of text-based
 
 **Fallback extraction:** If an agent outputs `<tool_call>` XML in its text instead of using native tools, `extractAndWriteFiles()` still parses and writes those files. Files already written natively are skipped (tracked via `alreadyWritten` set). A warning is logged when fallback extraction is triggered.
 
-**Tool-use loop limit:** `stopWhen: stepCountIs(10)` prevents runaway tool-use loops.
+**Tool-use loop limit:** `stopWhen: stepCountIs(N)` prevents runaway tool-use loops. Dev agents (frontend-dev, backend-dev, styling) have 8 steps; all other tool-using agents default to 10 steps. Agents without tools don't get `stopWhen` applied.
 
 **Output token caps:** Each agent has a hard `maxOutputTokens` limit to prevent verbose output:
-- Dev agents (frontend-dev, backend-dev, styling): 8,192 tokens per step
-- Architecture/research agents: 2,048–4,096 tokens
-- Review agents (code-review, security, qa): 2,048 tokens
-- Summary writer: 1,024 tokens
-- Intent classifier: 100 tokens
+- frontend-dev: 64,000 tokens (large multi-file writes with many components)
+- backend-dev: 32,000 tokens (multi-file server code)
+- styling: 32,000 tokens (bulk style changes across many files)
+- architect: 12,000 tokens (large JSON architecture doc — truncation breaks file_plan parsing)
+- research: 3,000 tokens
+- Review agents (code-review, security, qa, testing): 2,048 tokens each
+- Default (all others): 8,192 tokens
 
 ### File Extraction (Hardened, Fallback)
 

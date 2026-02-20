@@ -5,7 +5,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 ## Features
 
 - **Chat-based UI** — Describe pages naturally, agents build them
-- **9 specialized AI agents** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, QA, Code Review, Security
+- **10 specialized AI agents + 3 orchestrator subtasks** — Orchestrator, Research, Architect, Frontend Dev, Backend Dev, Styling, Test Planner, QA, Code Review, Security (plus classify, summary, question subtasks)
 - **Real-time agent thinking** — Expandable per-agent thinking messages stream in chat as agents work
 - **Stop & continue** — Interrupt a running pipeline and resume from where it stopped
 - **Live HMR preview** — See changes side-by-side as agents write code
@@ -18,8 +18,6 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 - [ ] **Snapshots UI** — Snapshot API + DB schema exist, but no UI is wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` are orphaned components. Need to add snapshot panel to sidebar and connect create/rollback actions.
 - [ ] **Auto-snapshot after pipeline** — Wiki claims snapshots are created automatically after each orchestration run. `finishPipeline()` does not call `createSnapshot()`.
-- [x] ~~**Agent Roster wiki accuracy** — Build pipeline section says Test Planner runs as a separate step; it's now merged into architect in build mode (only separate in fix mode).~~
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -45,7 +43,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 ```bash
 # Clone the repo
 git clone <repo-url>
-cd page-gen
+cd just-build-it
 
 # Install dependencies
 bun install
@@ -87,7 +85,7 @@ React Frontend ←→ Hono Backend ←→ AI Providers
 ```
 
 - **4-column layout:** Collapsible sidebar (projects/chats) → Chat (fixed width) → Live Preview (flex) → File Explorer
-- **Agent pipeline:** Research → Architect → Frontend Dev (parallel instances) → Styling → QA → Code Review → Security
+- **Agent pipeline:** Research → Architect → Frontend Dev (parallel instances) → Backend Dev → Styling → Code Review + QA + Security (parallel) → Remediation
 - **Orchestrator summary:** Agent outputs are persisted per-agent and the orchestrator synthesizes a single markdown response shown in chat
 - **File extraction:** Agents produce code in their output; the orchestrator parses code blocks and writes files to disk automatically
 - **HMR preview:** Files extracted from agent output → Vite detects changes → iframe updates live
@@ -105,6 +103,7 @@ See [Architecture docs](docs/wiki/Architecture.md) for full details.
 - [Token Billing](docs/wiki/Token-Billing.md)
 - [Snapshots](docs/wiki/Snapshots.md)
 - [Security](docs/wiki/Security.md)
+- [Pipeline Resume](docs/wiki/Pipeline-Resume.md)
 
 ## ADRs
 

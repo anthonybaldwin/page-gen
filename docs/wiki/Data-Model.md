@@ -61,6 +61,7 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | output_tokens | INTEGER | Output token count |
 | total_tokens | INTEGER | Total tokens |
 | cost_estimate | REAL | Estimated cost in USD |
+| estimated | INTEGER | 0 = finalized, 1 = provisional (write-ahead tracking) |
 | created_at | INTEGER | Unix timestamp (ms) |
 
 ### billing_ledger
@@ -82,7 +83,23 @@ Permanent, append-only table with **no foreign keys**. Records survive chat/proj
 | output_tokens | INTEGER | Output token count |
 | total_tokens | INTEGER | Total tokens |
 | cost_estimate | REAL | Estimated cost in USD |
+| estimated | INTEGER | 0 = finalized, 1 = provisional (write-ahead tracking) |
 | created_at | INTEGER | Unix timestamp (ms) |
+
+### pipeline_runs
+Tracks each orchestration pipeline execution for resume and debugging.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT PK | nanoid |
+| chat_id | TEXT FK | References chats.id |
+| intent | TEXT | 'build', 'fix', or 'question' |
+| scope | TEXT | 'frontend', 'backend', 'styling', or 'full' |
+| user_message | TEXT | The user message that triggered this run |
+| planned_agents | TEXT | JSON array of agent names in execution order |
+| status | TEXT | 'running', 'completed', 'failed', or 'interrupted' |
+| started_at | INTEGER | Unix timestamp (ms) |
+| completed_at | INTEGER | Unix timestamp (ms, nullable) |
 
 ### app_settings
 Key-value store for persistent application configuration (e.g., cost limits).

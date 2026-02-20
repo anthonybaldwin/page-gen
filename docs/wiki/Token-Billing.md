@@ -109,7 +109,7 @@ All limits are stored in the `app_settings` table and configurable from Settings
 ## Real-Time Cost Display
 
 A usage badge in the sidebar footer shows:
-- **Total spent** across all chats, seeded from billing_ledger on page load and updated in real time via `token_usage` WebSocket events
+- **This project** cost for the active project, seeded from billing_ledger on page load and updated in real time via `token_usage` WebSocket events
 - **This chat** cost when a chat is active
 
 Clicking the badge opens the full usage dashboard as a modal overlay.
