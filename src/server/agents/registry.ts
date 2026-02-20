@@ -12,6 +12,27 @@ export const AGENT_ROSTER: AgentConfig[] = [
     description: "Creates execution plans, dispatches agents, merges results, handles errors",
   },
   {
+    name: "orchestrator:classify",
+    displayName: "Intent Classifier",
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    description: "Classifies user intent (build/fix/question) — fast, cheap",
+  },
+  {
+    name: "orchestrator:question",
+    displayName: "Question Answerer",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    description: "Answers user questions about their project — no pipeline",
+  },
+  {
+    name: "orchestrator:summary",
+    displayName: "Summary Writer",
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    description: "Writes the final pipeline summary shown to the user",
+  },
+  {
     name: "research",
     displayName: "Research Agent",
     provider: "anthropic",
@@ -120,6 +141,9 @@ export function getModelId(provider: string, model: string): string {
 
 export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   orchestrator: [],
+  "orchestrator:classify": [],
+  "orchestrator:question": [],
+  "orchestrator:summary": [],
   research: ["read_file", "list_files"],
   architect: ["read_file", "list_files"],
   "frontend-dev": [...ALL_TOOLS],
@@ -131,7 +155,7 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips
 };
 
-export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator"]);
+export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator", "orchestrator:classify", "orchestrator:question", "orchestrator:summary"]);
 
 /** Get the active tools for an agent (DB override or default). */
 export function getAgentTools(name: AgentName): ToolName[] {

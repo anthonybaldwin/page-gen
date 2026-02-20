@@ -77,6 +77,9 @@ export interface ApiKeyHeaders {
 
 export type AgentName =
   | "orchestrator"
+  | "orchestrator:classify"
+  | "orchestrator:question"
+  | "orchestrator:summary"
   | "research"
   | "architect"
   | "frontend-dev"

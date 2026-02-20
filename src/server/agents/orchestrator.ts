@@ -1228,9 +1228,9 @@ async function handleQuestion(ctx: {
   const { chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, providers, apiKeys } = ctx;
 
-  // Use Sonnet for Q&A — 5x cheaper than Opus and handles project context well
-  const questionModelId = "claude-sonnet-4-6-20250514";
-  const questionModel = providers.anthropic?.(questionModelId);
+  const questionConfig = getAgentConfigResolved("orchestrator:question");
+  if (!questionConfig) return "I couldn't process your question. Please try again.";
+  const questionModel = resolveProviderModel(questionConfig, providers);
   if (!questionModel) return "No model available to answer questions. Please check your API keys.";
 
   const projectSource = readProjectSource(projectPath);
@@ -1247,7 +1247,7 @@ async function handleQuestion(ctx: {
 
     // Track token usage
     if (result.usage) {
-      const providerKey = apiKeys.anthropic;
+      const providerKey = apiKeys[questionConfig.provider];
       if (providerKey) {
         const execId = nanoid();
         db.insert(schema.agentExecutions).values({
@@ -1268,8 +1268,8 @@ async function handleQuestion(ctx: {
         const record = trackTokenUsage({
           executionId: execId, chatId,
           agentName: "orchestrator:question",
-          provider: "anthropic",
-          model: questionModelId,
+          provider: questionConfig.provider,
+          model: questionConfig.model,
           apiKey: providerKey,
           inputTokens: result.usage.inputTokens || 0,
           outputTokens: result.usage.outputTokens || 0,
@@ -1280,8 +1280,8 @@ async function handleQuestion(ctx: {
 
         broadcastTokenUsage({
           chatId, agentName: "orchestrator:question",
-          provider: "anthropic",
-          model: questionModelId,
+          provider: questionConfig.provider,
+          model: questionConfig.model,
           inputTokens: result.usage.inputTokens || 0,
           outputTokens: result.usage.outputTokens || 0,
           totalTokens: (result.usage.inputTokens || 0) + (result.usage.outputTokens || 0),
@@ -1330,9 +1330,9 @@ async function generateSummary(input: SummaryInput): Promise<string> {
     .map(([agent, output]) => `**${agent}:** ${output}`)
     .join("\n\n");
 
-  // Use Sonnet for summary — 5x cheaper than Opus, more than capable for writing summaries
-  const summaryModelId = "claude-sonnet-4-6-20250514";
-  const summaryModel = providers.anthropic?.(summaryModelId);
+  const summaryConfig = getAgentConfigResolved("orchestrator:summary");
+  if (!summaryConfig) return fallback();
+  const summaryModel = resolveProviderModel(summaryConfig, providers);
   if (!summaryModel) return fallback();
 
   // Truncate each agent's output to 500 chars — summary only needs high-level view
@@ -1353,7 +1353,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
   // Track token usage for the summary call
   if (result.usage) {
-    const providerKey = apiKeys.anthropic;
+    const providerKey = apiKeys[summaryConfig.provider];
     if (providerKey) {
       const inputTokens = result.usage.inputTokens || 0;
       const outputTokens = result.usage.outputTokens || 0;
@@ -1376,8 +1376,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       const record = trackTokenUsage({
         executionId: summaryExecId, chatId,
         agentName: "orchestrator:summary",
-        provider: "anthropic",
-        model: summaryModelId,
+        provider: summaryConfig.provider,
+        model: summaryConfig.model,
         apiKey: providerKey,
         inputTokens, outputTokens,
         cacheCreationInputTokens: summaryCacheCreation,
@@ -1387,8 +1387,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
       broadcastTokenUsage({
         chatId, agentName: "orchestrator:summary",
-        provider: "anthropic",
-        model: summaryModelId,
+        provider: summaryConfig.provider,
+        model: summaryConfig.model,
         inputTokens, outputTokens,
         totalTokens: inputTokens + outputTokens,
         costEstimate: record.costEstimate,
@@ -1855,10 +1855,13 @@ export async function classifyIntent(
     return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
   }
 
-  // Use Haiku for classification — ~97% cheaper than Opus for a 50-token JSON task
-  const classifyModel = providers.anthropic?.("claude-haiku-4-5-20251001");
+  const classifyConfig = getAgentConfigResolved("orchestrator:classify");
+  if (!classifyConfig) {
+    return { intent: "build", scope: "full", reasoning: "Fallback: no classify config" };
+  }
+  const classifyModel = resolveProviderModel(classifyConfig, providers);
   if (!classifyModel) {
-    return { intent: "build", scope: "full", reasoning: "Fallback: no Anthropic provider" };
+    return { intent: "build", scope: "full", reasoning: "Fallback: no classify model" };
   }
 
   try {
@@ -1878,8 +1881,8 @@ export async function classifyIntent(
       tokenUsage: {
         inputTokens: result.usage.inputTokens || 0,
         outputTokens: result.usage.outputTokens || 0,
-        provider: "anthropic",
-        model: "claude-haiku-4-5-20251001",
+        provider: classifyConfig.provider,
+        model: classifyConfig.model,
       },
     };
   } catch (err) {

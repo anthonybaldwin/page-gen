@@ -4,8 +4,8 @@ import { ALL_TOOLS } from "../../src/shared/types.ts";
 import type { AgentName } from "../../src/shared/types.ts";
 
 describe("Agent Registry", () => {
-  test("all 10 agents are defined", () => {
-    expect(AGENT_ROSTER).toHaveLength(10);
+  test("all 13 agents are defined (10 base + 3 orchestrator subtasks)", () => {
+    expect(AGENT_ROSTER).toHaveLength(13);
   });
 
   test("each agent has required fields", () => {
@@ -55,15 +55,31 @@ describe("Agent Registry", () => {
     const config = getAgentConfig("security");
     expect(config?.model).toBe("claude-haiku-4-5-20251001");
   });
+
+  test("orchestrator:classify defaults to haiku", () => {
+    const config = getAgentConfig("orchestrator:classify");
+    expect(config?.model).toBe("claude-haiku-4-5-20251001");
+    expect(config?.provider).toBe("anthropic");
+  });
+
+  test("orchestrator:question defaults to sonnet", () => {
+    const config = getAgentConfig("orchestrator:question");
+    expect(config?.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("orchestrator:summary defaults to sonnet", () => {
+    const config = getAgentConfig("orchestrator:summary");
+    expect(config?.model).toBe("claude-sonnet-4-6");
+  });
 });
 
 describe("Agent Tool Defaults", () => {
-  test("DEFAULT_AGENT_TOOLS has entries for all 10 agents", () => {
+  test("DEFAULT_AGENT_TOOLS has entries for all agents", () => {
     const agentNames = AGENT_ROSTER.map((a) => a.name);
     for (const name of agentNames) {
       expect(DEFAULT_AGENT_TOOLS).toHaveProperty(name);
     }
-    expect(Object.keys(DEFAULT_AGENT_TOOLS)).toHaveLength(10);
+    expect(Object.keys(DEFAULT_AGENT_TOOLS)).toHaveLength(AGENT_ROSTER.length);
   });
 
   test("file-producing agents default to all 3 tools", () => {
@@ -95,8 +111,11 @@ describe("Agent Tool Defaults", () => {
     }
   });
 
-  test("orchestrator is in readonly set", () => {
+  test("orchestrator and subtasks are in readonly set", () => {
     expect(TOOLS_READONLY_AGENTS.has("orchestrator")).toBe(true);
+    expect(TOOLS_READONLY_AGENTS.has("orchestrator:classify")).toBe(true);
+    expect(TOOLS_READONLY_AGENTS.has("orchestrator:question")).toBe(true);
+    expect(TOOLS_READONLY_AGENTS.has("orchestrator:summary")).toBe(true);
   });
 
   test("getAgentTools returns defaults when no DB override", () => {
