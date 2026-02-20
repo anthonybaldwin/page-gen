@@ -159,6 +159,30 @@ describe("agentThinkingStore", () => {
       expect(getStore().blocks[0]!.agentName).toBe("orchestrator");
       expect(getStore().blocks[1]!.agentName).toBe("research");
     });
+
+    test("sorts executions by startedAt and filters internal orchestrator sub-agents", () => {
+      const store = getStore();
+      store.loadFromExecutions([
+        { agentName: "research", status: "completed", output: '{"content":"r"}', startedAt: 3000 },
+        { agentName: "orchestrator:summary", status: "completed", output: '{"summary":"done"}', startedAt: 1000 },
+        { agentName: "frontend-dev", status: "completed", output: '{"content":"f"}', startedAt: 2000 },
+        { agentName: "orchestrator:classify", status: "completed", output: '{"summary":"ok"}', startedAt: 1500 },
+      ]);
+
+      const blocks = getStore().blocks;
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]!.agentName).toBe("frontend-dev");
+      expect(blocks[1]!.agentName).toBe("research");
+    });
+
+    test("maps retrying executions to streaming status", () => {
+      const store = getStore();
+      store.loadFromExecutions([
+        { agentName: "backend-dev", status: "retrying", output: '{"content":"retrying"}', startedAt: 1000 },
+      ]);
+      expect(getStore().blocks).toHaveLength(1);
+      expect(getStore().blocks[0]!.status).toBe("streaming");
+    });
   });
 
   describe("stopAll", () => {

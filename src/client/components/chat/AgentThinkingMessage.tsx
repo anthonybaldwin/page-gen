@@ -189,6 +189,9 @@ function sanitizeThinking(raw: string): string {
 
   cleaned = cleaned.replace(/^\s*[}\]],?\s*$/gm, "");
   cleaned = cleaned.replace(/^\s*"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null|\[.*?\]|\{.*?\}),?\s*$/gm, "");
+  // Remove orphan list markers that render as empty bullet/dot artifacts
+  cleaned = cleaned.replace(/^\s*[-*]\s*$/gm, "");
+  cleaned = cleaned.replace(/^\s*\d+\.\s*$/gm, "");
 
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   cleaned = cleaned.replace(/  +/g, " ");

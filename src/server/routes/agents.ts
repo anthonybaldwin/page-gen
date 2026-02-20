@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { runOrchestration, resumeOrchestration, abortOrchestration, isOrchestrationRunning, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
 
@@ -15,6 +15,7 @@ agentRoutes.get("/executions", async (c) => {
     .select()
     .from(schema.agentExecutions)
     .where(eq(schema.agentExecutions.chatId, chatId))
+    .orderBy(asc(schema.agentExecutions.startedAt), asc(schema.agentExecutions.id))
     .all();
   return c.json(executions);
 });

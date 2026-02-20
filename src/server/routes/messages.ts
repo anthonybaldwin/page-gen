@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { runOrchestration, resumeOrchestration, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
@@ -12,8 +12,13 @@ messageRoutes.get("/", async (c) => {
   const chatId = c.req.query("chatId");
   if (!chatId) return c.json({ error: "chatId required" }, 400);
 
-  const msgs = await db.select().from(schema.messages).where(eq(schema.messages.chatId, chatId)).all();
-  return c.json(msgs);
+  const ordered = await db
+    .select()
+    .from(schema.messages)
+    .where(eq(schema.messages.chatId, chatId))
+    .orderBy(asc(schema.messages.createdAt), asc(schema.messages.id))
+    .all();
+  return c.json(ordered);
 });
 
 // Create message

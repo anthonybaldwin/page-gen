@@ -53,6 +53,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
 
 function resolveAgentDisplayName(agentName: string): string {
   if (AGENT_DISPLAY_NAMES[agentName]) return AGENT_DISPLAY_NAMES[agentName];
+  if (agentName.startsWith("orchestrator:")) return "Orchestrator";
   return agentName;
 }
 
@@ -102,7 +103,11 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
     set(() => {
       if (executions.length === 0) return { blocks: [] };
 
-      const blocks: ThinkingBlock[] = executions.map((exec) => {
+      const ordered = [...executions]
+        .filter((exec) => exec.agentName !== "orchestrator:summary" && exec.agentName !== "orchestrator:classify")
+        .sort((a, b) => a.startedAt - b.startedAt);
+
+      const blocks: ThinkingBlock[] = ordered.map((exec) => {
         // Test results have their own block type
         if (exec.agentName === "test-results" && exec.output) {
           try {
@@ -132,13 +137,14 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           try {
             const parsed = JSON.parse(exec.output);
             content = parsed.content || "";
-            summary = extractSummary(content, exec.agentName);
+            summary = parsed.summary || extractSummary(content, exec.agentName);
           } catch {
             // ignore
           }
         }
         const status = exec.status === "completed" ? "completed"
           : exec.status === "failed" ? "failed"
+          : exec.status === "retrying" ? "streaming"
           : exec.status === "running" ? "streaming"
           : "started";
 

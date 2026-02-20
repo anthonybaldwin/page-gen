@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageList } from "./MessageList.tsx";
+import { MessageList, ChatMessageItem, isVisibleChatMessage } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
@@ -153,12 +153,9 @@ export function ChatWindow() {
         const { agentName, status } = msg.payload as { agentName: string; status: string };
         if (agentName === "orchestrator") {
           if (status === "running") {
-            if (isResuming.current) {
-              // Resume — keep existing blocks, just clear the flag
-              isResuming.current = false;
-            } else {
-              resetThinking();
-            }
+            // Keep prior blocks for a truly linear timeline across follow-up requests.
+            // Resume still clears its flag to keep behavior explicit.
+            if (isResuming.current) isResuming.current = false;
             hasStreamingTestBlock.current = false;
           }
           if (status === "completed" || status === "failed") {
@@ -445,36 +442,39 @@ function MergedTimeline({
     );
   }
 
-  const firstBlockTime = Math.min(...blocks.map((b) => b.startedAt));
+  const visibleMessages = messages.filter(isVisibleChatMessage);
+  const items: Array<
+    | { type: "message"; id: string; at: number; msg: Message }
+    | { type: "block"; id: string; at: number; block: ThinkingBlock }
+  > = [
+    ...visibleMessages.map((msg) => ({ type: "message" as const, id: msg.id, at: msg.createdAt, msg })),
+    ...blocks.map((block) => ({ type: "block" as const, id: block.id, at: block.startedAt, block })),
+  ];
 
-  const beforeBlocks: Message[] = [];
-  const afterBlocks: Message[] = [];
-  for (const msg of messages) {
-    if (msg.metadata) {
-      try {
-        const meta = typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
-        if (meta?.type === "agent_output") continue;
-      } catch { /* skip */ }
-    }
-    if (msg.createdAt < firstBlockTime) {
-      beforeBlocks.push(msg);
-    } else {
-      afterBlocks.push(msg);
-    }
-  }
+  items.sort((a, b) => {
+    if (a.at !== b.at) return a.at - b.at;
+    // Stable tie-breaker: user/system/assistant messages should appear before
+    // same-timestamp thinking blocks for natural chat flow.
+    if (a.type !== b.type) return a.type === "message" ? -1 : 1;
+    return a.id.localeCompare(b.id);
+  });
 
   return (
     <>
-      {beforeBlocks.length > 0 && <MessageList messages={beforeBlocks} />}
-      {blocks.map((block) => (
-        <AgentThinkingMessage
-          key={block.id}
-          block={block}
-          onToggle={() => onToggle(block.id)}
-        />
-      ))}
-      {thinking && blocks.length === 0 && <ThinkingIndicator />}
-      {afterBlocks.length > 0 && <MessageList messages={afterBlocks} />}
+      <div className="py-2">
+        {items.map((item) =>
+          item.type === "message" ? (
+            <ChatMessageItem key={item.id} msg={item.msg} />
+          ) : (
+            <AgentThinkingMessage
+              key={item.id}
+              block={item.block}
+              onToggle={() => onToggle(item.block.id)}
+            />
+          )
+        )}
+      </div>
+      {thinking && <ThinkingIndicator />}
     </>
   );
 }

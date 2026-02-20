@@ -60,8 +60,11 @@ describe("Messages API", () => {
       new Request(`http://localhost/api/messages?chatId=${chat.id}`)
     );
     expect(listRes.status).toBe(200);
-    const messages = (await listRes.json()) as Array<{ id: string }>;
+    const messages = (await listRes.json()) as Array<{ id: string; role: string; content: string }>;
     expect(messages.length).toBe(2);
+    expect(messages[0]!.role).toBe("user");
+    expect(messages[1]!.role).toBe("assistant");
+    expect(messages[0]!.content).toContain("Build me a landing page");
   });
 
   test("requires chatId for listing", async () => {
