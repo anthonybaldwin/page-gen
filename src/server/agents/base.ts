@@ -7,7 +7,7 @@ import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
-import { log, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
+import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 
 /** Per-agent output token caps to reduce chattiness and speed up generation. */
 const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
@@ -119,7 +119,9 @@ export async function runAgent(
     const THROTTLE_MS = 150;
     const filesWritten: string[] = [];
 
+    let streamPartCount = 0;
     for await (const part of result.fullStream) {
+      streamPartCount++;
       switch (part.type) {
         case "text-delta": {
           fullText += part.text;
@@ -159,12 +161,34 @@ export async function runAgent(
           }
           break;
         }
+        case "error": {
+          logWarn("pipeline", `agent=${broadcastName} stream error event: ${JSON.stringify((part as { error: unknown }).error)}`);
+          break;
+        }
+        case "step-finish" as string: {
+          const stepPart = part as unknown as { finishReason: string; usage: { inputTokens: number; outputTokens: number } };
+          log("pipeline", `agent=${broadcastName} step-finish: reason=${stepPart.finishReason} tokens=${JSON.stringify(stepPart.usage)}`);
+          break;
+        }
       }
     }
 
     // Flush remaining text
     if (pendingChunk) {
       broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "streaming", { chunk: pendingChunk });
+    }
+
+    // Log finish reason and response metadata for diagnosing silent API failures
+    const finishReason = await result.finishReason;
+    try {
+      const response = await result.response;
+      const status = response?.status;
+      const headers = response?.headers;
+      const retryAfter = headers?.["retry-after"];
+      const requestId = headers?.["request-id"] || headers?.["x-request-id"];
+      log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} status=${status} streamParts=${streamPartCount}${requestId ? ` requestId=${requestId}` : ""}${retryAfter ? ` retryAfter=${retryAfter}` : ""}`);
+    } catch {
+      log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} streamParts=${streamPartCount} (response metadata unavailable)`);
     }
 
     // Use totalUsage to aggregate tokens across ALL steps (not just the last one).
