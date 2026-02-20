@@ -364,13 +364,20 @@ export async function stopPreviewServer(projectId: string) {
   const { port, process: proc } = entry;
   activeServers.delete(projectId);
 
-  // Kill the process tree. On Windows, process.kill() only kills the parent
-  // (bunx) and orphans the Vite child — use taskkill /T to kill the tree.
+  // Kill the entire process tree — proc.kill() only kills the parent (bunx)
+  // and orphans the Vite child, leaving the port occupied.
   if (process.platform === "win32" && proc.pid) {
     try {
       Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {
         stdout: "ignore", stderr: "ignore",
       });
+    } catch {
+      proc.kill();
+    }
+  } else if (proc.pid) {
+    // Unix: kill the process group (negative PID) to get all children
+    try {
+      process.kill(-proc.pid, "SIGTERM");
     } catch {
       proc.kill();
     }
@@ -385,7 +392,11 @@ export async function stopPreviewServer(projectId: string) {
   }
   if (proc.exitCode === null) {
     log("preview", `Process for ${projectId} didn't exit in 3s — force-killing`);
-    proc.kill(9);
+    if (process.platform !== "win32" && proc.pid) {
+      try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
+    } else {
+      proc.kill(9);
+    }
     await new Promise((r) => setTimeout(r, 200));
   }
 
