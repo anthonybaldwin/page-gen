@@ -1,4 +1,7 @@
 import { useState, useRef } from "react";
+import { Button } from "../ui/button.tsx";
+import { Textarea } from "../ui/textarea.tsx";
+import { Send, Square } from "lucide-react";
 
 interface MessageInputProps {
   onSend: (content: string) => void;
@@ -28,9 +31,9 @@ export function MessageInput({ onSend, disabled = false, onStop }: MessageInputP
   }
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t border-zinc-800">
+    <form onSubmit={handleSubmit} className="p-4 border-t border-border">
       <div className="flex gap-2">
-        <textarea
+        <Textarea
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -38,24 +41,27 @@ export function MessageInput({ onSend, disabled = false, onStop }: MessageInputP
           placeholder={disabled ? "Agents are working... click Stop to interrupt" : "Describe what you want to build..."}
           rows={1}
           disabled={disabled}
-          className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-4 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors resize-none disabled:opacity-50"
+          className="flex-1 min-h-[38px] resize-none"
         />
         {disabled && onStop ? (
-          <button
+          <Button
             type="button"
+            variant="destructive"
             onClick={onStop}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 transition-colors"
+            aria-label="Stop agents"
           >
+            <Square className="h-4 w-4 mr-1" />
             Stop
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
             type="submit"
             disabled={disabled || !input.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            aria-label="Send message"
           >
+            <Send className="h-4 w-4 mr-1" />
             Send
-          </button>
+          </Button>
         )}
       </div>
     </form>

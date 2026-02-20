@@ -3,6 +3,8 @@ import { MessageList } from "./MessageList.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
+import { Button } from "../ui/button.tsx";
+import { Alert, AlertDescription } from "../ui/alert.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore, type ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
@@ -10,6 +12,7 @@ import { api } from "../../lib/api.ts";
 import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
 import type { Message, TestDetail } from "../../../shared/types.ts";
 import { nanoid } from "nanoid";
+import { AlertCircle, AlertTriangle, X } from "lucide-react";
 
 export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage, renameChat } = useChatStore();
@@ -243,7 +246,6 @@ export function ChatWindow() {
     setError(null);
     setThinking(true);
     isResuming.current = true;
-    // Don't resetThinking() — keep existing blocks from completed agents
     try {
       await api.post("/agents/run", {
         chatId: activeChat.id,
@@ -284,7 +286,6 @@ export function ChatWindow() {
     setCostLimitInterrupt(false);
     setShowLimitsInline(false);
 
-    // Optimistic: show the message immediately before API call
     const optimisticMsg: Message = {
       id: nanoid(),
       chatId: activeChat.id,
@@ -297,7 +298,6 @@ export function ChatWindow() {
     addMessage(optimisticMsg);
     setThinking(true);
 
-    // Persist message + trigger orchestration in a single API call
     try {
       await api.post("/messages/send", {
         chatId: activeChat.id,
@@ -323,7 +323,7 @@ export function ChatWindow() {
   if (!activeChat) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-zinc-500 text-sm">Select or create a chat to get started.</p>
+        <p className="text-muted-foreground text-sm">Select or create a chat to get started.</p>
       </div>
     );
   }
@@ -331,63 +331,64 @@ export function ChatWindow() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {error && (
-        <div className="px-4 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-2">
-            Dismiss
-          </button>
-        </div>
+        <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <Button variant="ghost" size="sm" onClick={() => setError(null)} className="h-6 px-2 text-xs">
+              <X className="h-3 w-3" />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
       {interrupted && !thinking && (
-        <div className="px-4 py-2 bg-amber-900/30 border-b border-amber-800 text-amber-300 text-xs flex items-center justify-between">
-          <span>Pipeline was interrupted by a server restart.</span>
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            <span>Pipeline was interrupted by a server restart.</span>
+          </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleResume}
-              className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
-            >
+            <Button size="sm" onClick={handleResume} className="h-6 px-2 text-xs bg-amber-600 hover:bg-amber-500">
               Resume
-            </button>
+            </Button>
             <button
               onClick={handleRetryFresh}
-              className="text-amber-400/70 hover:text-amber-200 text-xs underline underline-offset-2"
+              className="text-amber-500/70 dark:text-amber-400/70 hover:text-amber-600 dark:hover:text-amber-200 text-xs underline underline-offset-2"
             >
               Retry from scratch
             </button>
-            <button onClick={() => setInterrupted(false)} className="text-amber-400 hover:text-amber-200">
-              Dismiss
-            </button>
+            <Button variant="ghost" size="sm" onClick={() => setInterrupted(false)} className="h-6 px-1">
+              <X className="h-3 w-3" />
+            </Button>
           </div>
         </div>
       )}
       {costLimitInterrupt && !thinking && (
-        <div className="border-b border-amber-800 bg-amber-900/30">
-          <div className="px-4 py-2 text-amber-300 text-xs flex items-center justify-between">
-            <span>Token limit reached. Pipeline paused.</span>
+        <div className="border-b border-amber-500/30 bg-amber-500/10">
+          <div className="px-4 py-2 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>Token limit reached. Pipeline paused.</span>
+            </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowLimitsInline((v) => !v)}
-                className="rounded bg-amber-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-amber-500 transition-colors"
-              >
+              <Button size="sm" onClick={() => setShowLimitsInline((v) => !v)} className="h-6 px-2 text-xs bg-amber-600 hover:bg-amber-500">
                 {showLimitsInline ? "Hide limits" : "Increase limit & resume"}
-              </button>
-              <button
-                onClick={() => { setCostLimitInterrupt(false); setShowLimitsInline(false); }}
-                className="text-amber-400 hover:text-amber-200"
-              >
-                Dismiss
-              </button>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setCostLimitInterrupt(false); setShowLimitsInline(false); }} className="h-6 px-1">
+                <X className="h-3 w-3" />
+              </Button>
             </div>
           </div>
           {showLimitsInline && (
-            <div className="px-4 pb-3 pt-1 border-t border-amber-800/50">
+            <div className="px-4 pb-3 pt-1 border-t border-amber-500/20">
               <LimitsSettings />
-              <button
+              <Button
+                size="sm"
                 onClick={() => { setCostLimitInterrupt(false); setShowLimitsInline(false); handleResume(); }}
-                className="mt-3 rounded bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-500 transition-colors"
+                className="mt-3 bg-emerald-600 hover:bg-emerald-500 text-xs"
               >
                 Resume pipeline
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -409,23 +410,18 @@ export function ChatWindow() {
 function ThinkingIndicator() {
   return (
     <div className="flex justify-start p-4">
-      <div className="bg-zinc-800 rounded-lg px-4 py-3 flex items-center gap-2">
+      <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
         <div className="flex gap-1">
-          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-          <span className="w-2 h-2 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+          <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
         </div>
-        <span className="text-xs text-zinc-400 ml-1">Agents working...</span>
+        <span className="text-xs text-muted-foreground ml-1">Agents working...</span>
       </div>
     </div>
   );
 }
 
-/**
- * Merged timeline: interleaves messages and thinking blocks chronologically.
- * Ensures assistant messages (e.g., orchestrator summary) appear AFTER the
- * agent thinking blocks they relate to, not above them.
- */
 function MergedTimeline({
   messages,
   blocks,
@@ -437,7 +433,6 @@ function MergedTimeline({
   thinking: boolean;
   onToggle: (id: string) => void;
 }) {
-  // If no blocks, just render messages normally
   if (blocks.length === 0) {
     return (
       <>
@@ -447,14 +442,11 @@ function MergedTimeline({
     );
   }
 
-  // Find the timestamp boundary: first thinking block marks where agents started
   const firstBlockTime = Math.min(...blocks.map((b) => b.startedAt));
 
-  // Split messages: before agents started vs after
   const beforeBlocks: Message[] = [];
   const afterBlocks: Message[] = [];
   for (const msg of messages) {
-    // Agent output messages are hidden (shown as thinking blocks)
     if (msg.metadata) {
       try {
         const meta = typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
