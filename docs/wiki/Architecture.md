@@ -7,8 +7,8 @@
 │                   React Frontend                     │
 │  ┌──────────┐ ┌────────┐ ┌──────────┐ ┌───────────┐ │
 │  │ Sidebar   │ │ Chat   │ │ Preview  │ │ File      │ │
-│  │ (collapse │ │ (w-96) │ │ (flex-1) │ │ Explorer  │ │
-│  │  -ible)   │ │        │ │          │ │           │ │
+│  │ (collapse │ │(resize │ │ (flex-1) │ │ Explorer  │ │
+│  │  -ible)   │ │ -able) │ │          │ │           │ │
 │  └──────────┘ └────────┘ └──────────┘ └───────────┘ │
 │                     │ HTTP + WS                      │
 └─────────────────────┼───────────────────────────────┘
@@ -34,8 +34,8 @@
 ## Data Flow
 
 1. User sends a message in the chat UI
-2. Message is persisted to SQLite via REST API
-3. Backend triggers the orchestrator agent
+2. Message is persisted and orchestration triggered atomically via `POST /messages/send`
+3. Orchestrator begins execution
 4. Orchestrator creates an execution plan and dispatches specialized agents
 5. Each agent runs via `streamText` (Vercel AI SDK); chunks stream in real time
 6. Per-agent thinking blocks appear in the chat UI — expandable cards showing live streaming output
@@ -55,3 +55,6 @@
 - API keys stored in browser localStorage, sent per-request via headers
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
+- Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)
+- WebSocket messages are coalesced in 50ms batches to reduce client re-renders
+- Chat titles are auto-generated from the first user message via LLM

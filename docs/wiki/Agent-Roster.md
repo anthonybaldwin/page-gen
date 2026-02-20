@@ -88,14 +88,19 @@ Before running the pipeline, the orchestrator classifies the user's message into
 | **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
 | **question** | Asking about the project or non-code request | Direct Sonnet answer with project context, no pipeline |
 
-Classification uses a ~50-token Haiku call (cheap, fast). Fast-path: empty projects always get "build" (no API call needed).
+Classification uses a ~50-token Haiku call (cheap, fast) with 5 few-shot examples and a tie-breaking rule (prefer "fix" when project has files). Fast-path: empty projects always get "build" (no API call needed).
+
+| Intent | When | Pipeline |
+|--------|------|----------|
+| **styling-only fix** | Styling-only changes on existing project | Quick-edit: skip research/architect/testing → styling agent only → summary |
+
+Quick-edit mode triggers when `scope: "styling"` and the project already has files, saving 4-6 agents' worth of time.
 
 ### Build Pipeline (Parallelized)
 
 ```
 User → Orchestrator → classifyIntent() → "build" (scope used for backend gating)
-  → Phase 1: Research (standalone — determines requirements + backend needs)
-  → Phase 2: Architect (standalone — outputs file_plan JSON)
+  → Phase 1: Research + Architect (parallel — both receive user message + project source)
   → Phase 3: Parse file_plan → parallel frontend-dev instances
       → Frontend Dev (Setup)   ← shared hooks/utils/types (if any)
       → Frontend Dev 1 ─┐
@@ -107,9 +112,13 @@ User → Orchestrator → classifyIntent() → "build" (scope used for backend g
       → Code Review ─┐
       → Security     ├─ (parallel, all depend on Styling)
       → QA           ─┘
-  → Remediation Loop (max 1 cycle, re-reviews run in parallel)
+  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
+
+**Research + Architect parallelization:** Both agents run simultaneously via `Promise.all`. The architect is prompted to work with or without research results, inferring requirements directly from the user's request when research isn't available yet. This saves ~60-90 seconds per generation.
+
+**Design system passthrough:** The architect's output includes a `design_system` JSON field (colors, typography, spacing, radius, shadows). The orchestrator's `injectDesignSystem()` extracts this and injects it into the upstream outputs for frontend-dev and styling agents, ensuring consistent design language across all generated code.
 
 **Parallelism heuristic:** The number of parallel frontend-dev instances scales with component count: 1 for ≤4 files, 2 for 5–8, 3 for 9–14, 4 max for 15+. Small projects get a single instance (no overhead).
 
@@ -129,9 +138,11 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
   → Code Review ─┐
   → Security     ├─ (parallel, all depend on last dev agent)
   → QA           ─┘
-  → Remediation Loop (max 1 cycle, re-reviews run in parallel)
+  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
+
+**Smart test re-runs:** When tests fail and a dev agent fixes the code, only the failed test files are re-run (specific file paths passed to vitest) instead of the full suite, saving 3-10s per fix cycle.
 
 ### Question Mode
 
@@ -194,7 +205,7 @@ After the initial code-review, security, and QA agents run, the orchestrator che
 1. **Route findings** to the correct dev agent(s) based on `[frontend]`/`[backend]`/`[styling]` tags from code-review and QA output. Defaults to frontend-dev when no clear routing.
 2. **Dev agent(s)** receive the findings and output corrected files
 3. **Re-review agents run in parallel:** Code Reviewer, Security Reviewer, and QA Agent all re-evaluate simultaneously
-4. If issues persist, the loop repeats (max 1 cycle)
+4. If issues persist, the loop repeats (max 2 cycles)
 
 Each cycle checks the cost limit before proceeding. The loop exits early if:
 - All issues are resolved (code-review passes + security passes + QA passes)
@@ -246,11 +257,11 @@ The fallback extraction pipeline handles agents that don't use native tools:
 ### Upstream Output Filtering
 
 Agents only receive relevant upstream data via `filterUpstreamOutputs()`, reducing prompt size:
-- `frontend-dev-N` (parallel instances) → only `architect`
-- `frontend-dev-app` → `architect` + all `frontend-dev-*` outputs
-- `frontend-dev` (single) → `architect` + `research`
+- `frontend-dev-N` (parallel instances) → `architect` + `design-system`
+- `frontend-dev-app` → `architect` + all `frontend-dev-*` outputs + `design-system`
+- `frontend-dev` (single) → `architect` + `research` + `design-system`
 - `backend-dev` → `architect` + `research`
-- `styling` → `architect` only
+- `styling` → `architect` + `design-system`
 - Review agents (`code-review`, `security`, `qa`) → dev agent outputs only (they need the code)
 - `testing` → `architect` only
 - Remediation/build-fix/re-review phases receive all outputs (full context needed)
