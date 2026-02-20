@@ -49,9 +49,6 @@ Rules:
 - Use scope when meaningful.
 - Add a body for WHY/risk/validation when needed.
 - Reference ADRs when relevant.
-- For Codex-authored commits, include this trailer exactly:
-  `Co-authored-by: Codex <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
-
 ## Squashing Rules
 
 Squash before pushing:
@@ -170,3 +167,35 @@ When `docs/wiki/` changes, sync the GitHub wiki clone immediately after commit.
 - Keep history intentional.
 - Keep main stable.
 - Never silently break orchestration, billing visibility, or rollback.
+
+---
+
+## Codex-Specific Instructions
+
+This section applies only to OpenAI Codex agents.
+
+### Co-Author Trailer
+
+Every Codex-authored commit must include this trailer as the last line:
+
+`Co-authored-by: Codex <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
+
+### Commit Message Formatting
+
+Commit message bodies must use real newlines, not escaped characters. Do NOT write literal `\n` sequences in commit messages. Git expects actual line breaks.
+
+Bad (literal escape sequences in body):
+```
+fix(chat): make timeline sticky\n\nWhy:\n- Reason one.\n- Reason two.
+```
+
+Good (real newlines in body):
+```
+fix(chat): make timeline sticky
+
+Why:
+- Reason one.
+- Reason two.
+```
+
+When constructing commit messages programmatically, ensure newlines are actual newline characters (LF), not the two-character sequence `\n`.
