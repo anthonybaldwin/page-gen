@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
+import { useFileStore } from "../../stores/fileStore.ts";
 import { api } from "../../lib/api.ts";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { Button } from "../ui/button.tsx";
-import { Folder, File, FileCode, ChevronRight, Download, RefreshCw, X } from "lucide-react";
+import { Folder, File, FileCode, ChevronRight, Download, RefreshCw } from "lucide-react";
 import type { FileNode } from "../../../shared/types.ts";
 
 function getFileIcon(name: string) {
@@ -69,13 +70,10 @@ function FileTreeNode({
 
 export function FileExplorer() {
   const activeProject = useProjectStore((s) => s.activeProject);
+  const { openFilePath, openFile, handleExternalChange } = useFileStore();
   const [tree, setTree] = useState<FileNode[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string | null>(null);
 
   useEffect(() => {
-    setSelectedPath(null);
-    setFileContent(null);
     if (!activeProject) {
       setTree([]);
       return;
@@ -92,10 +90,12 @@ export function FileExplorer() {
         (msg.payload as { projectId?: string }).projectId === activeProject.id
       ) {
         loadTree();
+        const paths = (msg.payload as { paths?: string[] }).paths ?? [];
+        handleExternalChange(activeProject.id, paths);
       }
     });
     return unsub;
-  }, [activeProject]);
+  }, [activeProject, handleExternalChange]);
 
   async function loadTree() {
     if (!activeProject) return;
@@ -124,15 +124,9 @@ export function FileExplorer() {
     }
   }
 
-  async function handleSelectFile(path: string) {
+  function handleSelectFile(path: string) {
     if (!activeProject) return;
-    setSelectedPath(path);
-    try {
-      const data = await api.get<{ content: string }>(`/files/read/${activeProject.id}/${path}`);
-      setFileContent(data.content);
-    } catch {
-      setFileContent("Error loading file");
-    }
+    openFile(activeProject.id, path);
   }
 
   return (
@@ -167,30 +161,9 @@ export function FileExplorer() {
               node={node}
               depth={0}
               onSelect={handleSelectFile}
-              selectedPath={selectedPath}
+              selectedPath={openFilePath}
             />
           ))}
-        </div>
-      )}
-
-      {fileContent !== null && (
-        <div className="border-t border-border max-h-64 overflow-y-auto">
-          <div className="p-2 flex items-center justify-between bg-muted">
-            <span className="text-xs text-muted-foreground truncate">{selectedPath}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5"
-              onClick={() => {
-                setFileContent(null);
-                setSelectedPath(null);
-              }}
-              aria-label="Close file preview"
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-          <pre className="p-2 text-xs text-foreground/80 overflow-x-auto whitespace-pre">{fileContent}</pre>
         </div>
       )}
     </aside>

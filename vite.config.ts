@@ -35,6 +35,7 @@ export default defineConfig({
           if (id.includes("react-markdown") || id.includes("remark-gfm") || id.includes("micromark") || id.includes("mdast") || id.includes("unified") || id.includes("unist") || id.includes("hast")) return "vendor-markdown";
           if (id.includes("@radix-ui/") || id.includes("radix-ui/")) return "vendor-radix";
           if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("@codemirror/") || id.includes("@uiw/react-codemirror") || id.includes("@lezer/")) return "vendor-codemirror";
         },
       },
     },

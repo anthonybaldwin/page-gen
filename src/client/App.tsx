@@ -3,10 +3,14 @@ import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { ChatWindow } from "./components/chat/ChatWindow.tsx";
 import { AgentStatusPanel } from "./components/chat/AgentStatusPanel.tsx";
 import { LivePreview } from "./components/preview/LivePreview.tsx";
+import { EditorPanel } from "./components/editor/EditorPanel.tsx";
 import { FileExplorer } from "./components/layout/FileExplorer.tsx";
 import { ApiKeySetup } from "./components/settings/ApiKeySetup.tsx";
 import { useSettingsStore } from "./stores/settingsStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
+import { useProjectStore } from "./stores/projectStore.ts";
+import { useFileStore } from "./stores/fileStore.ts";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs.tsx";
 
 const MIN_CHAT_WIDTH = 320;
 const MAX_CHAT_RATIO = 0.5; // max 50% of viewport
@@ -31,6 +35,8 @@ export function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const activeChat = useChatStore((s) => s.activeChat);
+  const activeProject = useProjectStore((s) => s.activeProject);
+  const { activeTab, setActiveTab, isDirty, closeFile } = useFileStore();
   const [chatWidth, setChatWidth] = useState(getInitialWidth);
   const isDragging = useRef(false);
 
@@ -76,6 +82,11 @@ export function App() {
     try { localStorage.setItem(STORAGE_KEY, String(Math.round(chatWidth))); } catch { /* ignore */ }
   }, [chatWidth]);
 
+  // Close editor when switching projects
+  useEffect(() => {
+    closeFile();
+  }, [activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex h-full bg-background text-foreground">
       {showSetup && !hasKeys && (
@@ -98,11 +109,39 @@ export function App() {
         aria-orientation="vertical"
       />
 
-      {/* Preview column — fills remaining space */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Content column — tabbed Preview / Editor */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as "preview" | "editor")}
+        className="flex-1 flex flex-col min-h-0 min-w-0"
+      >
         <AgentStatusPanel chatId={activeChat?.id ?? null} />
-        <LivePreview />
-      </div>
+        <div className="flex items-center border-b border-border bg-card shrink-0">
+          <TabsList className="ml-auto mr-2 h-8 bg-transparent p-0 gap-0">
+            <TabsTrigger
+              value="preview"
+              className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
+            >
+              Preview
+            </TabsTrigger>
+            <TabsTrigger
+              value="editor"
+              className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
+            >
+              Editor
+              {isDirty && (
+                <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="preview" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+          <LivePreview />
+        </TabsContent>
+        <TabsContent value="editor" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+          <EditorPanel />
+        </TabsContent>
+      </Tabs>
 
       {/* Right: File explorer */}
       <FileExplorer />

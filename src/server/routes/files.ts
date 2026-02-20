@@ -70,6 +70,7 @@ fileRoutes.post("/write/:projectId", async (c) => {
 
   mkdirSync(dirname(fullPath), { recursive: true });
   writeFileSync(fullPath, body.content, "utf-8");
+  broadcastFilesChanged(projectId, [body.path]);
   return c.json({ ok: true, path: body.path });
 });
 
