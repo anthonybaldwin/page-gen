@@ -12,7 +12,8 @@
     "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
     "dev:docker": "docker compose up --build",
-    "dev:docker:d": "docker compose up --build -d"
+    "dev:docker:d": "docker compose up --build -d",
+    "logs:viewer": "bun scripts/logs-viewer.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.0",
