@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { Context } from "hono";
+import { log, logWarn } from "../services/logger.ts";
 
 export interface ProviderInstance {
   anthropic?: ReturnType<typeof createAnthropic>;
@@ -26,6 +27,64 @@ export function extractApiKeys(c: Context) {
   };
 }
 
+/** Wrap fetch to log every LLM request and response (status, headers, timing). */
+function createLoggingFetch(provider: string): typeof globalThis.fetch {
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const method = init?.method || "POST";
+    const start = Date.now();
+
+    // Log request body summary (model + message count, not full content)
+    let bodySummary = "";
+    if (init?.body) {
+      try {
+        const bodyStr = typeof init.body === "string" ? init.body : "";
+        if (bodyStr) {
+          const parsed = JSON.parse(bodyStr);
+          bodySummary = ` model=${parsed.model || "?"} messages=${parsed.messages?.length || 0} max_tokens=${parsed.max_tokens || "?"}`;
+          if (parsed.stream) bodySummary += " stream=true";
+        }
+      } catch { /* not JSON or not parseable */ }
+    }
+
+    log("llm-http", `→ ${method} ${url}${bodySummary}`);
+
+    const response = await globalThis.fetch(input, init);
+    const elapsed = Date.now() - start;
+
+    // Extract useful response headers
+    const requestId = response.headers.get("request-id") || response.headers.get("x-request-id") || "";
+    const retryAfter = response.headers.get("retry-after") || "";
+    const rateLimitRemaining = response.headers.get("anthropic-ratelimit-requests-remaining")
+      || response.headers.get("x-ratelimit-remaining-requests") || "";
+    const rateLimitTokensRemaining = response.headers.get("anthropic-ratelimit-tokens-remaining")
+      || response.headers.get("x-ratelimit-remaining-tokens") || "";
+
+    const headerInfo = [
+      requestId && `id=${requestId}`,
+      retryAfter && `retry-after=${retryAfter}`,
+      rateLimitRemaining && `req-remaining=${rateLimitRemaining}`,
+      rateLimitTokensRemaining && `tok-remaining=${rateLimitTokensRemaining}`,
+    ].filter(Boolean).join(" ");
+
+    if (response.ok) {
+      log("llm-http", `← ${response.status} ${provider} ${elapsed}ms ${headerInfo}`);
+    } else {
+      // For error responses, try to read the body for the error message
+      // Clone so the SDK can still read it
+      const cloned = response.clone();
+      let errorBody = "";
+      try {
+        errorBody = await cloned.text();
+        if (errorBody.length > 500) errorBody = errorBody.slice(0, 500) + "...";
+      } catch { /* stream not readable */ }
+      logWarn("llm-http", `← ${response.status} ${provider} ${elapsed}ms ${headerInfo} body=${errorBody}`);
+    }
+
+    return response;
+  };
+}
+
 export function createProviders(keys: ReturnType<typeof extractApiKeys>): ProviderInstance {
   const providers: ProviderInstance = {};
 
@@ -33,6 +92,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.anthropic = createAnthropic({
       apiKey: keys.anthropic.apiKey,
       ...(keys.anthropic.proxyUrl ? { baseURL: keys.anthropic.proxyUrl } : {}),
+      fetch: createLoggingFetch("anthropic"),
     });
   }
 
@@ -40,6 +100,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.openai = createOpenAI({
       apiKey: keys.openai.apiKey,
       ...(keys.openai.proxyUrl ? { baseURL: keys.openai.proxyUrl } : {}),
+      fetch: createLoggingFetch("openai"),
     });
   }
 
@@ -47,6 +108,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.google = createGoogleGenerativeAI({
       apiKey: keys.google.apiKey,
       ...(keys.google.proxyUrl ? { baseURL: keys.google.proxyUrl } : {}),
+      fetch: createLoggingFetch("google"),
     });
   }
 
