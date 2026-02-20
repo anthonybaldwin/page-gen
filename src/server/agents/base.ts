@@ -75,10 +75,13 @@ export async function runAgent(
   broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "started");
 
   try {
+    const builtPrompt = buildPrompt(input);
+    console.log(`[pipeline] agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
+
     const result = streamText({
       model: provider,
       system: systemPrompt,
-      prompt: buildPrompt(input),
+      prompt: builtPrompt,
       ...(tools ? { tools, stopWhen: stepCountIs(15) } : {}),
       ...(abortSignal ? { abortSignal } : {}),
     });
@@ -200,15 +203,18 @@ function getProviderModel(config: AgentConfig, providers: ProviderInstance) {
   }
 }
 
-function buildPrompt(input: AgentInput): string {
+export function buildPrompt(input: AgentInput): string {
   const parts: string[] = [];
+  const sizeBreakdown: Record<string, number> = {};
 
   if (input.chatHistory.length > 0) {
     parts.push("## Chat History");
+    const historyStart = parts.join("\n").length;
     for (const msg of input.chatHistory) {
       parts.push(`**${msg.role}:** ${msg.content}`);
     }
     parts.push("");
+    sizeBreakdown.chatHistory = parts.join("\n").length - historyStart;
   }
 
   if (input.context) {
@@ -226,6 +232,7 @@ function buildPrompt(input: AgentInput): string {
         parts.push(`### ${agent}`);
         parts.push(String(output));
         parts.push("");
+        sizeBreakdown[`upstream:${agent}`] = String(output).length;
       }
     }
   }
@@ -233,5 +240,13 @@ function buildPrompt(input: AgentInput): string {
   parts.push("## Current Request");
   parts.push(input.userMessage);
 
-  return parts.join("\n");
+  const prompt = parts.join("\n");
+
+  // Log prompt size breakdown
+  const breakdown = Object.entries(sizeBreakdown)
+    .map(([k, v]) => `${k}=${v.toLocaleString()}`)
+    .join(" ");
+  console.log(`[pipeline] prompt total=${prompt.length.toLocaleString()}chars ${breakdown}`);
+
+  return prompt;
 }

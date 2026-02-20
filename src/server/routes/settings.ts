@@ -3,10 +3,9 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
-import { trackTokenUsage } from "../services/token-tracker.ts";
+import { trackBillingOnly } from "../services/token-tracker.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
@@ -202,9 +201,7 @@ settingsRoutes.post("/validate-key", async (c) => {
 
   try {
     const trackValidation = (provider: string, model: string, apiKey: string, usage: { inputTokens?: number; outputTokens?: number }) => {
-      trackTokenUsage({
-        executionId: nanoid(),
-        chatId: "system:key-validation",
+      trackBillingOnly({
         agentName: "system:validate-key",
         provider, model, apiKey,
         inputTokens: usage.inputTokens || 0,

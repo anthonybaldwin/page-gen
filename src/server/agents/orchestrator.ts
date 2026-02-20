@@ -17,6 +17,48 @@ import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite
 import { createAgentTools } from "./tools.ts";
 
 const MAX_RETRIES = 3;
+const MAX_UNIQUE_ERRORS = 10;
+const MAX_TEST_FAILURES = 5;
+
+/**
+ * Deduplicate build error lines by stripping file paths and grouping by core error pattern.
+ * Returns formatted string with counts, e.g., "[3x] Cannot find module '@/utils'"
+ * Caps at MAX_UNIQUE_ERRORS unique patterns.
+ */
+export function deduplicateErrors(errorLines: string[]): string {
+  if (errorLines.length === 0) return "";
+  const counts = new Map<string, { count: number; example: string }>();
+  for (const line of errorLines) {
+    // Strip file path prefix to get core error pattern
+    const core = line.replace(/^[^\s]*:\d+:\d+\s*[-–]\s*/, "").replace(/^.*?:\s*(error|Error|ERR_)/i, "$1").trim();
+    const key = core || line.trim();
+    const existing = counts.get(key);
+    if (existing) {
+      existing.count++;
+    } else {
+      counts.set(key, { count: 1, example: line.trim() });
+    }
+  }
+  const entries = [...counts.entries()].slice(0, MAX_UNIQUE_ERRORS);
+  const lines = entries.map(([, { count, example }]) =>
+    count > 1 ? `[${count}x] ${example}` : example
+  );
+  const omitted = counts.size - MAX_UNIQUE_ERRORS;
+  if (omitted > 0) lines.push(`(and ${omitted} more unique errors)`);
+  return lines.join("\n");
+}
+
+/**
+ * Format test failures for agent consumption. Caps at MAX_TEST_FAILURES to prevent prompt bloat.
+ */
+export function formatTestFailures(failures: Array<{ name: string; error: string }>): string {
+  const capped = failures.slice(0, MAX_TEST_FAILURES);
+  const lines = capped.map((f) => `- ${f.name}: ${f.error}`);
+  if (failures.length > MAX_TEST_FAILURES) {
+    lines.push(`(and ${failures.length - MAX_TEST_FAILURES} more failures — fix the above first)`);
+  }
+  return `Test failures:\n${lines.join("\n")}`;
+}
 
 /** Resolve a provider model instance from a config, respecting the configured provider. */
 function resolveProviderModel(config: { provider: string; model: string }, providers: ProviderInstance) {
@@ -26,6 +68,78 @@ function resolveProviderModel(config: { provider: string; model: string }, provi
     case "google": return providers.google?.(config.model);
     default: return null;
   }
+}
+
+/**
+ * Filter upstream outputs so each agent only receives relevant data.
+ * Reduces prompt size significantly — agents don't need outputs from unrelated agents.
+ */
+export function filterUpstreamOutputs(
+  agentName: string,
+  instanceId: string | undefined,
+  agentResults: Map<string, string>,
+  phase?: string,
+): Record<string, string> {
+  const all = Object.fromEntries(agentResults);
+  const key = instanceId ?? agentName;
+
+  // During remediation/build-fix, send everything — the agent needs full context
+  if (phase === "remediation" || phase === "build-fix" || phase === "re-review") {
+    return all;
+  }
+
+  const pick = (keys: string[]) => {
+    const result: Record<string, string> = {};
+    for (const k of keys) {
+      if (all[k] !== undefined) result[k] = all[k];
+    }
+    // Also include project-source if present (used in fix mode)
+    if (all["project-source"]) result["project-source"] = all["project-source"];
+    return result;
+  };
+
+  // frontend-dev-N (parallel instances) → only architect
+  if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
+    return pick(["architect"]);
+  }
+
+  // frontend-dev-app → architect + all frontend-dev-* outputs
+  if (key === "frontend-dev-app") {
+    const keys = ["architect", ...Object.keys(all).filter(k => k.startsWith("frontend-dev-") && k !== "frontend-dev-app")];
+    return pick(keys);
+  }
+
+  // frontend-dev (single instance, non-parallel) → architect + research
+  if (agentName === "frontend-dev") {
+    return pick(["architect", "research"]);
+  }
+
+  // backend-dev → architect + research
+  if (agentName === "backend-dev") {
+    return pick(["architect", "research"]);
+  }
+
+  // styling → architect only
+  if (agentName === "styling") {
+    return pick(["architect"]);
+  }
+
+  // Review agents (code-review, security, qa) → only dev agent outputs (they need to see the code)
+  if (agentName === "code-review" || agentName === "security" || agentName === "qa") {
+    const devKeys = Object.keys(all).filter(k =>
+      k.startsWith("frontend-dev") || k === "backend-dev" || k === "styling" ||
+      k.includes("-remediation") || k.includes("-build-fix") || k.includes("-test-fix")
+    );
+    return pick(devKeys);
+  }
+
+  // testing → architect + project-source
+  if (agentName === "testing") {
+    return pick(["architect"]);
+  }
+
+  // Default: return everything (research, architect, etc.)
+  return all;
 }
 
 // Abort registry — keyed by chatId
@@ -195,7 +309,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         context: {
           projectId,
           originalRequest: userMessage,
-          upstreamOutputs: Object.fromEntries(agentResults),
+          upstreamOutputs: filterUpstreamOutputs(step.agentName, step.instanceId, agentResults),
         },
       };
 
@@ -288,7 +402,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
             if (testResult && testResult.failed > 0 && !signal.aborted) {
               // Route test failures to dev agent for one fix attempt
               const testFixResult = await runBuildFix({
-                buildErrors: `Test failures:\n${testResult.failures.map((f) => `- ${f.name}: ${f.error}`).join("\n")}`,
+                buildErrors: formatTestFailures(testResult.failures),
                 chatId, projectId, projectPath, projectName, chatTitle,
                 userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
               });
@@ -406,12 +520,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const classification = await classifyIntent(userMessage, hasFiles, providers);
   console.log(`[orchestrator] Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
 
-  // Track classifyIntent token usage (previously untracked)
+  // Track classifyIntent token usage
   if (classification.tokenUsage) {
     const providerKey = apiKeys[classification.tokenUsage.provider];
     if (providerKey) {
+      const classifyExecId = nanoid();
+      await db.insert(schema.agentExecutions).values({
+        id: classifyExecId, chatId,
+        agentName: "orchestrator:classify",
+        status: "completed",
+        input: JSON.stringify({ type: "classify", userMessage }),
+        output: JSON.stringify(classification),
+        error: null, retryCount: 0,
+        startedAt: Date.now(), completedAt: Date.now(),
+      });
       trackTokenUsage({
-        executionId: nanoid(),
+        executionId: classifyExecId,
         chatId,
         agentName: "orchestrator:classify",
         provider: classification.tokenUsage.provider,
@@ -1104,11 +1228,10 @@ async function handleQuestion(ctx: {
   const { chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, providers, apiKeys } = ctx;
 
-  const orchestratorConfig = getAgentConfigResolved("orchestrator");
-  if (!orchestratorConfig) return "I couldn't process your question. Please try again.";
-
-  const model = resolveProviderModel(orchestratorConfig, providers);
-  if (!model) return "No model available to answer questions. Please check your API keys.";
+  // Use Sonnet for Q&A — 5x cheaper than Opus and handles project context well
+  const questionModelId = "claude-sonnet-4-6-20250514";
+  const questionModel = providers.anthropic?.(questionModelId);
+  if (!questionModel) return "No model available to answer questions. Please check your API keys.";
 
   const projectSource = readProjectSource(projectPath);
   const prompt = projectSource
@@ -1117,19 +1240,19 @@ async function handleQuestion(ctx: {
 
   try {
     const result = await generateText({
-      model,
+      model: questionModel,
       system: QUESTION_SYSTEM_PROMPT,
       prompt,
     });
 
     // Track token usage
     if (result.usage) {
-      const providerKey = apiKeys[orchestratorConfig.provider];
+      const providerKey = apiKeys.anthropic;
       if (providerKey) {
         const execId = nanoid();
         db.insert(schema.agentExecutions).values({
           id: execId, chatId,
-          agentName: "orchestrator",
+          agentName: "orchestrator:question",
           status: "completed",
           input: JSON.stringify({ type: "question", userMessage }),
           output: JSON.stringify({ answer: result.text }),
@@ -1144,9 +1267,9 @@ async function handleQuestion(ctx: {
 
         const record = trackTokenUsage({
           executionId: execId, chatId,
-          agentName: "orchestrator",
-          provider: orchestratorConfig.provider,
-          model: orchestratorConfig.model,
+          agentName: "orchestrator:question",
+          provider: "anthropic",
+          model: questionModelId,
           apiKey: providerKey,
           inputTokens: result.usage.inputTokens || 0,
           outputTokens: result.usage.outputTokens || 0,
@@ -1156,9 +1279,9 @@ async function handleQuestion(ctx: {
         });
 
         broadcastTokenUsage({
-          chatId, agentName: "orchestrator",
-          provider: orchestratorConfig.provider,
-          model: orchestratorConfig.model,
+          chatId, agentName: "orchestrator:question",
+          provider: "anthropic",
+          model: questionModelId,
           inputTokens: result.usage.inputTokens || 0,
           outputTokens: result.usage.outputTokens || 0,
           totalTokens: (result.usage.inputTokens || 0) + (result.usage.outputTokens || 0),
@@ -1203,39 +1326,34 @@ interface SummaryInput {
 async function generateSummary(input: SummaryInput): Promise<string> {
   const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys } = input;
 
-  const orchestratorConfig = getAgentConfigResolved("orchestrator");
-  if (!orchestratorConfig) {
-    // Fallback: concatenate results if orchestrator config is missing
-    return Array.from(agentResults.entries())
-      .map(([agent, output]) => `**${agent}:** ${output}`)
-      .join("\n\n");
-  }
+  const fallback = () => Array.from(agentResults.entries())
+    .map(([agent, output]) => `**${agent}:** ${output}`)
+    .join("\n\n");
 
-  // Build digest of agent outputs
+  // Use Sonnet for summary — 5x cheaper than Opus, more than capable for writing summaries
+  const summaryModelId = "claude-sonnet-4-6-20250514";
+  const summaryModel = providers.anthropic?.(summaryModelId);
+  if (!summaryModel) return fallback();
+
+  // Truncate each agent's output to 500 chars — summary only needs high-level view
   const digest = Array.from(agentResults.entries())
-    .map(([agent, output]) => `### ${agent}\n${output}`)
+    .map(([agent, output]) => {
+      const truncated = output.length > 500 ? output.slice(0, 500) + "\n... (truncated)" : output;
+      return `### ${agent}\n${truncated}`;
+    })
     .join("\n\n");
 
   const prompt = `## User Request\n${userMessage}\n\n## Agent Outputs\n${digest}`;
 
-  // Get the orchestrator's model
-  const model = resolveProviderModel(orchestratorConfig, providers);
-  if (!model) {
-    // Fallback if no provider available
-    return Array.from(agentResults.entries())
-      .map(([agent, output]) => `**${agent}:** ${output}`)
-      .join("\n\n");
-  }
-
   const result = await generateText({
-    model,
+    model: summaryModel,
     system: SUMMARY_SYSTEM_PROMPT,
     prompt,
   });
 
   // Track token usage for the summary call
   if (result.usage) {
-    const providerKey = apiKeys[orchestratorConfig.provider];
+    const providerKey = apiKeys.anthropic;
     if (providerKey) {
       const inputTokens = result.usage.inputTokens || 0;
       const outputTokens = result.usage.outputTokens || 0;
@@ -1244,44 +1362,34 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens) || 0;
       const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens) || 0;
 
-      // Create a real execution record so the FK constraint is satisfied
       const summaryExecId = nanoid();
       db.insert(schema.agentExecutions).values({
-        id: summaryExecId,
-        chatId,
-        agentName: "orchestrator",
+        id: summaryExecId, chatId,
+        agentName: "orchestrator:summary",
         status: "completed",
         input: JSON.stringify({ type: "summary", userMessage }),
         output: JSON.stringify({ summary: result.text }),
-        error: null,
-        retryCount: 0,
-        startedAt: Date.now(),
-        completedAt: Date.now(),
+        error: null, retryCount: 0,
+        startedAt: Date.now(), completedAt: Date.now(),
       }).run();
 
       const record = trackTokenUsage({
-        executionId: summaryExecId,
-        chatId,
-        agentName: "orchestrator",
-        provider: orchestratorConfig.provider,
-        model: orchestratorConfig.model,
+        executionId: summaryExecId, chatId,
+        agentName: "orchestrator:summary",
+        provider: "anthropic",
+        model: summaryModelId,
         apiKey: providerKey,
-        inputTokens,
-        outputTokens,
+        inputTokens, outputTokens,
         cacheCreationInputTokens: summaryCacheCreation,
         cacheReadInputTokens: summaryCacheRead,
-        projectId,
-        projectName,
-        chatTitle,
+        projectId, projectName, chatTitle,
       });
 
       broadcastTokenUsage({
-        chatId,
-        agentName: "orchestrator",
-        provider: orchestratorConfig.provider,
-        model: orchestratorConfig.model,
-        inputTokens,
-        outputTokens,
+        chatId, agentName: "orchestrator:summary",
+        provider: "anthropic",
+        model: summaryModelId,
+        inputTokens, outputTokens,
         totalTokens: inputTokens + outputTokens,
         costEstimate: record.costEstimate,
       });
@@ -1523,7 +1631,7 @@ async function runFixAgent(
       context: {
         projectId: ctx.projectId,
         originalRequest: ctx.userMessage,
-        upstreamOutputs: Object.fromEntries(ctx.agentResults),
+        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "remediation"),
         phase: "remediation",
         cycle,
       },
@@ -1641,7 +1749,7 @@ async function runReviewAgent(
       context: {
         projectId: ctx.projectId,
         originalRequest: ctx.userMessage,
-        upstreamOutputs: Object.fromEntries(ctx.agentResults),
+        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "re-review"),
         phase: "re-review",
         cycle,
       },
@@ -1747,19 +1855,15 @@ export async function classifyIntent(
     return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
   }
 
-  const orchestratorConfig = getAgentConfigResolved("orchestrator");
-  if (!orchestratorConfig) {
-    return { intent: "build", scope: "full", reasoning: "Fallback: no orchestrator config" };
-  }
-
-  const model = resolveProviderModel(orchestratorConfig, providers);
-  if (!model) {
-    return { intent: "build", scope: "full", reasoning: "Fallback: no model available" };
+  // Use Haiku for classification — ~97% cheaper than Opus for a 50-token JSON task
+  const classifyModel = providers.anthropic?.("claude-haiku-4-5-20251001");
+  if (!classifyModel) {
+    return { intent: "build", scope: "full", reasoning: "Fallback: no Anthropic provider" };
   }
 
   try {
     const result = await generateText({
-      model,
+      model: classifyModel,
       system: INTENT_SYSTEM_PROMPT,
       prompt: userMessage,
       maxOutputTokens: 100,
@@ -1774,8 +1878,8 @@ export async function classifyIntent(
       tokenUsage: {
         inputTokens: result.usage.inputTokens || 0,
         outputTokens: result.usage.outputTokens || 0,
-        provider: orchestratorConfig.provider,
-        model: orchestratorConfig.model,
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
       },
     };
   } catch (err) {
@@ -2304,10 +2408,11 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     // Extract just the error lines, skip noise
     const errorLines = combined
       .split("\n")
-      .filter((line) => /error|Error|ERR_|SyntaxError|TypeError|not found|does not provide/i.test(line))
-      .join("\n");
+      .filter((line) => /error|Error|ERR_|SyntaxError|TypeError|not found|does not provide/i.test(line));
 
-    const errors = errorLines || combined.slice(0, 2000);
+    // Deduplicate by core error pattern (strip file paths, keep error type + message)
+    const deduped = deduplicateErrors(errorLines);
+    const errors = deduped || combined.slice(0, 2000);
     console.log(`[orchestrator] Build check failed:\n${errors}`);
     return errors;
   } catch (err) {
@@ -2380,7 +2485,7 @@ async function runBuildFix(params: {
       context: {
         projectId,
         originalRequest: userMessage,
-        upstreamOutputs: Object.fromEntries(agentResults),
+        upstreamOutputs: filterUpstreamOutputs(fixAgent, undefined, agentResults, "build-fix"),
         phase: "build-fix",
       },
     };

@@ -70,6 +70,42 @@ export function trackTokenUsage(params: TrackTokensParams) {
   return record;
 }
 
+/**
+ * Track billing only — inserts into billing_ledger (no FK constraints)
+ * and skips token_usage. Use for system/non-chat calls (e.g., validate-key)
+ * where there is no matching agentExecutions or chats record.
+ */
+export function trackBillingOnly(params: Omit<TrackTokensParams, "executionId" | "chatId"> & { chatId?: string; executionId?: string }) {
+  const totalTokens = params.inputTokens + params.outputTokens;
+  const costEstimate = estimateCost(
+    params.provider, params.model,
+    params.inputTokens, params.outputTokens,
+    params.cacheCreationInputTokens || 0, params.cacheReadInputTokens || 0,
+  );
+  const now = Date.now();
+  const apiKeyHash = hashApiKey(params.apiKey);
+
+  db.insert(schema.billingLedger).values({
+    id: nanoid(),
+    projectId: params.projectId || null,
+    projectName: params.projectName || null,
+    chatId: params.chatId || null,
+    chatTitle: params.chatTitle || null,
+    executionId: params.executionId || null,
+    agentName: params.agentName,
+    provider: params.provider,
+    model: params.model,
+    apiKeyHash,
+    inputTokens: params.inputTokens,
+    outputTokens: params.outputTokens,
+    totalTokens,
+    costEstimate,
+    createdAt: now,
+  }).run();
+
+  return { costEstimate, totalTokens };
+}
+
 export function getSessionTokenTotal(chatId: string): number {
   const result = db
     .select({ total: sql<number>`sum(${schema.tokenUsage.totalTokens})` })

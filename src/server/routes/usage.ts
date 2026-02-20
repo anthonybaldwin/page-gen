@@ -140,3 +140,18 @@ usageRoutes.get("/history", (c) => {
 
   return c.json(results);
 });
+
+// Reset all billing data (for fresh testing)
+usageRoutes.delete("/reset", (c) => {
+  const tokenUsageCount = db.select({ count: sql<number>`count(*)` }).from(schema.tokenUsage).get()?.count || 0;
+  const billingCount = db.select({ count: sql<number>`count(*)` }).from(schema.billingLedger).get()?.count || 0;
+  db.delete(schema.tokenUsage).run();
+  db.delete(schema.billingLedger).run();
+  return c.json({
+    ok: true,
+    deleted: {
+      tokenUsage: tokenUsageCount,
+      billingLedger: billingCount,
+    },
+  });
+});
