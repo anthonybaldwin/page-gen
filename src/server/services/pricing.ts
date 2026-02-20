@@ -72,11 +72,28 @@ export function getModelPricing(model: string): { input: number; output: number 
 
 /**
  * Estimate cost in USD. Returns 0 for unknown models without pricing configured.
+ * Cache tokens are charged at different rates:
+ *   - cache_creation: 1.25x input price
+ *   - cache_read: 0.1x input price
+ *   - regular input: 1x input price
+ * When cacheCreation/cacheRead are provided, inputTokens should be the NON-cached count.
+ * When they're absent, inputTokens is treated as total input (backward compat).
  */
-export function estimateCost(_provider: string, model: string, inputTokens: number, outputTokens: number): number {
+export function estimateCost(
+  _provider: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheCreationInputTokens = 0,
+  cacheReadInputTokens = 0,
+): number {
   const pricing = getModelPricing(model);
   if (!pricing) return 0;
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+  const inputCost = inputTokens * pricing.input;
+  const outputCost = outputTokens * pricing.output;
+  const cacheCreateCost = cacheCreationInputTokens * pricing.input * 1.25;
+  const cacheReadCost = cacheReadInputTokens * pricing.input * 0.1;
+  return (inputCost + outputCost + cacheCreateCost + cacheReadCost) / 1_000_000;
 }
 
 /** Upsert pricing override for a model in app_settings. */

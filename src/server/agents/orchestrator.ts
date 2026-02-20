@@ -226,6 +226,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
             apiKey: providerKey,
             inputTokens: result.tokenUsage.inputTokens,
             outputTokens: result.tokenUsage.outputTokens,
+            cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+            cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
             projectId, projectName, chatTitle,
           });
           broadcastTokenUsage({
@@ -1117,6 +1119,11 @@ async function handleQuestion(ctx: {
           startedAt: Date.now(), completedAt: Date.now(),
         }).run();
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const qAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
+        const cacheCreation = Number(qAnthropicMeta?.cacheCreationInputTokens) || 0;
+        const cacheRead = Number(qAnthropicMeta?.cacheReadInputTokens) || 0;
+
         const record = trackTokenUsage({
           executionId: execId, chatId,
           agentName: "orchestrator",
@@ -1125,6 +1132,8 @@ async function handleQuestion(ctx: {
           apiKey: providerKey,
           inputTokens: result.usage.inputTokens || 0,
           outputTokens: result.usage.outputTokens || 0,
+          cacheCreationInputTokens: cacheCreation,
+          cacheReadInputTokens: cacheRead,
           projectId, projectName, chatTitle,
         });
 
@@ -1212,6 +1221,10 @@ async function generateSummary(input: SummaryInput): Promise<string> {
     if (providerKey) {
       const inputTokens = result.usage.inputTokens || 0;
       const outputTokens = result.usage.outputTokens || 0;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
+      const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens) || 0;
+      const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens) || 0;
 
       // Create a real execution record so the FK constraint is satisfied
       const summaryExecId = nanoid();
@@ -1237,6 +1250,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
         apiKey: providerKey,
         inputTokens,
         outputTokens,
+        cacheCreationInputTokens: summaryCacheCreation,
+        cacheReadInputTokens: summaryCacheRead,
         projectId,
         projectName,
         chatTitle,
@@ -1499,6 +1514,8 @@ async function runFixAgent(
           apiKey: providerKey,
           inputTokens: result.tokenUsage.inputTokens,
           outputTokens: result.tokenUsage.outputTokens,
+          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
           projectId: ctx.projectId,
           projectName: ctx.projectName,
           chatTitle: ctx.chatTitle,
@@ -1614,6 +1631,8 @@ async function runReviewAgent(
           apiKey: providerKey,
           inputTokens: result.tokenUsage.inputTokens,
           outputTokens: result.tokenUsage.outputTokens,
+          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
           projectId: ctx.projectId,
           projectName: ctx.projectName,
           chatTitle: ctx.chatTitle,
@@ -2318,6 +2337,8 @@ async function runBuildFix(params: {
           apiKey: providerKey,
           inputTokens: result.tokenUsage.inputTokens,
           outputTokens: result.tokenUsage.outputTokens,
+          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
           projectId,
           projectName,
           chatTitle,

@@ -285,8 +285,8 @@ export function AgentStatusPanel({ chatId }: Props) {
           <span>
             {runningAgents.length === 1 ? (
               <>
-                <span className="text-zinc-200 font-medium">{runningAgents[0].displayName}</span>
-                {runningAgents[0].phase === "remediation" ? " is fixing issues..." : " is working..."}
+                <span className="text-zinc-200 font-medium">{runningAgents[0]!.displayName}</span>
+                {runningAgents[0]!.phase === "remediation" ? " is fixing issues..." : " is working..."}
               </>
             ) : (
               <>

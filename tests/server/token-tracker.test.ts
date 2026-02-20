@@ -114,4 +114,27 @@ describe("Token Tracker", () => {
     // Expected: (1000 * 5 + 500 * 25) / 1_000_000 = 0.0175
     expect(record.costEstimate).toBeCloseTo(0.0175, 4);
   });
+
+  test("cost estimation includes cache tokens", () => {
+    const record = trackTokenUsage({
+      executionId,
+      chatId,
+      agentName: "frontend-dev",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      inputTokens: 500,
+      outputTokens: 200,
+      cacheCreationInputTokens: 1000,
+      cacheReadInputTokens: 2000,
+    });
+
+    // Sonnet: $3/M input, $15/M output
+    // inputCost = 500 * 3 = 1500
+    // outputCost = 200 * 15 = 3000
+    // cacheCreateCost = 1000 * 3 * 1.25 = 3750
+    // cacheReadCost = 2000 * 3 * 0.1 = 600
+    // total = (1500 + 3000 + 3750 + 600) / 1_000_000 = 0.00885
+    expect(record.costEstimate).toBeCloseTo(0.00885, 5);
+  });
 });

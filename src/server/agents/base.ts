@@ -32,6 +32,8 @@ export interface AgentOutput {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
   };
 }
 
@@ -134,6 +136,27 @@ export async function runAgent(
 
     const usage = await result.usage;
 
+    // Extract Anthropic cache tokens from provider metadata
+    let cacheCreationInputTokens = 0;
+    let cacheReadInputTokens = 0;
+    try {
+      const response = await result.response;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const respAny = response as any;
+      const anthropicMeta = respAny?.providerMetadata?.anthropic;
+      if (anthropicMeta && typeof anthropicMeta === "object") {
+        cacheCreationInputTokens = Number(anthropicMeta.cacheCreationInputTokens) || 0;
+        cacheReadInputTokens = Number(anthropicMeta.cacheReadInputTokens) || 0;
+      }
+    } catch {
+      // Provider metadata not available — continue with base tokens only
+    }
+
+    // inputTokens = non-cached input only; totalTokens includes all input types
+    const inputTokens = usage?.inputTokens || 0;
+    const outputTokens = usage?.outputTokens || 0;
+    const totalInputTokens = inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
+
     const summary = extractSummary(fullText, config.name);
 
     broadcastAgentStatus(cid, broadcastName, "completed");
@@ -144,9 +167,11 @@ export async function runAgent(
       content: fullText,
       filesWritten: filesWritten.length > 0 ? filesWritten : undefined,
       tokenUsage: {
-        inputTokens: usage?.inputTokens || 0,
-        outputTokens: usage?.outputTokens || 0,
-        totalTokens: (usage?.inputTokens || 0) + (usage?.outputTokens || 0),
+        inputTokens,
+        outputTokens,
+        totalTokens: totalInputTokens + outputTokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
       },
     };
   } catch (err) {

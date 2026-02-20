@@ -254,8 +254,10 @@ Every API call records:
 - Provider
 - Model ID
 - API key hash (SHA-256)
-- Input/output tokens
-- Cost estimate (USD)
+- Input/output tokens (non-cached)
+- Cache creation tokens (Anthropic: billed at 1.25x input price)
+- Cache read tokens (Anthropic: billed at 0.1x input price)
+- Cost estimate (USD) — includes cache token pricing for accurate billing
 
 ## Agent Customization
 

@@ -65,6 +65,24 @@ describe("Pricing Module", () => {
     expect(cost).toBeCloseTo(0.0175, 4);
   });
 
+  test("estimateCost includes cache token pricing", () => {
+    // Opus: $5/M input, $25/M output
+    // 1000 non-cached input, 500 output, 2000 cache creation (1.25x), 3000 cache read (0.1x)
+    const cost = estimateCost("anthropic", "claude-opus-4-6", 1000, 500, 2000, 3000);
+    // inputCost = 1000 * 5 = 5000
+    // outputCost = 500 * 25 = 12500
+    // cacheCreateCost = 2000 * 5 * 1.25 = 12500
+    // cacheReadCost = 3000 * 5 * 0.1 = 1500
+    // total = (5000 + 12500 + 12500 + 1500) / 1_000_000 = 0.0315
+    expect(cost).toBeCloseTo(0.0315, 4);
+  });
+
+  test("estimateCost without cache tokens is backward compatible", () => {
+    // Without cache params, should work the same as before
+    const cost = estimateCost("anthropic", "claude-opus-4-6", 1000, 500);
+    expect(cost).toBeCloseTo(0.0175, 4);
+  });
+
   test("estimateCost returns 0 for unknown models", () => {
     const cost = estimateCost("custom", "unknown-model", 1000, 500);
     expect(cost).toBe(0);

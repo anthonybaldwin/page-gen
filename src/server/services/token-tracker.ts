@@ -13,6 +13,8 @@ interface TrackTokensParams {
   apiKey: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
   projectId?: string;
   projectName?: string;
   chatTitle?: string;
@@ -20,7 +22,11 @@ interface TrackTokensParams {
 
 export function trackTokenUsage(params: TrackTokensParams) {
   const totalTokens = params.inputTokens + params.outputTokens;
-  const costEstimate = estimateCost(params.provider, params.model, params.inputTokens, params.outputTokens);
+  const costEstimate = estimateCost(
+    params.provider, params.model,
+    params.inputTokens, params.outputTokens,
+    params.cacheCreationInputTokens || 0, params.cacheReadInputTokens || 0,
+  );
   const now = Date.now();
   const apiKeyHash = hashApiKey(params.apiKey);
 
