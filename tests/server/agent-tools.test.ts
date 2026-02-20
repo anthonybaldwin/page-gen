@@ -16,7 +16,7 @@ afterEach(() => {
 describe("createAgentTools", () => {
   test("returns correct tool keys", () => {
     const { tools } = createAgentTools(TEST_PROJECT_PATH, "proj-1");
-    expect(Object.keys(tools).sort()).toEqual(["list_files", "read_file", "write_file"]);
+    expect(Object.keys(tools).sort()).toEqual(["list_files", "read_file", "write_file", "write_files"]);
   });
 
   test("write_file writes to disk and returns success", async () => {
@@ -101,6 +101,23 @@ describe("createAgentTools", () => {
     );
     expect(snapshot).toEqual(["a.ts"]);
     expect(getFilesWritten()).toEqual(["a.ts", "b.ts"]);
+  });
+
+  test("write_files writes multiple files in one call", async () => {
+    const { tools, getFilesWritten } = createAgentTools(TEST_PROJECT_PATH, "proj-1");
+    const result = await tools.write_files.execute!(
+      { files: [
+        { path: "src/a.tsx", content: "export const A = 1;" },
+        { path: "src/b.tsx", content: "export const B = 2;" },
+        { path: "src/c.tsx", content: "export const C = 3;" },
+      ] },
+      { toolCallId: "1", messages: [] } as never,
+    );
+    expect(result).toEqual({ success: true, paths: ["src/a.tsx", "src/b.tsx", "src/c.tsx"] });
+    expect(readFileSync(join(TEST_PROJECT_PATH, "src/a.tsx"), "utf-8")).toBe("export const A = 1;");
+    expect(readFileSync(join(TEST_PROJECT_PATH, "src/b.tsx"), "utf-8")).toBe("export const B = 2;");
+    expect(readFileSync(join(TEST_PROJECT_PATH, "src/c.tsx"), "utf-8")).toBe("export const C = 3;");
+    expect(getFilesWritten()).toEqual(["src/a.tsx", "src/b.tsx", "src/c.tsx"]);
   });
 
   test("write_file rejects path traversal", async () => {

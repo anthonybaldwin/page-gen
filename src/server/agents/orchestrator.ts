@@ -1433,7 +1433,7 @@ async function executePipelineSteps(ctx: {
     }
 
     // Check for failures
-    const failed = results.find((r) => !r.result);
+    const failed = results.find((r) => r.result === null);
     if (failed) {
       log("orchestrator", `Pipeline halted: agent ${failed.stepKey} failed`);
       return false; // HALT — runPipelineStep already handled error broadcasting

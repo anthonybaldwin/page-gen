@@ -20,6 +20,25 @@ export function createAgentTools(projectPath: string, projectId: string) {
         return { success: true, path };
       },
     }),
+    write_files: tool({
+      description: "Write multiple files at once. Preferred over write_file when creating or updating several files — saves steps and tokens.",
+      inputSchema: z.object({
+        files: z.array(z.object({
+          path: z.string().describe("Relative path from project root"),
+          content: z.string().describe("Complete file content"),
+        })),
+      }),
+      execute: async ({ files }) => {
+        const written: string[] = [];
+        for (const f of files) {
+          writeFile(projectPath, f.path, f.content);
+          written.push(f.path);
+        }
+        broadcastFilesChanged(projectId, written);
+        filesWritten.push(...written);
+        return { success: true, paths: written };
+      },
+    }),
     read_file: tool({
       description: "Read an existing file's contents.",
       inputSchema: z.object({

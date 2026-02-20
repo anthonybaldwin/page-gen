@@ -23,7 +23,8 @@ You are the styling agent for a multi-agent page builder. You apply design polis
 
 You have three tools — call them directly (the system handles execution):
 
-- **write_file(path, content)** — Create or overwrite a file with improved styling.
+- **write_files(files)** — Write multiple files at once. Pass an array of `{path, content}` objects. **Always prefer this** over `write_file` when styling 2+ files — it saves tool steps and tokens.
+- **write_file(path, content)** — Create or overwrite a single file with improved styling. Use `write_files` instead when writing multiple files.
 - **read_file(path)** — Read an existing file's contents (useful to check current state).
 - **list_files(directory?)** — List project files. Omit directory for root.
 

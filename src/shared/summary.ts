@@ -104,7 +104,8 @@ export function stripTrailingJson(text: string): string {
     const parsed = JSON.parse(match[1]!);
     // Only strip if it looks like an agent summary (has files_written, notes, or summary keys)
     if (parsed.files_written || parsed.notes || parsed.summary || parsed.files_modified) {
-      return text.slice(0, match.index!).trimEnd();
+      const stripped = text.slice(0, match.index!).trimEnd();
+      return stripped || text;
     }
   } catch {
     // Not valid JSON — leave as-is

@@ -25,7 +25,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 /** Per-agent tool step limits — fewer steps = less context resend overhead. */
 const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
-  "frontend-dev": 8,
+  "frontend-dev": 12,
   "backend-dev": 8,
   "styling": 8,
 };

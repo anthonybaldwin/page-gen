@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { extractSummary } from "../../src/shared/summary.ts";
+import { extractSummary, stripTrailingJson } from "../../src/shared/summary.ts";
 
 describe("extractSummary", () => {
   test("extracts summary field from research agent JSON", () => {
@@ -91,5 +91,44 @@ describe("extractSummary", () => {
   test("handles normal text output without fences", () => {
     const text = "I have reviewed all the code and found 3 issues that need fixing";
     expect(extractSummary(text)).toBe("I have reviewed all the code and found 3 issues that need fixing");
+  });
+});
+
+describe("stripTrailingJson", () => {
+  test("strips trailing JSON summary from text + JSON output", () => {
+    const text = 'Some agent output here\n\n{"files_written": ["src/App.tsx"], "notes": "done"}';
+    const result = stripTrailingJson(text);
+    expect(result).toBe("Some agent output here");
+  });
+
+  test("returns original text when input is JSON-only (no preceding text)", () => {
+    const text = '\n{"files_written": ["src/App.tsx"], "notes": "done"}';
+    const result = stripTrailingJson(text);
+    // Should NOT return empty string — guard against total erasure
+    expect(result).toBe(text);
+  });
+
+  test("returns text as-is when no trailing JSON", () => {
+    const text = "Just regular agent output with no JSON";
+    expect(stripTrailingJson(text)).toBe(text);
+  });
+
+  test("returns empty string as-is", () => {
+    expect(stripTrailingJson("")).toBe("");
+  });
+
+  test("does not strip JSON that lacks agent summary keys", () => {
+    const text = 'Output text\n\n{"random_key": "value"}';
+    expect(stripTrailingJson(text)).toBe(text);
+  });
+
+  test("strips JSON with files_modified key", () => {
+    const text = 'Styled 5 components\n\n{"files_modified": ["src/App.tsx"]}';
+    expect(stripTrailingJson(text)).toBe("Styled 5 components");
+  });
+
+  test("strips JSON with summary key", () => {
+    const text = 'Created API routes\n\n{"summary": "3 endpoints added"}';
+    expect(stripTrailingJson(text)).toBe("Created API routes");
   });
 });
