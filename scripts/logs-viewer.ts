@@ -92,6 +92,7 @@ const HTML = `<!DOCTYPE html>
   <input type="datetime-local" id="date-to" step="1">
   <label>Search</label>
   <input type="search" id="search" placeholder="Filter messages...">
+  <button id="btn-sort" title="Toggle sort direction">Newest first</button>
   <button id="btn-tail" title="Auto-scroll to newest">Tail</button>
   <button id="btn-refresh" title="Reload logs">Refresh</button>
   <span class="count" id="count"></span>
@@ -103,6 +104,7 @@ const HTML = `<!DOCTYPE html>
 <script>
 let allLogs = [];
 let tailing = true;
+let sortNewest = true;
 let pollTimer = null;
 
 const body = document.getElementById('log-body');
@@ -112,6 +114,7 @@ const search = document.getElementById('search');
 const countEl = document.getElementById('count');
 const dateFrom = document.getElementById('date-from');
 const dateTo = document.getElementById('date-to');
+const btnSort = document.getElementById('btn-sort');
 const btnTail = document.getElementById('btn-tail');
 const btnRefresh = document.getElementById('btn-refresh');
 
@@ -164,6 +167,8 @@ function render() {
   });
 
   countEl.textContent = filtered.length + ' / ' + allLogs.length + ' entries';
+
+  if (sortNewest) filtered.reverse();
 
   const rows = [];
   for (const entry of filtered) {
@@ -220,6 +225,12 @@ tagFilter.addEventListener('change', render);
 dateFrom.addEventListener('change', render);
 dateTo.addEventListener('change', render);
 search.addEventListener('input', render);
+
+btnSort.addEventListener('click', () => {
+  sortNewest = !sortNewest;
+  btnSort.textContent = sortNewest ? 'Newest first' : 'Oldest first';
+  render();
+});
 
 btnTail.addEventListener('click', () => {
   tailing = !tailing;
