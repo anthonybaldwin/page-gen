@@ -10,31 +10,46 @@ Docker is an **optional** deployment method. The app continues to work without D
 bun dev:docker
 ```
 
-This runs `docker compose up --build`, which builds the image, starts the container, and maps all necessary ports. Open `http://localhost:3000`.
+This runs `docker compose up --build`, which builds the image, starts the container, and maps all necessary ports. Open `http://localhost:5173` — same as the non-Docker workflow. Full HMR is supported: edit any file on your host and Vite pushes the update to the browser instantly.
 
 ## Architecture
 
-In Docker mode, the Vite client build is pre-compiled into `dist/client/` during the Docker build stage. The Hono backend serves these static files directly — no separate Vite dev server is needed for the frontend.
+The dev Docker setup bind-mounts your project source into the container. Inside the container, two processes run concurrently:
 
-Generated project previews still use per-project Vite dev servers on ports 3001-3020.
+1. **Hono backend** (`bun --watch src/server/index.ts`) on port 3000
+2. **Vite dev server** (`bunx vite --host 0.0.0.0`) on port 5173 with HMR
+
+Your source code edits on the host are immediately visible inside the container. Vite's file watcher picks up changes and pushes HMR updates to the browser — the same experience as running locally, but all generated code executes inside the container.
+
+An anonymous volume (`/app/node_modules`) keeps the container's dependencies separate from any host `node_modules/`, avoiding platform mismatches.
+
+### Production build
+
+The Dockerfile also has a `production` target that pre-compiles the frontend into `dist/client/` and serves it as static files. To build for production:
+
+```bash
+docker build --target production -t pagegen .
+docker run -p 3000:3000 -p 3001-3020:3001-3020 pagegen
+```
 
 ## Volumes
 
 | Volume | Container path | Purpose |
 |--------|---------------|---------|
+| Bind mount (`.`) | `/app` | Your project source — live-synced for HMR |
+| Anonymous | `/app/node_modules` | Container's deps — isolated from host |
 | `pagegen-data` | `/app/data` | SQLite DB — project records, chat history, billing, settings |
 | `pagegen-logs` | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |
 | `pagegen-projects` | `/app/projects` | Generated project files |
 
-Data in these volumes persists across container restarts.
-
-**Not mounted**: `node_modules/` and `dist/` are built inside the container.
+Named volumes persist across container restarts.
 
 ## Ports
 
 | Port | Purpose |
 |------|---------|
-| `3000` | Hono backend (API + static frontend + WebSocket) |
+| `5173` | Vite dev server (frontend + HMR) |
+| `3000` | Hono backend (API + WebSocket) |
 | `3001-3020` | Preview Vite dev servers (one per active project) |
 
 ## Environment Variables
