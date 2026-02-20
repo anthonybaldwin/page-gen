@@ -11,7 +11,7 @@ type Tab = "keys" | "limits" | "models" | "cache" | "prompts" | "tools";
 const TAB_LABELS: Record<Tab, string> = {
   keys: "API Keys",
   limits: "Limits",
-  models: "Models",
+  models: "Agents",
   cache: "Cache",
   prompts: "Prompts",
   tools: "Tools",
