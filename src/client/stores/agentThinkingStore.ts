@@ -111,6 +111,29 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
       if (agentExecs.length === 0) return { blocks: [] };
 
       const blocks: ThinkingBlock[] = agentExecs.map((exec) => {
+        // Test results have their own block type
+        if (exec.agentName === "test-results" && exec.output) {
+          try {
+            const results = JSON.parse(exec.output) as TestResults;
+            return {
+              id: generateId(),
+              agentName: "test-results",
+              displayName: "Test Results",
+              status: "completed" as const,
+              content: "",
+              summary: results.failed === 0
+                ? `All ${results.total} tests passed`
+                : `Tests: ${results.passed}/${results.total} passed, ${results.failed} failed`,
+              expanded: false,
+              startedAt: exec.startedAt,
+              blockType: "test-results" as const,
+              testResults: results,
+            };
+          } catch {
+            // fall through to generic block
+          }
+        }
+
         let content = "";
         let summary = "";
         if (exec.output) {

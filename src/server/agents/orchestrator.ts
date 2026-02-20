@@ -3217,6 +3217,20 @@ export async function runProjectTests(
       ...result,
     });
 
+    // Persist test results so they survive page refresh
+    await db.insert(schema.agentExecutions).values({
+      id: nanoid(),
+      chatId,
+      agentName: "test-results",
+      status: "completed",
+      input: JSON.stringify({ projectId }),
+      output: JSON.stringify(result),
+      error: null,
+      retryCount: 0,
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+    });
+
     log("orchestrator", `Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
     return result;
   } catch (err) {
