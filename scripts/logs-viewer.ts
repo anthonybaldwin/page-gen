@@ -193,7 +193,7 @@ function render() {
   }
   body.innerHTML = rows.join('');
 
-  if (tailing) window.scrollTo(0, document.body.scrollHeight);
+  if (tailing) window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
 }
 
 function populateTags() {
@@ -235,7 +235,7 @@ btnSort.addEventListener('click', () => {
 btnTail.addEventListener('click', () => {
   tailing = !tailing;
   btnTail.classList.toggle('active', tailing);
-  if (tailing) window.scrollTo(0, document.body.scrollHeight);
+  if (tailing) window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
 });
 btnTail.classList.add('active');
 
