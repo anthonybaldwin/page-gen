@@ -69,22 +69,72 @@ Do not squash:
 - Schema migrations
 - Major feature additions
 
+## Architecture Overview
+
+Read the full ADRs in `docs/adr/` before modifying any of these systems.
+
+### Agent Pipeline (ADR-002)
+
+13 agent configs (10 base + 3 orchestrator subtasks) in `src/server/agents/registry.ts`. The orchestrator (`src/server/agents/orchestrator.ts`) classifies each user message as `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
+
+**Build:** Research → Architect → Frontend Dev → Backend Dev (conditional) → Styling → Code Review + QA + Security (parallel) → Remediation (max 2 cycles) → Summary.
+
+**Fix:** Test Planner → Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary.
+
+**Question:** Single Sonnet call with project context, no pipeline.
+
+Pipeline execution uses dependency-aware batch scheduling (`executePipelineSteps`). Steps whose `dependsOn` are all completed run concurrently. Halts on first failure.
+
+### Token Accounting & Cost Safety (ADR-003)
+
+**Dual-write billing.** Every LLM call writes to two tables: `token_usage` (operational, has FKs, deleted with chats) and `billing_ledger` (permanent, no FKs, survives deletion). Both live in `src/server/services/token-tracker.ts`. Never write to one without the other.
+
+**Write-ahead tracking.** Before each LLM call, `trackProvisionalUsage()` inserts records with `estimated=1`. After success, `finalizeTokenUsage()` updates them to `estimated=0`. On failure, `voidProvisionalUsage()` deletes them. This ensures billing data survives server crashes.
+
+**Layered cost limiter.** Four independent checkpoints in `src/server/services/cost-limiter.ts`:
+1. Pre-flight: skip agent if estimated tokens > 95% of session limit
+2. Post-batch: hard stop if session token total exceeds limit
+3. Daily: hard stop if billing_ledger sum today exceeds daily cap
+4. Per-project: hard stop if billing_ledger sum for project exceeds cap
+
+**Upstream output filtering.** `filterUpstreamOutputs()` in the orchestrator routes only relevant upstream data to each agent. This reduces prompt tokens by ~80%. If you add a new agent, you must add a filtering rule for it.
+
+### Client-Side Security (ADR-004)
+
+**API keys never touch the server database.** They are encrypted client-side (AES-GCM 256-bit, Web Crypto API) and stored in `localStorage`. Sent per-request via `X-Api-Key-{Provider}` headers. Server only stores SHA-256 hashes in billing records.
+
+Key files: `src/client/lib/crypto.ts`, `src/client/lib/api.ts`.
+
+**Preview sandboxing.** Generated code runs in an iframe with `sandbox="allow-scripts allow-same-origin allow-forms"` — no access to parent app state.
+
+### Preview & Isolation (ADR-005)
+
+**Per-project Vite dev servers.** Each project gets its own Vite on ports 3001–3020. Managed by `src/server/preview/vite-server.ts`. Auto-scaffolds `package.json`, `vite.config.ts`, `index.html`, `src/main.tsx` before starting. Per-project mutex prevents concurrent `bun install`.
+
+**Pipeline-aware preview gating.** `files_changed` events are ignored while the pipeline is running (agents are mid-write). `preview_ready` events always trigger a reload and are only sent after a successful build check.
+
+**Hybrid file extraction.** Primary path: AI SDK native `write_file` tool (files hit disk mid-stream). Fallback: regex-based extraction from agent text output if native tools fail. Tracked via `alreadyWritten` set to avoid duplicates.
+
+**Docker (optional).** Source bind-mounted read-only (`.:/app:ro`). Projects, data, and logs get separate writable volumes. `PREVIEW_HOST=0.0.0.0` for container networking.
+
 ## High-Risk Change Rules
 
-If modifying:
+If modifying any of the systems above:
 
-1. Orchestrator logic
-2. Token accounting
-3. Billing aggregation
-4. Snapshot/rollback logic
-5. Provider integrations
-6. API key handling
+1. Orchestrator logic (`src/server/agents/orchestrator.ts`)
+2. Token accounting (`src/server/services/token-tracker.ts`, `cost-limiter.ts`)
+3. Billing tables (`src/server/db/schema.ts` — `token_usage`, `billing_ledger`)
+4. Preview server (`src/server/preview/vite-server.ts`)
+5. API key handling (`src/client/lib/crypto.ts`)
+6. Upstream output filtering (`filterUpstreamOutputs`)
 
 You must:
 
+- Read the relevant ADR first (`docs/adr/`).
 - Commit separately.
 - Add tests where applicable.
 - Include commit body with risk + validation.
+- Update `docs/wiki/` if user-facing behavior changes.
 
 ## Snapshot Safety
 
@@ -97,22 +147,30 @@ Any snapshot/version change must:
 
 ## Token Accounting Integrity
 
-Provider-call changes must preserve tracking for:
+The dual-write pattern is non-negotiable. Any change to token tracking must:
 
-- Agent
-- Provider
-- API key
-- Per-session usage
-- Lifetime totals
-- Per-request breakdown
+- Write to both `token_usage` and `billing_ledger` (or use `trackBillingOnly` for system calls)
+- Preserve the provisional → finalize → void lifecycle
+- Maintain cache token columns (`cacheCreationInputTokens`, `cacheReadInputTokens`)
+- Keep cost limiter checkpoints intact (pre-flight, post-batch, daily, per-project)
+- Not break the upstream output filtering for any agent
 
 ## Architecture Documentation
 
-Non-trivial decisions must:
+New ADRs are needed when you introduce a **new system-level pattern** — a new table, a new service, a new isolation boundary, a new cost/safety mechanism. If you're adding a feature within an existing pattern (new agent, new endpoint, new UI component), just update the relevant wiki page.
 
-- Be documented in `docs/adr`
-- Be referenced in commit message
-- Explain tradeoffs/alternatives
+When an ADR is warranted:
+
+- Document in `docs/adr/NNN-short-name.md`
+- Reference in commit message
+- Explain context, decision, alternatives, and consequences
+
+Current ADRs:
+- **001** — Tech stack (Bun, Hono, React, Drizzle, AI SDK)
+- **002** — Agent architecture (pipeline, registry, batching)
+- **003** — Token accounting & cost safety (dual-write, write-ahead, cost limiter, filtering)
+- **004** — Client-side security (encrypted keys, sandboxing)
+- **005** — Preview isolation & Docker (per-project Vite, hybrid extraction, containerization)
 
 ## Test Gate
 
