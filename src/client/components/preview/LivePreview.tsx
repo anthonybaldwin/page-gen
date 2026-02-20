@@ -238,19 +238,20 @@ export function LivePreview() {
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
-      <div className="flex-1 relative">
+      <div className="flex-1 relative" style={{ backgroundColor: "#ffffff" }}>
         <iframe
           ref={iframeRef}
           id="preview-iframe"
           src={previewUrl}
           className={`absolute inset-0 w-full h-full ${showOverlay ? "invisible" : ""}`}
           sandbox="allow-scripts allow-same-origin allow-forms"
+          style={{ colorScheme: "normal" }}
           title="Live Preview"
         />
         {showOverlay && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background gap-4">
-            <Loader2 className="h-6 w-6 text-primary animate-spin" />
-            <p className="text-muted-foreground text-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4" style={{ backgroundColor: "#ffffff", color: "#6b7280" }}>
+            <Loader2 className="h-6 w-6 animate-spin" style={{ color: "#6366f1" }} />
+            <p className="text-sm">
               {pipelineRunning ? "Agents are building — preview will reload when ready" : "Preview server restarting..."}
             </p>
           </div>
