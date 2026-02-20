@@ -23,15 +23,21 @@ function summarizeStructuredOutput(raw: string): string {
       const obj = JSON.parse(src.trim());
       extractReadableFields(obj, lines, 0);
     } catch {
-      // Not valid JSON — skip
+      // Not valid JSON — try partial extraction below
     }
   }
 
   if (lines.length > 0) return lines.join("\n");
 
+  // Always attempt regex extraction on the raw string (handles streaming/partial JSON)
+  const seen = new Set<string>();
   const stringValues = [...raw.matchAll(/"(description|summary|purpose|name|title|reason)":\s*"([^"]{10,})"/gi)];
   for (const m of stringValues) {
-    lines.push(`**${m[1]}:** ${m[2]}`);
+    const key = `${m[1].toLowerCase()}:${m[2]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      lines.push(`**${m[1]}:** ${m[2]}`);
+    }
   }
 
   return lines.join("\n");
@@ -147,10 +153,28 @@ function sanitizeThinking(raw: string): string {
   cleaned = cleaned.replace(/^\s*[}\]],?\s*$/gm, "");
   cleaned = cleaned.replace(/^\s*"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null|\[.*?\]|\{.*?\}),?\s*$/gm, "");
 
+  // Strip compact inline JSON key-value pairs (handles single-line JSON without line breaks)
+  cleaned = cleaned.replace(/"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null)\s*,?\s*/g, " ");
+  // Clean up leftover braces/brackets from stripped JSON
+  cleaned = cleaned.replace(/[{}[\]]+/g, " ");
+
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned.replace(/  +/g, " ");
   cleaned = cleaned.trim();
 
-  if (cleaned.length < 30 && raw.length > 100) {
+  // Detect if cleaned output is likely garbage from partial JSON stripping
+  const looksLikeGarbage =
+    cleaned.length < 30 ||
+    (raw.length > 100 && (
+      // Heavy stripping happened — most content was JSON
+      cleaned.length < raw.length * 0.3 ||
+      // Cleaned content still has JSON artifacts (3+ punctuation chars in a row)
+      /["{}[\]:,]{3,}/.test(cleaned) ||
+      // Multiple structured field fragments visible (stripped keys left behind)
+      (cleaned.match(/\b(name|description|summary|purpose)\s*:/gi) || []).length >= 2
+    ));
+
+  if (looksLikeGarbage) {
     const structuredSummary = summarizeStructuredOutput(raw);
     if (structuredSummary) return structuredSummary;
   }
