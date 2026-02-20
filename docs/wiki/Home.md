@@ -41,7 +41,7 @@ bun dev:docker
 - **Backend:** Hono
 - **Frontend:** React 19 + Vite 7
 - **Database:** Drizzle ORM + SQLite
-- **AI:** Vercel AI SDK 6.x
+- **AI:** AI SDK 6.x (Anthropic, OpenAI, Google)
 - **UI:** Tailwind CSS + shadcn/ui
 - **Editor:** CodeMirror 6 (Nord theme)
 - **State:** Zustand
