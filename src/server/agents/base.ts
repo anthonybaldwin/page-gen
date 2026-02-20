@@ -108,19 +108,17 @@ export async function runAgent(
     const maxToolSteps = overrides?.maxToolSteps ?? AGENT_MAX_TOOL_STEPS[config.name] ?? DEFAULT_MAX_TOOL_STEPS;
     const isAnthropic = config.provider === "anthropic";
 
-    // For Anthropic: use array system format with cache_control and split user messages
+    // For Anthropic: use SystemModelMessage with cache_control and split user messages
     // For other providers: keep the simple system + prompt format
     const result = streamText({
       model: provider,
       ...(isAnthropic
         ? {
-            system: [
-              {
-                type: "text" as const,
-                text: systemPrompt,
-                providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
-              },
-            ],
+            system: {
+              role: "system" as const,
+              content: systemPrompt,
+              providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+            },
             messages: [{
               role: "user" as const,
               content: cacheablePrefix
