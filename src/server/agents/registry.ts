@@ -144,12 +144,12 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   "orchestrator:classify": [],
   "orchestrator:question": [],
   "orchestrator:summary": [],
-  research: ["read_file", "list_files"],
-  architect: ["read_file", "list_files"],
+  research: [],
+  architect: [],
   "frontend-dev": [...ALL_TOOLS],
   "backend-dev": [...ALL_TOOLS],
   styling: [...ALL_TOOLS],
-  testing: [],       // planner — receives context in prompt, no file access needed
+  testing: ["read_file", "list_files"],  // reads existing code in fix mode to create test plans
   "code-review": [], // reviewer — receives code in prompt, tools cause extra round-trips
   qa: [],            // reviewer — receives code in prompt, tools cause extra round-trips
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips

@@ -313,8 +313,8 @@ Each agent's native tool access can be configured via **Settings → Tools**. Th
 | Agent | write_file | read_file | list_files |
 |-------|-----------|-----------|------------|
 | frontend-dev, backend-dev, styling | Yes | Yes | Yes |
-| research, architect | No | Yes | Yes |
-| testing, code-review, qa, security | No | No | No |
+| testing | No | Yes | Yes |
+| research, architect, code-review, qa, security | No | No | No |
 | orchestrator, orchestrator:classify, orchestrator:question, orchestrator:summary | No | No | No |
 
 - Tool overrides are stored in `app_settings` (key: `agent.{name}.tools`, value: JSON array)
