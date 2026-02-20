@@ -7,7 +7,7 @@ import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
-import { log, logBlock } from "../services/logger.ts";
+import { log, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
@@ -77,7 +77,8 @@ export async function runAgent(
 
   try {
     const builtPrompt = buildPrompt(input);
-    log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
+    log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars system=${systemPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
+    logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
     const result = streamText({
       model: provider,
@@ -181,6 +182,7 @@ export async function runAgent(
       },
     });
     logBlock("pipeline", `agent=${broadcastName} output`, cleanText);
+    logLLMOutput("pipeline", broadcastName, cleanText);
 
     broadcastAgentStatus(cid, broadcastName, "completed");
     broadcastAgentStream(cid, broadcastName, cleanText);

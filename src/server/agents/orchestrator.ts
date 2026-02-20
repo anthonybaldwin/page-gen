@@ -15,7 +15,7 @@ import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 import { createAgentTools } from "./tools.ts";
-import { log, logError, logWarn, logBlock } from "../services/logger.ts";
+import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 
 const MAX_RETRIES = 3;
 const MAX_UNIQUE_ERRORS = 10;
@@ -1347,11 +1347,13 @@ async function handleQuestion(ctx: {
     : `## Question\n${userMessage}\n\n(This project has no files yet.)`;
 
   try {
+    logLLMInput("orchestrator", "orchestrator-question", QUESTION_SYSTEM_PROMPT, prompt);
     const result = await generateText({
       model: questionModel,
       system: QUESTION_SYSTEM_PROMPT,
       prompt,
     });
+    logLLMOutput("orchestrator", "orchestrator-question", result.text);
 
     // Track token usage
     if (result.usage) {
@@ -1476,11 +1478,13 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
   const prompt = `## User Request\n${userMessage}\n\n## Agent Outputs\n${digest}`;
 
+  logLLMInput("orchestrator", "orchestrator-summary", SUMMARY_SYSTEM_PROMPT, prompt);
   const result = await generateText({
     model: summaryModel,
     system: SUMMARY_SYSTEM_PROMPT,
     prompt,
   });
+  logLLMOutput("orchestrator", "orchestrator-summary", result.text);
 
   // Track token usage for the summary call
   if (result.usage) {
@@ -2012,12 +2016,14 @@ export async function classifyIntent(
   }
 
   try {
+    logLLMInput("orchestrator", "orchestrator-classify", INTENT_SYSTEM_PROMPT, userMessage);
     const result = await generateText({
       model: classifyModel,
       system: INTENT_SYSTEM_PROMPT,
       prompt: userMessage,
       maxOutputTokens: 100,
     });
+    logLLMOutput("orchestrator", "orchestrator-classify", result.text);
 
     const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/m, "");
     const parsed = JSON.parse(raw);

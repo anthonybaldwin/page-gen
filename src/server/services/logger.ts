@@ -3,12 +3,14 @@ import { join } from "path";
 
 const LOG_DIR = join(import.meta.dir, "../../../logs");
 const LOG_FILE = join(LOG_DIR, "pipeline.log");
+const LLM_LOG_DIR = join(LOG_DIR, "llm");
 
 let initialized = false;
 
 function ensureDir() {
   if (!initialized) {
     mkdirSync(LOG_DIR, { recursive: true });
+    mkdirSync(LLM_LOG_DIR, { recursive: true });
     initialized = true;
   }
 }
@@ -53,4 +55,42 @@ export function logBlock(tag: string, message: string, block: string) {
   const line = `[${ts}] [${tag}] ${message}\n${truncated}\n\n`;
   console.log(`[${tag}] ${message} (${block.length.toLocaleString()}chars)`);
   appendFileSync(LOG_FILE, line);
+}
+
+/**
+ * Log full LLM input (system prompt + user prompt) to a per-agent file.
+ * Files go to logs/llm/<timestamp>_<agent>.in.txt
+ * This captures the EXACT context sent to the model for debugging.
+ */
+export function logLLMInput(tag: string, agentName: string, systemPrompt: string, userPrompt: string) {
+  ensureDir();
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `${ts}_${agentName}.in.txt`;
+  const filepath = join(LLM_LOG_DIR, filename);
+
+  const content = [
+    `=== SYSTEM PROMPT (${systemPrompt.length.toLocaleString()} chars) ===`,
+    systemPrompt,
+    "",
+    `=== USER PROMPT (${userPrompt.length.toLocaleString()} chars) ===`,
+    userPrompt,
+  ].join("\n");
+
+  appendFileSync(filepath, content);
+  log(tag, `LLM input logged → logs/llm/${filename}`);
+}
+
+/**
+ * Log full LLM output to a per-agent file.
+ * Files go to logs/llm/<timestamp>_<agent>.out.txt
+ * No truncation — captures the complete model response.
+ */
+export function logLLMOutput(tag: string, agentName: string, output: string) {
+  ensureDir();
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `${ts}_${agentName}.out.txt`;
+  const filepath = join(LLM_LOG_DIR, filename);
+
+  appendFileSync(filepath, output);
+  log(tag, `LLM output logged → logs/llm/${filename} (${output.length.toLocaleString()} chars)`);
 }
