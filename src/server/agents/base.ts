@@ -25,7 +25,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 /** Per-agent tool step limits — fewer steps = less context resend overhead. */
 const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
-  "frontend-dev": 12,
+  "frontend-dev": 8,
   "backend-dev": 8,
   "styling": 8,
 };
@@ -279,10 +279,12 @@ export async function runAgent(
       // Provider metadata not available — continue with base tokens only
     }
 
-    // inputTokens = non-cached input only; totalTokens includes all input types
-    const inputTokens = usage?.inputTokens || 0;
+    // AI SDK's usage.inputTokens includes cache tokens in the total.
+    // Subtract cache tokens to get the non-cached input count that estimateCost expects.
+    const rawInputTokens = usage?.inputTokens || 0;
+    const inputTokens = Math.max(0, rawInputTokens - cacheCreationInputTokens - cacheReadInputTokens);
     const outputTokens = usage?.outputTokens || 0;
-    const totalInputTokens = inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
+    const totalInputTokens = rawInputTokens;
 
     // Strip trailing JSON summaries (e.g. { "files_written": [...] }) before broadcast
     const cleanText = stripTrailingJson(fullText);
