@@ -21,7 +21,7 @@ describe("Agent Registry", () => {
   test("getAgentConfig returns correct config", () => {
     const orchestrator = getAgentConfig("orchestrator");
     expect(orchestrator).toBeDefined();
-    expect(orchestrator!.model).toBe("claude-opus-4-6");
+    expect(orchestrator!.model).toBe("claude-sonnet-4-5-20250929");
     expect(orchestrator!.provider).toBe("anthropic");
   });
 
@@ -30,24 +30,10 @@ describe("Agent Registry", () => {
     expect(result).toBeUndefined();
   });
 
-  test("planning agents use opus model", () => {
-    for (const name of ["orchestrator", "research", "architect"] as const) {
+  test("all main agents default to sonnet-4-5", () => {
+    for (const name of ["orchestrator", "research", "architect", "frontend-dev", "backend-dev", "styling", "code-review", "qa", "testing"] as const) {
       const config = getAgentConfig(name);
-      expect(config?.model).toBe("claude-opus-4-6");
-    }
-  });
-
-  test("dev agents use sonnet model", () => {
-    for (const name of ["frontend-dev", "backend-dev", "styling"] as const) {
-      const config = getAgentConfig(name);
-      expect(config?.model).toBe("claude-sonnet-4-6");
-    }
-  });
-
-  test("review agents use sonnet model", () => {
-    for (const name of ["code-review", "qa"] as const) {
-      const config = getAgentConfig(name);
-      expect(config?.model).toBe("claude-sonnet-4-6");
+      expect(config?.model).toBe("claude-sonnet-4-5-20250929");
     }
   });
 
@@ -62,14 +48,14 @@ describe("Agent Registry", () => {
     expect(config?.provider).toBe("anthropic");
   });
 
-  test("orchestrator:question defaults to sonnet", () => {
+  test("orchestrator:question defaults to sonnet-4-5", () => {
     const config = getAgentConfig("orchestrator:question");
-    expect(config?.model).toBe("claude-sonnet-4-6");
+    expect(config?.model).toBe("claude-sonnet-4-5-20250929");
   });
 
-  test("orchestrator:summary defaults to sonnet", () => {
+  test("orchestrator:summary defaults to sonnet-4-5", () => {
     const config = getAgentConfig("orchestrator:summary");
-    expect(config?.model).toBe("claude-sonnet-4-6");
+    expect(config?.model).toBe("claude-sonnet-4-5-20250929");
   });
 });
 

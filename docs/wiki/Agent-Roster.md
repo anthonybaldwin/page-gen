@@ -7,49 +7,49 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 ## Agents
 
 ### 1. Orchestrator
-- **Model:** Claude Opus 4.6 (Anthropic) for agent dispatch
+- **Model:** Claude Sonnet 4.5 (Anthropic) for agent dispatch
 - **Subtask models** (configurable via Settings → Models):
-  - **Intent Classifier** (`orchestrator:classify`) → default Haiku (~97% cheaper than Opus)
-  - **Summary Writer** (`orchestrator:summary`) → default Sonnet (5x cheaper than Opus)
-  - **Question Answerer** (`orchestrator:question`) → default Sonnet (5x cheaper than Opus)
+  - **Intent Classifier** (`orchestrator:classify`) → default Haiku ($1/$5 per MTok)
+  - **Summary Writer** (`orchestrator:summary`) → default Sonnet 4.5 ($3/$15 per MTok)
+  - **Question Answerer** (`orchestrator:question`) → default Sonnet 4.5 ($3/$15 per MTok)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
 - **Tools:** Agent dispatch, snapshot creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
 - **Output:** After all agents complete, the orchestrator generates a clean markdown summary of what was built. This is the only message the user sees — individual agent outputs are collected internally and never shown directly in chat.
 
 ### 2. Research Agent
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Analyzes user request, identifies requirements
 - **Output:** Structured JSON requirements document (includes `requires_backend` per feature for conditional pipeline)
 - **Tools:** None — receives user prompt only, outputs requirements
 
 ### 3. Architect Agent
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Designs component tree, file structure, data flow, and test plan
 - **Output:** Component hierarchy, file plan, dependency list, and `test_plan` section (build mode only)
 - **Tools:** None — receives research output, produces architecture doc with embedded test specs
 
 ### 4. Frontend Developer
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
 - **Parallel instances (build mode):** The orchestrator parses the architect's `file_plan`, pools all non-App files, and distributes them evenly across N agents (1-4 based on file count). Instances use `instanceId` (e.g., `frontend-dev-1`, `frontend-dev-2`, `frontend-dev-app`) and all run in parallel. A final `frontend-dev-app` agent composes App.tsx after all others complete.
 
 ### 5. Backend Developer
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Generates API routes, server logic, and writes test files alongside server code
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside server modules, following the test plan
 - **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`)
 
 ### 6. Styling Agent
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 
 ### 7. Test Planner (fix mode only)
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Creates a JSON test plan that defines expected behavior — dev agents use this to write test files alongside their code
 - **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code
 - **Output:** Structured JSON test plan with component-to-test mapping, behavior descriptions, and setup notes
@@ -59,13 +59,13 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 - **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
 
 ### 8. Code Reviewer
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Reviews code for bugs, type errors, and correctness; reports issues for dev agents to fix
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, categorized findings (`[frontend]`, `[backend]`, `[styling]`)
 
 ### 9. QA Agent (Requirements Validator)
-- **Model:** Claude Sonnet 4.6 (Anthropic)
+- **Model:** Claude Sonnet 4.5 (Anthropic)
 - **Role:** Validates implementation against research requirements; reports gaps without fixing code
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, requirements coverage, and categorized issues (`[frontend]`, `[backend]`, `[styling]`)

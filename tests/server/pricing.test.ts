@@ -16,11 +16,13 @@ describe("Pricing Module", () => {
     runMigrations();
   });
 
-  test("DEFAULT_PRICING has all 6 known models", () => {
+  test("DEFAULT_PRICING has all 8 known models", () => {
     const ids = Object.keys(DEFAULT_PRICING);
-    expect(ids).toHaveLength(6);
+    expect(ids).toHaveLength(8);
     expect(ids).toContain("claude-opus-4-6");
+    expect(ids).toContain("claude-opus-4-5-20251101");
     expect(ids).toContain("claude-sonnet-4-6");
+    expect(ids).toContain("claude-sonnet-4-5-20250929");
     expect(ids).toContain("claude-haiku-4-5-20251001");
     expect(ids).toContain("gpt-5.2");
     expect(ids).toContain("gpt-5.2-pro");
@@ -38,9 +40,9 @@ describe("Pricing Module", () => {
     expect(isKnownModel("gpt-6")).toBe(false);
   });
 
-  test("getKnownModelIds returns all 6 model IDs", () => {
+  test("getKnownModelIds returns all 8 model IDs", () => {
     const ids = getKnownModelIds();
-    expect(ids).toHaveLength(6);
+    expect(ids).toHaveLength(8);
     expect(ids).toContain("claude-opus-4-6");
     expect(ids).toContain("gemini-2.5-flash");
   });
