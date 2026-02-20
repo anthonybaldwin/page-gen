@@ -238,7 +238,7 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
     );
   }
 
-  const { displayName, status, content, summary, expanded, toolCalls } = block;
+  const { displayName, status, content, summary, error, expanded, toolCalls } = block;
   const isActive = status === "started" || status === "streaming";
   const lastToolCall = toolCalls?.length ? toolCalls[toolCalls.length - 1] : undefined;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -286,7 +286,7 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
           )}
 
           {status === "failed" && (
-            <span className="text-xs text-destructive">{summary || "failed"}</span>
+            <span className="text-xs text-destructive truncate flex-1">{error || summary || "failed"}</span>
           )}
 
           <ChevronDown
@@ -302,6 +302,11 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
             ref={scrollRef}
             className="border-t border-border/60 max-h-60 overflow-y-auto"
           >
+            {status === "failed" && error && (
+              <div className="mx-3 mt-3 mb-1 px-3 py-2 text-xs text-destructive bg-destructive/10 rounded-md border border-destructive/20">
+                {error}
+              </div>
+            )}
             {(cleanContent || showRaw || summary) && (
             <div className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
               {showRaw ? (

@@ -226,9 +226,10 @@ export async function runAgent(
 
     // Treat non-successful finish reasons as failures — the agent didn't complete its work
     if (finishReason === "other" || finishReason === "error") {
+      const errorMessage = `Agent stream ended with finishReason=${finishReason} (tool-use step likely failed)`;
       broadcastAgentStatus(cid, broadcastName, "failed");
-      broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
-      throw new Error(`Agent stream ended with finishReason=${finishReason} (tool-use step likely failed)`);
+      broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
+      throw new Error(errorMessage);
     }
 
     // finishReason=length means output was truncated. Behavior depends on agent type:
@@ -238,17 +239,19 @@ export async function runAgent(
     if (finishReason === "length") {
       const REVIEW_AGENTS = new Set(["code-review", "qa", "security"]);
       if (REVIEW_AGENTS.has(config.name)) {
+        const errorMessage = `Review agent "${config.name}" output was truncated (finishReason=length) — output must be complete`;
         broadcastAgentStatus(cid, broadcastName, "failed");
-        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
-        throw new Error(`Review agent "${config.name}" output was truncated (finishReason=length) — output must be complete`);
+        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
+        throw new Error(errorMessage);
       }
       const TOOL_AGENTS = new Set(["frontend-dev", "backend-dev", "styling"]);
       if (TOOL_AGENTS.has(config.name) && filesWritten.length > 0) {
         logWarn("pipeline", `agent=${broadcastName} truncated (finishReason=length) but ${filesWritten.length} files written — accepting`);
       } else {
+        const errorMessage = `Agent "${config.name}" output was truncated (finishReason=length) with no files written — failing`;
         broadcastAgentStatus(cid, broadcastName, "failed");
-        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
-        throw new Error(`Agent "${config.name}" output was truncated (finishReason=length) with no files written — failing`);
+        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
+        throw new Error(errorMessage);
       }
     }
 
@@ -315,8 +318,9 @@ export async function runAgent(
       },
     };
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
     broadcastAgentStatus(cid, broadcastName, "failed");
-    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
+    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
     throw err;
   }
 }

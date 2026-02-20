@@ -108,6 +108,56 @@ describe("agentThinkingStore", () => {
     });
   });
 
+  describe("handleThinking — error propagation", () => {
+    test("stores error on failed status", () => {
+      const store = getStore();
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "failed", error: "API authentication failed (401)" });
+
+      const blocks = getStore().blocks;
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]!.status).toBe("failed");
+      expect(blocks[0]!.error).toBe("API authentication failed (401)");
+    });
+
+    test("failed without error keeps existing error", () => {
+      const store = getStore();
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "failed", error: "first error" });
+
+      // A second failed broadcast without error should preserve the original
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
+      store.handleThinking({ agentName: "research", displayName: "Research", status: "failed" });
+
+      const blocks = getStore().blocks;
+      expect(blocks[1]!.error).toBeUndefined();
+    });
+  });
+
+  describe("loadFromExecutions — error propagation", () => {
+    test("propagates error field from executions", () => {
+      const store = getStore();
+      store.loadFromExecutions([
+        { agentName: "research", status: "failed", output: null, error: "Credit exhaustion", startedAt: 1000 },
+      ]);
+
+      const blocks = getStore().blocks;
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]!.status).toBe("failed");
+      expect(blocks[0]!.error).toBe("Credit exhaustion");
+    });
+
+    test("null error is omitted from block", () => {
+      const store = getStore();
+      store.loadFromExecutions([
+        { agentName: "research", status: "completed", output: '{"content":"hello"}', error: null, startedAt: 1000 },
+      ]);
+
+      const blocks = getStore().blocks;
+      expect(blocks[0]!.error).toBeUndefined();
+    });
+  });
+
   describe("toggleExpanded", () => {
     test("toggles expanded by block ID", () => {
       const store = getStore();

@@ -186,6 +186,15 @@ export function trackProvisionalUsage(params: {
 }
 
 /**
+ * Void (delete) provisional token records when an LLM call fails cleanly.
+ * Removes the write-ahead records so failed calls leave no phantom billing trace.
+ */
+export function voidProvisionalUsage(ids: { tokenUsageId: string; billingLedgerId: string }): void {
+  db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.id, ids.tokenUsageId)).run();
+  db.delete(schema.billingLedger).where(eq(schema.billingLedger.id, ids.billingLedgerId)).run();
+}
+
+/**
  * Finalize provisional token records with actual values from the LLM response.
  * Sets estimated=0 and updates all token/cost fields.
  */

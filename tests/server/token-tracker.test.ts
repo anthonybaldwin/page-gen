@@ -3,7 +3,7 @@ import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { trackTokenUsage, getSessionTokenTotal, getUsageByAgent, trackProvisionalUsage, finalizeTokenUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
+import { trackTokenUsage, getSessionTokenTotal, getUsageByAgent, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
 
 describe("Token Tracker", () => {
   let projectId: string;
@@ -260,5 +260,37 @@ describe("Provisional Token Tracking", () => {
   test("provisional records count toward session token total", () => {
     const total = getSessionTokenTotal(chatId);
     expect(total).toBeGreaterThan(0);
+  });
+
+  test("voidProvisionalUsage deletes both token_usage and billing_ledger records", () => {
+    const ids = trackProvisionalUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      estimatedInputTokens: 3000,
+      projectId,
+    });
+
+    // Verify records exist
+    const beforeToken = db.select().from(schema.tokenUsage)
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId)).get();
+    const beforeLedger = db.select().from(schema.billingLedger)
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
+    expect(beforeToken).toBeTruthy();
+    expect(beforeLedger).toBeTruthy();
+
+    // Void them
+    voidProvisionalUsage(ids);
+
+    // Verify records are deleted
+    const afterToken = db.select().from(schema.tokenUsage)
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId)).get();
+    const afterLedger = db.select().from(schema.billingLedger)
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
+    expect(afterToken).toBeUndefined();
+    expect(afterLedger).toBeUndefined();
   });
 });

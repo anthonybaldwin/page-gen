@@ -37,7 +37,7 @@ export function broadcastAgentThinking(
   agentName: string,
   displayName: string,
   status: "started" | "streaming" | "completed" | "failed",
-  extra?: { chunk?: string; summary?: string }
+  extra?: { chunk?: string; summary?: string; error?: string }
 ) {
   broadcast({
     type: "agent_thinking",

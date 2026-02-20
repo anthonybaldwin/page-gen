@@ -27,6 +27,7 @@ export interface ThinkingBlock {
   status: "started" | "streaming" | "completed" | "failed";
   content: string;
   summary: string;
+  error?: string;
   expanded: boolean;
   startedAt: number;
   blockType?: "agent" | "test-results";
@@ -67,6 +68,7 @@ interface AgentThinkingState {
     agentName: string;
     status: string;
     output: string | null;
+    error?: string | null;
     startedAt: number;
   }>) => void;
   handleThinking: (payload: {
@@ -75,6 +77,7 @@ interface AgentThinkingState {
     status: "started" | "streaming" | "completed" | "failed";
     chunk?: string;
     summary?: string;
+    error?: string;
     toolCall?: { toolName: string; input: Record<string, unknown> };
   }) => void;
   addTestResults: (results: TestResults) => void;
@@ -159,6 +162,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           status: status as ThinkingBlock["status"],
           content,
           summary,
+          error: exec.error || undefined,
           expanded: false,
           startedAt: exec.startedAt,
         };
@@ -169,7 +173,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
 
   handleThinking: (payload) =>
     set((state) => {
-      const { agentName, displayName, status, chunk, summary, toolCall } = payload;
+      const { agentName, displayName, status, chunk, summary, error, toolCall } = payload;
       const blocks = [...state.blocks];
 
       if (status === "started") {
@@ -230,6 +234,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         blocks[lastIdx] = {
           ...existing,
           status: "failed",
+          error: error || existing.error,
           expanded: existing.expanded, // Preserve user's expansion state
         };
         return { blocks };

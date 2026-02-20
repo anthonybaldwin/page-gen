@@ -7,7 +7,7 @@ import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope }
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
-import { trackTokenUsage, trackProvisionalUsage, finalizeTokenUsage, countProvisionalRecords } from "../services/token-tracker.ts";
+import { trackTokenUsage, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults, broadcastTestResultIncremental } from "../ws.ts";
@@ -815,6 +815,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       if (signal.aborted) break;
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} error: ${lastError.message}`, err);
+
+      // Void provisional token records so failed calls don't leave phantom billing
+      if (provisionalIds) {
+        voidProvisionalUsage(provisionalIds);
+        provisionalIds = null;
+      }
 
       // Check for non-retriable API errors (credit exhaustion, auth failure, etc.)
       const apiCheck = isNonRetriableApiError(err);
