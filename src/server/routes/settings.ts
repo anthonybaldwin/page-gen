@@ -257,10 +257,10 @@ settingsRoutes.get("/pricing", (c) => {
   return c.json(getAllPricing());
 });
 
-// Upsert pricing override for a model
+// Upsert pricing override for a model (optional provider for custom models)
 settingsRoutes.put("/pricing/:model", async (c) => {
   const model = c.req.param("model");
-  const body = await c.req.json<{ input: number; output: number }>();
+  const body = await c.req.json<{ input: number; output: number; provider?: string }>();
 
   if (typeof body.input !== "number" || typeof body.output !== "number") {
     return c.json({ error: "input and output must be numbers" }, 400);
@@ -269,7 +269,7 @@ settingsRoutes.put("/pricing/:model", async (c) => {
     return c.json({ error: "Pricing values must be non-negative" }, 400);
   }
 
-  upsertPricing(model, body.input, body.output);
+  upsertPricing(model, body.input, body.output, body.provider);
   return c.json({ ok: true });
 });
 
@@ -310,9 +310,9 @@ settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
   return c.json({ ok: true });
 });
 
-// Get known models grouped by provider with pricing info
+// Get known models grouped by provider with pricing info (includes custom models)
 settingsRoutes.get("/models", (c) => {
-  const providers = [
+  const providers: { provider: string; models: { id: string; pricing: { input: number; output: number } | null }[] }[] = [
     {
       provider: "anthropic",
       models: Object.values(ANTHROPIC_MODELS).map((id) => ({
@@ -335,5 +335,24 @@ settingsRoutes.get("/models", (c) => {
       })),
     },
   ];
+
+  // Include custom models (non-known) under their assigned provider
+  const allPricing = getAllPricing();
+  const knownModelIds: Set<string> = new Set([
+    ...Object.values(ANTHROPIC_MODELS),
+    ...Object.values(OPENAI_MODELS),
+    ...Object.values(GOOGLE_MODELS),
+  ]);
+  for (const p of allPricing) {
+    if (knownModelIds.has(p.model)) continue;
+    if (!p.provider) continue;
+    let group = providers.find((g) => g.provider === p.provider);
+    if (!group) {
+      group = { provider: p.provider, models: [] };
+      providers.push(group);
+    }
+    group.models.push({ id: p.model, pricing: { input: p.input, output: p.output } });
+  }
+
   return c.json(providers);
 });

@@ -92,6 +92,7 @@ export interface ModelPricingInfo {
   output: number;
   isOverridden: boolean;
   isKnown: boolean;
+  provider?: string;
 }
 
 /**
@@ -134,8 +135,8 @@ export function estimateCost(
   return (inputCost + outputCost + cacheCreateCost + cacheReadCost) / 1_000_000;
 }
 
-/** Upsert pricing override for a model in app_settings. */
-export function upsertPricing(model: string, input: number, output: number): void {
+/** Upsert pricing override for a model in app_settings. Optional provider for custom models. */
+export function upsertPricing(model: string, input: number, output: number, provider?: string): void {
   for (const [field, value] of [["input", input], ["output", output]] as const) {
     const key = pricingKey(model, field);
     const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
@@ -146,6 +147,15 @@ export function upsertPricing(model: string, input: number, output: number): voi
       db.insert(schema.appSettings).values({ key, value: strVal }).run();
     }
   }
+  if (provider) {
+    const key = `pricing.${model}.provider`;
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: provider }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value: provider }).run();
+    }
+  }
 }
 
 /** Remove pricing override for a model (reverts to default if known). */
@@ -154,6 +164,9 @@ export function deletePricingOverride(model: string): void {
     const key = pricingKey(model, field);
     db.delete(schema.appSettings).where(eq(schema.appSettings.key, key)).run();
   }
+  // Also clean up provider key for custom models
+  const providerKey = `pricing.${model}.provider`;
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, providerKey)).run();
 }
 
 /** Get all models with effective pricing, merging defaults + DB overrides. */
@@ -174,7 +187,14 @@ export function getAllPricing(): ModelPricingInfo[] {
   // Layer in DB overrides
   const rows = db.select().from(schema.appSettings).where(like(schema.appSettings.key, "pricing.%")).all();
   const overrides = new Map<string, { input?: number; output?: number }>();
+  const providerMap = new Map<string, string>();
   for (const row of rows) {
+    // Check for provider keys: pricing.<model>.provider
+    if (row.key.endsWith(".provider")) {
+      const model = row.key.slice("pricing.".length, row.key.length - ".provider".length);
+      if (model) providerMap.set(model, row.value);
+      continue;
+    }
     const parsed = parsePricingKey(row.key);
     if (!parsed) continue;
     const existing = overrides.get(parsed.model) || {};
@@ -197,6 +217,7 @@ export function getAllPricing(): ModelPricingInfo[] {
         output: override.output,
         isOverridden: true,
         isKnown: false,
+        provider: providerMap.get(model),
       });
     }
   }

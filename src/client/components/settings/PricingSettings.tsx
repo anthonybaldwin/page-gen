@@ -31,8 +31,8 @@ export function PricingSettings() {
     refresh().catch(console.error);
   }, []);
 
-  async function handlePricingOverride(model: string, input: number, output: number) {
-    await api.put(`/settings/pricing/${model}`, { input, output });
+  async function handlePricingOverride(model: string, input: number, output: number, provider?: string) {
+    await api.put(`/settings/pricing/${model}`, { input, output, ...(provider ? { provider } : {}) });
     await refresh();
   }
 
@@ -90,7 +90,7 @@ export function PricingSettings() {
       <div className="border-t border-zinc-800" />
 
       {/* Add Custom Model */}
-      <AddCustomModelForm onAdd={handlePricingOverride} existingModels={knownModelIds} />
+      <AddCustomModelForm onAdd={(model, input, output, provider) => handlePricingOverride(model, input, output, provider)} existingModels={knownModelIds} />
 
       {/* Model Pricing by Provider */}
       {knownModels.map((group) => (
@@ -140,13 +140,16 @@ export function PricingSettings() {
   );
 }
 
+const PROVIDERS = ["anthropic", "openai", "google"];
+
 function AddCustomModelForm({
   onAdd,
   existingModels,
 }: {
-  onAdd: (model: string, input: number, output: number) => void;
+  onAdd: (model: string, input: number, output: number, provider: string) => void;
   existingModels: Set<string>;
 }) {
+  const [provider, setProvider] = useState(PROVIDERS[0]!);
   const [modelId, setModelId] = useState("");
   const [inputPrice, setInputPrice] = useState("");
   const [outputPrice, setOutputPrice] = useState("");
@@ -160,7 +163,7 @@ function AddCustomModelForm({
     const out = parseFloat(outputPrice);
     if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) { setError("Valid pricing required"); return; }
     setError("");
-    onAdd(id, inp, out);
+    onAdd(id, inp, out, provider);
     setModelId("");
     setInputPrice("");
     setOutputPrice("");
@@ -170,6 +173,18 @@ function AddCustomModelForm({
     <div className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3">
       <h4 className="text-xs font-medium text-zinc-300 mb-2">Add Custom Model</h4>
       <div className="flex gap-2 items-end flex-wrap">
+        <div>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">Provider</label>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            className="rounded bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          >
+            {PROVIDERS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex-1 min-w-[140px]">
           <label className="text-[10px] text-zinc-500 block mb-0.5">Model ID</label>
           <input
