@@ -886,6 +886,12 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       const postCheck = checkCostLimit(chatId);
       const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
       await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      if (!postCheck.allowed) {
+        broadcastAgentStatus(chatId, "orchestrator", "failed");
+      } else {
+        broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
+        broadcastAgentStatus(chatId, "orchestrator", "failed");
+      }
       abortControllers.delete(chatId);
       return;
     }
@@ -940,6 +946,12 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       const postCheck = checkCostLimit(chatId);
       const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
       await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      if (!postCheck.allowed) {
+        broadcastAgentStatus(chatId, "orchestrator", "failed");
+      } else {
+        broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
+        broadcastAgentStatus(chatId, "orchestrator", "failed");
+      }
       abortControllers.delete(chatId);
       return;
     }
@@ -1275,6 +1287,8 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     });
     if (!pipelineOk) {
       await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
     }
@@ -1414,8 +1428,11 @@ async function executePipelineSteps(ctx: {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
         log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
+        broadcastAgentThinking(chatId, "orchestrator", "Build System", "started");
+        broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Checking build..." });
         const buildErrors = await checkProjectBuild(projectPath);
         if (buildErrors && !signal.aborted) {
+          broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Build errors found — attempting fix..." });
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
             userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
@@ -1426,9 +1443,16 @@ async function executePipelineSteps(ctx: {
           }
           const recheckErrors = await checkProjectBuild(projectPath);
           if (!recheckErrors) {
+            broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
             broadcast({ type: "preview_ready", payload: { projectId } });
+          } else {
+            broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed");
           }
+        } else if (!buildErrors) {
+          broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
+          broadcast({ type: "preview_ready", payload: { projectId } });
         } else {
+          broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed");
           broadcast({ type: "preview_ready", payload: { projectId } });
         }
       }
