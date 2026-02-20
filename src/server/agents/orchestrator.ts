@@ -112,6 +112,96 @@ function resolveProviderModel(config: { provider: string; model: string }, provi
 }
 
 /**
+ * Determine which agents will actually run for a given intent/scope combination.
+ * Used for plan-scoped preflight validation.
+ */
+export function getPlannedAgents(intent: OrchestratorIntent, scope: IntentScope, hasFiles: boolean): AgentName[] {
+  if (intent === "question") return [];
+  if (intent === "fix" && !hasFiles) return []; // will fall through to build
+
+  if (intent === "fix") {
+    // Quick-edit paths (styling, frontend) skip reviewers
+    if (scope === "styling") return ["styling"];
+    if (scope === "frontend") return ["frontend-dev"];
+    // Backend/full fixes get dev + reviewers
+    if (scope === "backend") return ["backend-dev", "code-review", "security", "qa"];
+    // full scope
+    return ["frontend-dev", "backend-dev", "code-review", "security", "qa"];
+  }
+
+  // Build mode: research + architect + dev + styling + reviewers
+  const agents: AgentName[] = ["research", "architect", "frontend-dev", "styling", "code-review", "security", "qa"];
+  return agents;
+}
+
+/**
+ * Validate that all planned agents can resolve a provider model.
+ * Returns an array of error messages (empty = all OK).
+ */
+export function preflightValidatePlan(agentNames: AgentName[], providers: ProviderInstance): string[] {
+  const errors: string[] = [];
+  for (const agentName of agentNames) {
+    const agentConfig = getAgentConfigResolved(agentName);
+    if (!agentConfig) continue;
+    const model = resolveProviderModel(agentConfig, providers);
+    if (!model) {
+      errors.push(`${agentName} requires "${agentConfig.provider}" provider but no API key is configured`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Build a fix-mode execution plan for backend/full scopes.
+ * Skips the testing agent (finishPipeline runs actual build+tests).
+ * Includes reviewers for backend/full scopes (higher risk).
+ */
+export function buildFixPlan(userMessage: string, scope: IntentScope): ExecutionPlan {
+  const steps: ExecutionPlan["steps"] = [];
+
+  // Dev agent(s) based on scope
+  if (scope === "backend") {
+    steps.push({
+      agentName: "backend-dev",
+      input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+    });
+  } else {
+    // "full" scope
+    steps.push({
+      agentName: "frontend-dev",
+      input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+    });
+    steps.push({
+      agentName: "backend-dev",
+      input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+      dependsOn: ["frontend-dev"],
+    });
+  }
+
+  // Reviewers for backend/full (higher risk)
+  const lastDevAgent = steps[steps.length - 1]!.agentName;
+  steps.push(
+    {
+      agentName: "code-review",
+      input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: [lastDevAgent],
+    },
+    {
+      agentName: "security",
+      input: `Security review all code changes (provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: [lastDevAgent],
+    },
+    {
+      agentName: "qa",
+      input: `Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
+      dependsOn: [lastDevAgent],
+    },
+  );
+
+  return { steps };
+}
+
+/**
  * Extract the design_system JSON from the architect's output and format it
  * as a readable section for downstream agents. Mutates the result object
  * by adding a "design-system" key if the architect output contains one.
@@ -302,11 +392,31 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
-  // Review agents (code-review, security, qa) → fresh project source from disk + architect
+  // Review agents (code-review, security, qa) → architect + changed-file manifest (not full source)
   if (agentName === "code-review" || agentName === "security" || agentName === "qa") {
     const result: Record<string, string> = {};
     if (all["architect"]) result["architect"] = all["architect"];
-    if (projectPath) {
+
+    // Build changed-file manifest from dev agent outputs instead of sending full project source
+    const devAgentKeys = ["frontend-dev", "backend-dev", "styling"];
+    const changedFiles: string[] = [];
+    for (const devKey of devAgentKeys) {
+      if (all[devKey]) {
+        const manifest = buildFileManifest(all[devKey]);
+        if (manifest) changedFiles.push(`### ${devKey} output\n${manifest}`);
+      }
+    }
+
+    if (changedFiles.length > 0) {
+      result["changed-files"] = changedFiles.join("\n\n");
+      // Also provide fresh project source for context, but with a tighter cap
+      if (projectPath) {
+        const REVIEWER_SOURCE_CAP = 30_000;
+        const source = readProjectSource(projectPath);
+        result["project-source"] = truncateOutput(source, REVIEWER_SOURCE_CAP);
+      }
+    } else if (projectPath) {
+      // No dev agent outputs (e.g., fix mode) — fall back to project source
       result["project-source"] = getFreshProjectSource(projectPath);
     } else if (all["project-source"]) {
       result["project-source"] = all["project-source"];
@@ -572,7 +682,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
         }, config.provider, config.model);
 
-        const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+        const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens
+          + (result.tokenUsage.cacheCreationInputTokens || 0) + (result.tokenUsage.cacheReadInputTokens || 0);
         const costEst = estimateCost(
           config.provider, config.model,
           result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
@@ -822,23 +933,6 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return resumeOrchestration({ ...input, pipelineRunId: interruptedId });
   }
 
-  // --- Preflight: verify core pipeline agents can resolve a provider model ---
-  const CORE_PIPELINE_AGENTS: AgentName[] = ["research", "architect", "frontend-dev", "styling", "code-review", "security", "qa"];
-  const preflightErrors: string[] = [];
-  for (const agentName of CORE_PIPELINE_AGENTS) {
-    const agentConfig = getAgentConfigResolved(agentName);
-    if (!agentConfig) continue;
-    const model = resolveProviderModel(agentConfig, providers);
-    if (!model) {
-      preflightErrors.push(`${agentName} requires "${agentConfig.provider}" provider but no API key is configured`);
-    }
-  }
-  if (preflightErrors.length > 0) {
-    abortControllers.delete(chatId);
-    broadcastAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
-    return;
-  }
-
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
@@ -849,6 +943,17 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const hasFiles = projectHasFiles(projectPath);
   const classification = await classifyIntent(userMessage, hasFiles, providers);
   log("orchestrator", `Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
+
+  // --- Preflight: verify only planned agents can resolve a provider model ---
+  {
+    const plannedAgents = getPlannedAgents(classification.intent as OrchestratorIntent, classification.scope as IntentScope, hasFiles);
+    const preflightErrors = preflightValidatePlan(plannedAgents, providers);
+    if (preflightErrors.length > 0) {
+      abortControllers.delete(chatId);
+      broadcastAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
+      return;
+    }
+  }
 
   // Track classifyIntent token usage
   if (classification.tokenUsage) {
@@ -906,69 +1011,31 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Quick-edit mode: styling-only changes skip full pipeline for ~5s turnaround ---
-  if (classification.intent === "fix" && classification.scope === "styling" && hasFiles) {
-    log("orchestrator", "Quick-edit mode: routing directly to styling agent");
+  // --- Fix mode: tiered pipeline based on scope ---
+  // styling/frontend = quick-edit (single agent, no reviewers)
+  // backend/full = dev agent(s) + reviewers (no testing agent — finishPipeline runs actual tests)
+  if (classification.intent === "fix" && hasFiles) {
     const projectSource = readProjectSource(projectPath);
     if (projectSource) {
       agentResults.set("project-source", projectSource);
     }
 
-    const quickPlan: ExecutionPlan = {
-      steps: [{
-        agentName: "styling",
-        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
-      }],
-    };
+    const scope = classification.scope as IntentScope;
+    const isQuickEdit = scope === "styling" || scope === "frontend";
 
-    const pipelineRunId = nanoid();
-    await db.insert(schema.pipelineRuns).values({
-      id: pipelineRunId, chatId,
-      intent: "fix", scope: "styling", userMessage,
-      plannedAgents: JSON.stringify(["styling"]),
-      status: "running", startedAt: Date.now(), completedAt: null,
-    });
-
-    broadcast({ type: "pipeline_plan", payload: { chatId, agents: ["styling"] } });
-
-    const pipelineOk = await executePipelineSteps({
-      plan: quickPlan, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-      providers, apiKeys, signal,
-    });
-    if (!pipelineOk) {
-      const postCheck = checkCostLimit(chatId);
-      const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
-      await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
-      if (!postCheck.allowed) {
-        broadcastAgentStatus(chatId, "orchestrator", "failed");
-      } else {
-        broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
-        broadcastAgentStatus(chatId, "orchestrator", "failed");
-      }
-      abortControllers.delete(chatId);
-      return;
+    let quickPlan: ExecutionPlan | null = null;
+    if (isQuickEdit) {
+      const agentName: AgentName = scope === "styling" ? "styling" : "frontend-dev";
+      log("orchestrator", `Quick-edit mode (${scope}): routing directly to ${agentName} agent`);
+      quickPlan = {
+        steps: [{
+          agentName,
+          input: `Fix the following ${scope === "styling" ? "styling " : ""}issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        }],
+      };
     }
 
-    await finishPipeline({
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-      providers, apiKeys, signal,
-    });
-
-    await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
-    abortControllers.delete(chatId);
-    return;
-  }
-
-  // --- Fix mode: skip research/architect, inject project source ---
-  if (classification.intent === "fix") {
-    const projectSource = readProjectSource(projectPath);
-    if (projectSource) {
-      agentResults.set("project-source", projectSource);
-    }
-
-    const plan = buildExecutionPlan(userMessage, undefined, "fix", classification.scope);
+    const plan = quickPlan ?? buildFixPlan(userMessage, scope);
 
     // Persist pipeline run
     const pipelineRunId = nanoid();
@@ -1238,7 +1305,17 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
 
   let plan: ExecutionPlan;
   if (intent === "fix") {
-    plan = buildExecutionPlan(originalMessage, undefined, "fix", scope);
+    if (scope === "styling" || scope === "frontend") {
+      const agentName: AgentName = scope === "styling" ? "styling" : "frontend-dev";
+      plan = {
+        steps: [{
+          agentName,
+          input: `Fix the following ${scope === "styling" ? "styling " : ""}issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${originalMessage}`,
+        }],
+      };
+    } else {
+      plan = buildFixPlan(originalMessage, scope);
+    }
   } else {
     // Build mode: single frontend-dev pipeline
     plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
@@ -1649,13 +1726,17 @@ async function handleQuestion(ctx: {
         const cacheCreation = Number(qAnthropicMeta?.cacheCreationInputTokens ?? qAnthropicMeta?.cache_creation_input_tokens) || 0;
         const cacheRead = Number(qAnthropicMeta?.cacheReadInputTokens ?? qAnthropicMeta?.cache_read_input_tokens) || 0;
 
+        // SDK inputTokens includes cache tokens — subtract to get non-cached count
+        const qRawInput = result.usage.inputTokens || 0;
+        const qInputTokens = Math.max(0, qRawInput - cacheCreation - cacheRead);
+
         const record = trackTokenUsage({
           executionId: execId, chatId,
           agentName: "orchestrator:question",
           provider: questionConfig.provider,
           model: questionConfig.model,
           apiKey: providerKey,
-          inputTokens: result.usage.inputTokens || 0,
+          inputTokens: qInputTokens,
           outputTokens: result.usage.outputTokens || 0,
           cacheCreationInputTokens: cacheCreation,
           cacheReadInputTokens: cacheRead,
@@ -1666,9 +1747,9 @@ async function handleQuestion(ctx: {
           chatId, agentName: "orchestrator:question",
           provider: questionConfig.provider,
           model: questionConfig.model,
-          inputTokens: result.usage.inputTokens || 0,
+          inputTokens: qInputTokens,
           outputTokens: result.usage.outputTokens || 0,
-          totalTokens: (result.usage.inputTokens || 0) + (result.usage.outputTokens || 0),
+          totalTokens: qRawInput + (result.usage.outputTokens || 0),
           costEstimate: record.costEstimate,
         });
 
@@ -1765,12 +1846,14 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   if (result.usage) {
     const providerKey = apiKeys[summaryConfig.provider];
     if (providerKey) {
-      const inputTokens = result.usage.inputTokens || 0;
+      const sRawInput = result.usage.inputTokens || 0;
       const outputTokens = result.usage.outputTokens || 0;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
       const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens ?? sAnthropicMeta?.cache_creation_input_tokens) || 0;
       const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens ?? sAnthropicMeta?.cache_read_input_tokens) || 0;
+      // SDK inputTokens includes cache tokens — subtract to get non-cached count
+      const inputTokens = Math.max(0, sRawInput - summaryCacheCreation - summaryCacheRead);
 
       const summaryExecId = nanoid();
       db.insert(schema.agentExecutions).values({
@@ -1800,7 +1883,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
         provider: summaryConfig.provider,
         model: summaryConfig.model,
         inputTokens, outputTokens,
-        totalTokens: inputTokens + outputTokens,
+        totalTokens: sRawInput + outputTokens,
         costEstimate: record.costEstimate,
       });
 
@@ -2100,7 +2183,8 @@ async function runFixAgent(
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
       }, config.provider, config.model);
 
-      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens
+        + (result.tokenUsage.cacheCreationInputTokens || 0) + (result.tokenUsage.cacheReadInputTokens || 0);
       const costEst = estimateCost(
         config.provider, config.model,
         result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
@@ -2223,7 +2307,8 @@ async function runReviewAgent(
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
       }, config.provider, config.model);
 
-      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens
+        + (result.tokenUsage.cacheCreationInputTokens || 0) + (result.tokenUsage.cacheReadInputTokens || 0);
       const costEst = estimateCost(
         config.provider, config.model,
         result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
@@ -2360,12 +2445,25 @@ export async function classifyIntent(
   }
 }
 
-const READ_EXCLUDE_PATTERNS = /node_modules|dist|\.git|bun\.lockb|package-lock\.json|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.ico|\.woff|\.ttf|\.eot/;
+const READ_EXCLUDE_PATTERNS = /node_modules|dist|\.git|bun\.lockb|bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.ico|\.woff|\.ttf|\.eot/;
+const DATA_DIR_PATTERNS = /(?:^|\/)(?:src\/)?data\//;
 const MAX_SOURCE_SIZE = 100_000; // 100KB cap
 
 /**
+ * Check if file content is predominantly data (array/object literals).
+ * Returns true if >80% of non-empty lines are data patterns.
+ */
+export function isDataFile(content: string): boolean {
+  const lines = content.split("\n").filter(l => l.trim().length > 0);
+  if (lines.length < 10) return false; // too short to be a data dump
+  const dataLinePattern = /^\s*["'`\[{]|^\s*\d|^\s*\/\//;
+  const dataLines = lines.filter(l => dataLinePattern.test(l)).length;
+  return dataLines / lines.length > 0.8;
+}
+
+/**
  * Read all source files from a project directory into a formatted string.
- * Excludes node_modules, dist, .git, lockfiles, and binary files.
+ * Excludes node_modules, dist, .git, lockfiles, binary files, and data-heavy files.
  * Returns empty string if project has no readable files.
  */
 export function readProjectSource(projectPath: string): string {
@@ -2379,6 +2477,7 @@ export function readProjectSource(projectPath: string): string {
     for (const node of nodes) {
       if (totalSize >= MAX_SOURCE_SIZE) return;
       if (READ_EXCLUDE_PATTERNS.test(node.path)) continue;
+      if (DATA_DIR_PATTERNS.test(node.path)) continue;
 
       if (node.type === "directory" && node.children) {
         walkFiles(node.children, node.path);
@@ -2386,6 +2485,8 @@ export function readProjectSource(projectPath: string): string {
         try {
           const content = readFile(projectPath, node.path);
           if (totalSize + content.length > MAX_SOURCE_SIZE) return;
+          // Skip files that are predominantly data (e.g., word lists, fixture dumps)
+          if (content.length > 5000 && isDataFile(content)) continue;
           parts.push(`### ${node.path}\n\`\`\`\n${content}\n\`\`\``);
           totalSize += content.length;
         } catch {
@@ -2422,63 +2523,28 @@ export function buildExecutionPlan(
   intent: OrchestratorIntent = "build",
   scope: IntentScope = "full"
 ): ExecutionPlan {
-  // --- Fix mode: TDD — testing first, then dev agents ---
+  // --- Fix mode: tiered pipeline based on scope ---
+  // styling/frontend = quick-edit (single agent, no reviewers — finishPipeline runs actual tests)
+  // backend/full = dev agent(s) + reviewers
   if (intent === "fix") {
-    const steps: ExecutionPlan["steps"] = [];
-
-    // Testing comes first: create a test plan for the fix
-    steps.push({
-      agentName: "testing",
-      input: `Create a test plan that defines the expected behavior for the fix: ${userMessage}. The existing code is in Previous Agent Outputs as "project-source". Output a JSON test plan — dev agents will write the actual test files.`,
-    });
-
-    // Route to dev agent(s) based on scope
-    if (scope === "frontend" || scope === "full") {
-      steps.push({
-        agentName: "frontend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
-        dependsOn: ["testing"],
-      });
-    }
-    if (scope === "backend" || scope === "full") {
-      const backendDeps: AgentName[] = scope === "full" ? ["frontend-dev"] : ["testing"];
-      steps.push({
-        agentName: "backend-dev",
-        input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
-        dependsOn: backendDeps,
-      });
-    }
     if (scope === "styling") {
-      steps.push({
-        agentName: "styling",
-        input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). A test plan has been created — write or update test files following the plan. Original request: ${userMessage}`,
-        dependsOn: ["testing"],
-      });
+      return {
+        steps: [{
+          agentName: "styling",
+          input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        }],
+      };
     }
-
-    // Always append reviewers — all depend on the last dev agent(s), run in parallel
-    const lastDevAgent = steps[steps.length - 1]!.agentName;
-    const reviewDeps = [lastDevAgent];
-
-    steps.push(
-      {
-        agentName: "code-review",
-        input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: reviewDeps,
-      },
-      {
-        agentName: "security",
-        input: `Security review all code changes (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: reviewDeps,
-      },
-      {
-        agentName: "qa",
-        input: `Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: reviewDeps,
-      },
-    );
-
-    return { steps };
+    if (scope === "frontend") {
+      return {
+        steps: [{
+          agentName: "frontend-dev",
+          input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+        }],
+      };
+    }
+    // backend/full — delegate to buildFixPlan
+    return buildFixPlan(userMessage, scope);
   }
 
   // --- Build mode: architect (with test plan) → dev → styling → review ---
@@ -2589,7 +2655,10 @@ export function sanitizeFilePath(raw: string): string {
  *   <tool_call>{"name":"write_file","parameters":{"path":"...","content":"..."}}</tool_call>
  * Fallback patterns for markdown-style output also supported.
  */
-export function extractFilesFromOutput(agentOutput: string): Array<{ path: string; content: string }> {
+export function extractFilesFromOutput(
+  agentOutput: string,
+  strict = !process.env.ENABLE_TOOL_CALL_REPAIR,
+): Array<{ path: string; content: string }> {
   const files: Array<{ path: string; content: string }> = [];
   const seen = new Set<string>();
 
@@ -2612,7 +2681,12 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
         addFile(json.parameters.path, json.parameters.content);
       }
     } catch {
-      // JSON parse failed — try repairing the raw block before regex fallback
+      if (strict) {
+        // Strict mode: reject malformed tool_call blocks
+        logWarn("extractFiles", `Rejected malformed tool_call block (strict mode)`);
+        continue;
+      }
+      // Non-strict: try repairing the raw block before regex fallback
       const rawBlock = match[1]!;
       if (rawBlock.includes("write_file")) {
         // Repair step: fix common JSON encoding issues
