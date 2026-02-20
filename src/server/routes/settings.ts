@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
-import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING } from "../services/pricing.ts";
+import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
 import { GOOGLE_MODELS } from "../providers/google.ts";
@@ -277,6 +277,36 @@ settingsRoutes.put("/pricing/:model", async (c) => {
 settingsRoutes.delete("/pricing/:model", (c) => {
   const model = c.req.param("model");
   deletePricingOverride(model);
+  return c.json({ ok: true });
+});
+
+// --- Cache multiplier endpoints ---
+
+// Get all effective cache multipliers (defaults + overrides)
+settingsRoutes.get("/cache-multipliers", (c) => {
+  return c.json(getAllCacheMultipliers());
+});
+
+// Upsert cache multiplier override for a provider
+settingsRoutes.put("/cache-multipliers/:provider", async (c) => {
+  const provider = c.req.param("provider");
+  const body = await c.req.json<{ create: number; read: number }>();
+
+  if (typeof body.create !== "number" || typeof body.read !== "number") {
+    return c.json({ error: "create and read must be numbers" }, 400);
+  }
+  if (body.create < 0 || body.read < 0) {
+    return c.json({ error: "Multiplier values must be non-negative" }, 400);
+  }
+
+  upsertCacheMultipliers(provider, body.create, body.read);
+  return c.json({ ok: true });
+});
+
+// Delete cache multiplier override (reverts to default)
+settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
+  const provider = c.req.param("provider");
+  deleteCacheMultiplierOverride(provider);
   return c.json({ ok: true });
 });
 

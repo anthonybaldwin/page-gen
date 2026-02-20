@@ -109,6 +109,14 @@ export interface ModelPricing {
   isKnown: boolean;
 }
 
+export interface CacheMultiplierInfo {
+  provider: string;
+  create: number;
+  read: number;
+  isOverridden: boolean;
+  isKnown: boolean;
+}
+
 export type OrchestratorIntent = "build" | "fix" | "question";
 
 export type IntentScope = "frontend" | "backend" | "styling" | "full";

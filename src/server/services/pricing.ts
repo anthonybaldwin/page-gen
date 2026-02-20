@@ -1,5 +1,6 @@
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
+import type { CacheMultiplierInfo } from "../../shared/types.ts";
 
 /** Provider-specific cache token multipliers relative to input price. */
 export const PROVIDER_CACHE_MULTIPLIERS: Record<string, { create: number; read: number }> = {
@@ -201,14 +202,6 @@ export function getAllPricing(): ModelPricingInfo[] {
   }
 
   return Array.from(result.values());
-}
-
-export interface CacheMultiplierInfo {
-  provider: string;
-  create: number;
-  read: number;
-  isOverridden: boolean;
-  isKnown: boolean;
 }
 
 /** Get all providers with effective cache multipliers, merging defaults + DB overrides. */
