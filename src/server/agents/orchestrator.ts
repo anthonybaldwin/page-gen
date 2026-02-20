@@ -340,6 +340,11 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
+  // architect → research (sequential: research runs first, architect consumes its requirements)
+  if (agentName === "architect") {
+    return truncateAllOutputs(pick(["research"]));
+  }
+
   // testing → architect + project-source
   if (agentName === "testing") {
     return truncateAllOutputs(pick(["architect"]));
@@ -970,41 +975,55 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Build mode: full pipeline (research + architect → parallel dev → styling → review) ---
+  // --- Build mode: full pipeline (research → architect → parallel dev → styling → review) ---
 
-  // Phase 1: Run research + architect in PARALLEL (saves ~60-90s)
-  // Both receive user message directly; architect prompt is updated to work with or without research results.
-  log("orchestrator", "Running research + architect in parallel");
-  const [researchResult, architectResult] = await Promise.all([
-    runPipelineStep({
-      step: {
-        agentName: "research",
-        input: `Analyze this request and produce structured requirements: ${userMessage}`,
-      },
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
-      providers, apiKeys, signal,
-    }),
-    runPipelineStep({
-      step: {
-        agentName: "architect",
-        input: `Design the component architecture, design system, and test plan for this request. If the research agent's requirements are available in Previous Agent Outputs, use them. Otherwise, infer requirements directly from the user's request. Original request: ${userMessage}`,
-      },
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
-      providers, apiKeys, signal,
-    }),
-  ]);
+  // Phase 1: Run research first so architect gets structured requirements
+  log("orchestrator", "Running research agent");
+  const researchResult = await runPipelineStep({
+    step: {
+      agentName: "research",
+      input: `Analyze this request and produce structured requirements: ${userMessage}`,
+    },
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
 
-  if ((!researchResult && !architectResult) || signal.aborted) {
-    if (signal.aborted) {
-      await db.insert(schema.messages).values({
-        id: nanoid(), chatId, role: "system",
-        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-      });
-      broadcastAgentStatus(chatId, "orchestrator", "stopped");
-    }
+  if (signal.aborted) {
+    await db.insert(schema.messages).values({
+      id: nanoid(), chatId, role: "system",
+      content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+    });
+    broadcastAgentStatus(chatId, "orchestrator", "stopped");
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  // Phase 2: Run architect with research output available in agentResults
+  log("orchestrator", "Running architect agent");
+  const architectResult = await runPipelineStep({
+    step: {
+      agentName: "architect",
+      input: `Design the component architecture, design system, and test plan for this request. Use the research agent's structured requirements from Previous Agent Outputs. Original request: ${userMessage}`,
+    },
+    chatId, projectId, projectPath, projectName, chatTitle,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    providers, apiKeys, signal,
+  });
+
+  if (!architectResult && !researchResult) {
+    abortControllers.delete(chatId);
+    return;
+  }
+
+  if (signal.aborted) {
+    await db.insert(schema.messages).values({
+      id: nanoid(), chatId, role: "system",
+      content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+    });
+    broadcastAgentStatus(chatId, "orchestrator", "stopped");
     abortControllers.delete(chatId);
     return;
   }
