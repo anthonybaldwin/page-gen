@@ -2,15 +2,16 @@
 
 ## Overview
 
-The system uses 10 specialized AI agents, coordinated by an orchestrator. Each agent has a specific role, model, and set of tools.
+The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coordinated by an orchestrator. Each agent has a specific role, model, and set of tools. All models are configurable via **Settings → Models**.
 
 ## Agents
 
 ### 1. Orchestrator
-- **Model:** Claude Opus 4.6 (Anthropic) for agent dispatch; uses cheaper models for subtasks:
-  - **classifyIntent** → Haiku (~97% cheaper than Opus)
-  - **generateSummary** → Sonnet (5x cheaper than Opus)
-  - **handleQuestion** → Sonnet (5x cheaper than Opus)
+- **Model:** Claude Opus 4.6 (Anthropic) for agent dispatch
+- **Subtask models** (configurable via Settings → Models):
+  - **Intent Classifier** (`orchestrator:classify`) → default Haiku (~97% cheaper than Opus)
+  - **Summary Writer** (`orchestrator:summary`) → default Sonnet (5x cheaper than Opus)
+  - **Question Answerer** (`orchestrator:question`) → default Sonnet (5x cheaper than Opus)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
 - **Tools:** Agent dispatch, snapshot creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
@@ -294,8 +295,9 @@ Each agent's native tool access can be configured via **Settings → Tools**. Th
 | Agent | write_file | read_file | list_files |
 |-------|-----------|-----------|------------|
 | frontend-dev, backend-dev, styling | Yes | Yes | Yes |
-| research, architect, testing, code-review, qa, security | No | Yes | Yes |
-| orchestrator | No | No | No |
+| research, architect | No | Yes | Yes |
+| testing, code-review, qa, security | No | No | No |
+| orchestrator, orchestrator:classify, orchestrator:question, orchestrator:summary | No | No | No |
 
 - Tool overrides are stored in `app_settings` (key: `agent.{name}.tools`, value: JSON array)
 - The orchestrator reads tool config at runtime via `getAgentTools()` and only passes enabled tools to each agent
