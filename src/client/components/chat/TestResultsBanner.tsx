@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../ui/button.tsx";
 import { CheckCircle2, XCircle, Circle, Loader2, ChevronDown } from "lucide-react";
 import type { TestDetail } from "../../../shared/types.ts";
 
@@ -66,9 +67,10 @@ export function TestResultsBanner({ results }: Props) {
   return (
     <div className={`mx-4 my-2 rounded-lg border ${borderColor} ${bgColor} px-4 py-3`}>
       {/* Summary header */}
-      <button
+      <Button
+        variant="ghost"
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-2 text-xs ${textColor} w-full text-left`}
+        className={`flex items-center gap-2 text-xs ${textColor} w-full justify-start h-auto p-0 hover:bg-transparent`}
       >
         {streaming ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400 shrink-0" />
@@ -93,7 +95,7 @@ export function TestResultsBanner({ results }: Props) {
         {testDetails && testDetails.length > 0 && !streaming && (
           <ChevronDown className={`ml-2 h-3.5 w-3.5 opacity-50 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
         )}
-      </button>
+      </Button>
 
       {/* Per-test checklist */}
       {expanded && testDetails && testDetails.length > 0 && (
@@ -109,9 +111,10 @@ export function TestResultsBanner({ results }: Props) {
                 <div className="space-y-0.5 ml-2">
                   {tests.map((test, i) => (
                     <div key={`${test.name}-${i}`}>
-                      <button
+                      <Button
+                        variant="ghost"
                         onClick={() => test.error ? setExpandedError(expandedError === `${suite}-${i}` ? null : `${suite}-${i}`) : undefined}
-                        className={`flex items-center gap-1.5 text-xs w-full text-left ${
+                        className={`flex items-center gap-1.5 text-xs w-full justify-start h-auto p-0 hover:bg-transparent font-normal ${
                           test.error ? "cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1" : ""
                         }`}
                       >
@@ -122,7 +125,7 @@ export function TestResultsBanner({ results }: Props) {
                         {test.duration !== undefined && (
                           <span className="text-muted-foreground/50 ml-auto text-[10px] shrink-0">{test.duration}ms</span>
                         )}
-                      </button>
+                      </Button>
                       {expandedError === `${suite}-${i}` && test.error && (
                         <pre className="mt-1 ml-5 text-[10px] text-destructive/60 bg-destructive/5 rounded p-2 overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap">
                           {test.error}
@@ -142,14 +145,15 @@ export function TestResultsBanner({ results }: Props) {
         <div className="mt-2 space-y-1">
           {results.failures.map((failure, i) => (
             <div key={i} className="text-xs">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setExpandedError(expandedError === `legacy-${i}` ? null : `legacy-${i}`)}
-                className="flex items-center gap-1.5 text-destructive/80 hover:text-destructive transition-colors w-full text-left"
+                className="flex items-center gap-1.5 text-destructive/80 hover:text-destructive w-full justify-start h-auto p-0 hover:bg-transparent font-normal"
               >
                 <XCircle className="h-3 w-3 shrink-0" />
                 <span className="truncate">{failure.name}</span>
                 <ChevronDown className={`ml-auto h-3 w-3 opacity-50 shrink-0 transition-transform ${expandedError === `legacy-${i}` ? "rotate-180" : ""}`} />
-              </button>
+              </Button>
               {expandedError === `legacy-${i}` && (
                 <pre className="mt-1 ml-4 text-[10px] text-destructive/60 bg-destructive/5 rounded p-2 overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap">
                   {failure.error}

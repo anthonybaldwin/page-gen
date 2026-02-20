@@ -2,6 +2,7 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.tsx";
 import { TestResultsBanner } from "./TestResultsBanner.tsx";
 import { Badge } from "../ui/badge.tsx";
+import { Button } from "../ui/button.tsx";
 import { Loader2, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
 import type { ThinkingBlock, ToolCallEntry } from "../../stores/agentThinkingStore.ts";
 
@@ -205,9 +206,10 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
         }`}
       >
         {/* Header */}
-        <button
+        <Button
+          variant="ghost"
           onClick={onToggle}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50 transition-colors group"
+          className="w-full flex items-center gap-2.5 px-3 py-2 h-auto justify-start rounded-none hover:bg-accent/50 group"
         >
           <ThinkingStatusIcon status={status} />
           <span className={`text-sm font-medium ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
@@ -233,7 +235,7 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
               expanded ? "rotate-180" : ""
             }`}
           />
-        </button>
+        </Button>
 
         {/* Expandable thinking body */}
         {expanded && (cleanContent || showRaw) && (
@@ -267,12 +269,14 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
             {/* Toggle raw output */}
             {hasRawContent && !isActive && (
               <div className="px-4 pb-2">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={(e) => { e.stopPropagation(); setShowRaw(!showRaw); }}
-                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  className="h-5 px-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground"
                 >
                   {showRaw ? "Show clean" : "Show raw output"}
-                </button>
+                </Button>
               </div>
             )}
           </div>

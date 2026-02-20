@@ -351,12 +351,14 @@ export function ChatWindow() {
             <Button size="sm" onClick={handleResume} className="h-6 px-2 text-xs bg-amber-600 hover:bg-amber-500">
               Resume
             </Button>
-            <button
+            <Button
+              variant="link"
+              size="sm"
               onClick={handleRetryFresh}
-              className="text-amber-500/70 dark:text-amber-400/70 hover:text-amber-600 dark:hover:text-amber-200 text-xs underline underline-offset-2"
+              className="h-6 px-1 text-xs text-amber-500/70 dark:text-amber-400/70 hover:text-amber-600 dark:hover:text-amber-200"
             >
               Retry from scratch
-            </button>
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setInterrupted(false)} className="h-6 px-1">
               <X className="h-3 w-3" />
             </Button>
