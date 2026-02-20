@@ -40,8 +40,8 @@ docker run -p 3000:3000 -p 3001-3020:3001-3020 pagegen
 |--------|---------------|---------|
 | Bind mount (`.`, read-only) | `/app` | Your project source — live-synced for HMR, not writable by container |
 | Anonymous | `/app/node_modules` | Container's deps — isolated from host |
-| `pagegen-data` | `/app/data` | SQLite DB — project records, chat history, billing, settings |
-| `pagegen-logs` | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |
+| Bind mount (`./data`) | `/app/data` | SQLite DB — project records, chat history, billing, settings |
+| Bind mount (`./logs`) | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |
 | Bind mount (`./projects`) | `/app/projects` | Generated project files — visible on host |
 
 Named volumes persist across container restarts.

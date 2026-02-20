@@ -10,13 +10,10 @@ services:
     volumes:
       - .:/app:ro
       - /app/node_modules
-      - pagegen-data:/app/data
-      - pagegen-logs:/app/logs
+      - ./data:/app/data
+      - ./logs:/app/logs
       - ./projects:/app/projects
     environment:
       - PREVIEW_HOST=0.0.0.0
       - LOG_FORMAT=json
 
-volumes:
-  pagegen-data:
-  pagegen-logs:
