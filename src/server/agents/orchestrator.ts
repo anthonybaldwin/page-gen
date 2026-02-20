@@ -1285,31 +1285,38 @@ export interface ReviewFindings {
   };
 }
 
+/** Fail signals that indicate a review agent found real issues. */
+const FAIL_SIGNALS = [
+  '"status": "fail"',
+  '"status":"fail"',
+  "[FAIL]",
+  "critical issue",
+  "must fix",
+  "must be fixed",
+  "needs to be fixed",
+  "severity: critical",
+  "severity: high",
+  '"severity": "critical"',
+  '"severity": "high"',
+];
+
+/** Check if review output contains explicit failure indicators. */
+export function outputHasFailSignals(output: string): boolean {
+  if (!output || output.trim() === "") return false;
+  const lower = output.toLowerCase();
+  return FAIL_SIGNALS.some((signal) => lower.includes(signal.toLowerCase()));
+}
+
 export function detectIssues(agentResults: Map<string, string>): ReviewFindings {
   const codeReviewOutput = agentResults.get("code-review") || "";
   const qaOutput = agentResults.get("qa") || "";
   const securityOutput = agentResults.get("security") || "";
 
-  // All three review agents are report-only — check for pass signals.
-  const codeReviewClean =
-    codeReviewOutput.includes('"status": "pass"') ||
-    codeReviewOutput.includes('"status":"pass"') ||
-    codeReviewOutput.includes("Code Review: Pass") ||
-    codeReviewOutput.trim() === "";
-
-  const qaClean =
-    qaOutput.includes('"status": "pass"') ||
-    qaOutput.includes('"status":"pass"') ||
-    qaOutput.includes("QA Review: Pass") ||
-    qaOutput.trim() === "";
-
-  const securityClean =
-    securityOutput.includes('"status": "pass"') ||
-    securityOutput.includes('"status":"pass"') ||
-    securityOutput.includes("Passed with no issues") ||
-    securityOutput.includes("zero security vulnerabilities") ||
-    securityOutput.includes("safe for production") ||
-    securityOutput.trim() === "";
+  // Inverted logic: treat output as clean UNLESS it contains explicit fail signals.
+  // This is far more robust — LLMs vary in how they say "pass" but are consistent about flagging problems.
+  const codeReviewClean = !outputHasFailSignals(codeReviewOutput);
+  const qaClean = !outputHasFailSignals(qaOutput);
+  const securityClean = !outputHasFailSignals(securityOutput);
 
   // Parse routing hints from code-review and QA findings
   const allFindings = codeReviewOutput + "\n" + qaOutput;
@@ -1376,7 +1383,7 @@ interface RemediationContext {
   signal: AbortSignal;
 }
 
-const MAX_REMEDIATION_CYCLES = 2;
+const MAX_REMEDIATION_CYCLES = 1;
 
 /**
  * Iterative remediation loop: detects code-review/QA/security issues,
@@ -1424,13 +1431,18 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
 
     if (ctx.signal.aborted) return;
 
-    // 5. Re-run code-review, security, and QA in parallel on updated code
-    const reviewResults = await Promise.all([
-      runReviewAgent("code-review", cycleLabel, ctx),
-      runReviewAgent("security", cycleLabel, ctx),
-      runReviewAgent("qa", cycleLabel, ctx),
-    ]);
-    if (reviewResults.some((r) => !r) || ctx.signal.aborted) return;
+    // 5. Only re-run the review agents that had issues (not all three)
+    const reviewsToRerun: Array<"code-review" | "security" | "qa"> = [];
+    if (findings.codeReviewFindings) reviewsToRerun.push("code-review");
+    if (findings.securityFindings) reviewsToRerun.push("security");
+    if (findings.qaFindings) reviewsToRerun.push("qa");
+
+    if (reviewsToRerun.length > 0) {
+      const reviewResults = await Promise.all(
+        reviewsToRerun.map((agent) => runReviewAgent(agent, cycleLabel, ctx)),
+      );
+      if (reviewResults.some((r) => !r) || ctx.signal.aborted) return;
+    }
 
     // Loop continues — detectIssues() at top checks the fresh output
   }
@@ -2040,21 +2052,33 @@ export function agentHasFileTools(name: string): boolean {
   return tools.includes("write_file");
 }
 
-/** Check if the project has any test files on disk (.test.tsx/.test.ts in src/) */
+/** Check if the project has any test files on disk (.test./.spec. in src/, up to 3 levels deep) */
 function testFilesExist(projectPath: string): boolean {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
-  const srcTestDir = join(fullPath, "src", "__tests__");
-  if (existsSync(srcTestDir)) return true;
   const srcDir = join(fullPath, "src");
   if (!existsSync(srcDir)) return false;
-  try {
-    const files = readdirSync(srcDir);
-    return files.some((f) => /\.test\.(tsx?|jsx?)$/.test(f));
-  } catch {
+
+  const testPattern = /\.(test|spec)\.(tsx?|jsx?)$/;
+
+  function searchDir(dir: string, depth: number): boolean {
+    if (depth > 3) return false;
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && testPattern.test(entry.name)) return true;
+        if (entry.isDirectory() && entry.name !== "node_modules") {
+          if (searchDir(join(dir, entry.name), depth + 1)) return true;
+        }
+      }
+    } catch {
+      // Permission error or similar — skip
+    }
     return false;
   }
+
+  return searchDir(srcDir, 0);
 }
 
 /**
@@ -2220,6 +2244,8 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
 
   console.log(`[orchestrator] Running build check in ${fullPath}...`);
 
+  const BUILD_TIMEOUT_MS = 30_000;
+
   try {
     const proc = Bun.spawn(["bunx", "vite", "build", "--mode", "development"], {
       cwd: fullPath,
@@ -2228,7 +2254,18 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
       env: { ...process.env, NODE_ENV: "development" },
     });
 
-    const exitCode = await proc.exited;
+    const timeout = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), BUILD_TIMEOUT_MS),
+    );
+    const result = await Promise.race([proc.exited, timeout]);
+
+    if (result === "timeout") {
+      console.warn(`[orchestrator] Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
+      proc.kill();
+      return null; // Don't block pipeline on timeout
+    }
+
+    const exitCode = result;
     if (exitCode === 0) {
       console.log(`[orchestrator] Build check passed`);
       return null;
@@ -2493,6 +2530,8 @@ export async function runProjectTests(
 
   console.log(`[orchestrator] Running tests in ${fullPath}...`);
 
+  const TEST_TIMEOUT_MS = 60_000;
+
   try {
     const jsonOutputFile = join(fullPath, "vitest-results.json");
     const proc = Bun.spawn(
@@ -2531,7 +2570,18 @@ export async function runProjectTests(
       }
     }
 
-    const exitCode = await proc.exited;
+    const timeout = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), TEST_TIMEOUT_MS),
+    );
+    const exitResult = await Promise.race([proc.exited, timeout]);
+
+    if (exitResult === "timeout") {
+      console.warn(`[orchestrator] Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
+      proc.kill();
+      return null;
+    }
+
+    const exitCode = exitResult;
     const stderr = await new Response(proc.stderr).text();
 
     if (stderr.trim()) {

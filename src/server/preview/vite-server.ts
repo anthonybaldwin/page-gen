@@ -161,6 +161,7 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: true,
+    include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}"],
   },
 });
 `;
@@ -273,10 +274,16 @@ export async function prepareProjectForPreview(projectPath: string): Promise<voi
 }
 
 export async function startPreviewServer(projectId: string, projectPath: string): Promise<{ url: string; port: number }> {
-  // If already running, return existing URL
+  // If already running, check if process is still alive
   const existing = activeServers.get(projectId);
   if (existing) {
-    return { url: `http://localhost:${existing.port}`, port: existing.port };
+    if (existing.process.exitCode !== null) {
+      // Process has exited — remove stale entry and start fresh
+      console.log(`[preview] Server for ${projectId} died (exit ${existing.process.exitCode}) — restarting`);
+      activeServers.delete(projectId);
+    } else {
+      return { url: `http://localhost:${existing.port}`, port: existing.port };
+    }
   }
 
   const fullPath = join(process.cwd(), projectPath);
@@ -294,6 +301,14 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   });
 
   activeServers.set(projectId, { port, process: proc });
+
+  // Auto-cleanup when process exits unexpectedly
+  proc.exited.then((code) => {
+    if (activeServers.get(projectId)?.process === proc) {
+      console.log(`[preview] Vite server for ${projectId} exited (code ${code}) — removing from active servers`);
+      activeServers.delete(projectId);
+    }
+  });
 
   // Wait for Vite to be ready by polling the port
   const startTime = Date.now();

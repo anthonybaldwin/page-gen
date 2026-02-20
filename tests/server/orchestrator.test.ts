@@ -4,6 +4,7 @@ import {
   needsBackend,
   buildExecutionPlan,
   detectIssues,
+  outputHasFailSignals,
   determineFixAgents,
   determineBuildFixAgent,
   extractFilesFromOutput,
@@ -211,6 +212,60 @@ describe("buildExecutionPlan", () => {
   });
 });
 
+// --- outputHasFailSignals ---
+
+describe("outputHasFailSignals", () => {
+  test("returns false for empty string", () => {
+    expect(outputHasFailSignals("")).toBe(false);
+  });
+
+  test("returns false for whitespace-only", () => {
+    expect(outputHasFailSignals("   ")).toBe(false);
+  });
+
+  test("returns false for generic pass output", () => {
+    expect(outputHasFailSignals("All checks passed. Code looks good.")).toBe(false);
+  });
+
+  test("returns false for LLM-style pass with no fail keywords", () => {
+    expect(outputHasFailSignals("The code is clean and well-structured. No issues found.")).toBe(false);
+  });
+
+  test('detects "status": "fail" with spaces', () => {
+    expect(outputHasFailSignals('{"status": "fail", "findings": []}')).toBe(true);
+  });
+
+  test('detects "status":"fail" without spaces', () => {
+    expect(outputHasFailSignals('{"status":"fail"}')).toBe(true);
+  });
+
+  test("detects [FAIL] marker", () => {
+    expect(outputHasFailSignals("[FAIL] Missing import in App.tsx")).toBe(true);
+  });
+
+  test("detects 'critical issue' phrase", () => {
+    expect(outputHasFailSignals("Found a critical issue with XSS vulnerability")).toBe(true);
+  });
+
+  test("detects 'must fix' phrase", () => {
+    expect(outputHasFailSignals("This must fix the broken import")).toBe(true);
+  });
+
+  test("detects 'severity: critical'", () => {
+    expect(outputHasFailSignals("Issue severity: critical — SQL injection")).toBe(true);
+  });
+
+  test("detects 'severity: high'", () => {
+    expect(outputHasFailSignals("severity: high - missing auth check")).toBe(true);
+  });
+
+  test("is case-insensitive", () => {
+    expect(outputHasFailSignals("[fail] something broke")).toBe(true);
+    expect(outputHasFailSignals("CRITICAL ISSUE found")).toBe(true);
+    expect(outputHasFailSignals("MUST FIX immediately")).toBe(true);
+  });
+});
+
 // --- detectIssues ---
 
 describe("detectIssues", () => {
@@ -321,6 +376,24 @@ describe("detectIssues", () => {
     expect(result.routingHints.frontendIssues).toBe(false);
     expect(result.routingHints.backendIssues).toBe(false);
     expect(result.routingHints.stylingIssues).toBe(false);
+  });
+
+  test("treats varied LLM pass phrasing as clean (no false positives)", () => {
+    const result = detectIssues(makeResults({
+      "code-review": "All code looks clean. No issues detected. The components are well-structured.",
+      qa: "All requirements have been met. Quality is acceptable.",
+      security: "No vulnerabilities found. The application follows security best practices.",
+    }));
+    expect(result.hasIssues).toBe(false);
+  });
+
+  test("treats LLM summary with recommendations (but no fail signals) as clean", () => {
+    const result = detectIssues(makeResults({
+      "code-review": "Overall good code quality. Consider adding TypeScript strict mode in the future.",
+      qa: "All tests conceptually pass. UI looks correct.",
+      security: "No security concerns at this time.",
+    }));
+    expect(result.hasIssues).toBe(false);
   });
 });
 
