@@ -14,7 +14,8 @@ import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadca
 import { broadcast } from "../ws.ts";
 import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
-import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
+import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from "../preview/vite-server.ts";
+import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
@@ -100,6 +101,28 @@ export function formatTestFailures(failures: Array<{ name: string; error: string
     lines.push(`(and ${failures.length - MAX_TEST_FAILURES} more failures — fix the above first)`);
   }
   return `Test failures:\n${lines.join("\n")}`;
+}
+
+/**
+ * Start the backend server for a project if server/index.ts exists.
+ * Fire-and-forget — errors are logged but don't block the pipeline.
+ */
+function maybeStartBackend(projectId: string, projectPath: string) {
+  if (!projectHasBackend(projectPath)) return;
+  const fp = getFrontendPort(projectId);
+  if (!fp) return;
+  log("orchestrator", `Backend detected for ${projectId} — starting backend server`);
+  startBackendServer(projectId, projectPath, fp)
+    .then(({ ready }) => {
+      if (ready) {
+        log("orchestrator", `Backend server for ${projectId} is ready`);
+      } else {
+        logError("orchestrator", `Backend server for ${projectId} started but health check failed`);
+      }
+    })
+    .catch((err) =>
+      logError("orchestrator", `Failed to start backend for ${projectId}`, err instanceof Error ? err.message : String(err))
+    );
 }
 
 /** Resolve a provider model instance from a config, respecting the configured provider. */
@@ -748,9 +771,11 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           const recheckErrors = await checkProjectBuild(projectPath);
           if (!recheckErrors) {
             broadcast({ type: "preview_ready", payload: { projectId } });
+            maybeStartBackend(projectId, projectPath);
           }
         } else {
           broadcast({ type: "preview_ready", payload: { projectId } });
+          maybeStartBackend(projectId, projectPath);
         }
 
         // After dev agents (not testing itself), run tests if test files exist
@@ -1568,15 +1593,18 @@ async function executePipelineSteps(ctx: {
           if (!recheckErrors) {
             broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
             broadcast({ type: "preview_ready", payload: { projectId } });
+            maybeStartBackend(projectId, projectPath);
           } else {
             broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed");
           }
         } else if (!buildErrors) {
           broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
           broadcast({ type: "preview_ready", payload: { projectId } });
+          maybeStartBackend(projectId, projectPath);
         } else {
           broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed");
           broadcast({ type: "preview_ready", payload: { projectId } });
+          maybeStartBackend(projectId, projectPath);
         }
       }
     }
@@ -1674,9 +1702,11 @@ async function finishPipeline(ctx: {
       const finalRecheck = await checkProjectBuild(projectPath);
       if (!finalRecheck) {
         broadcast({ type: "preview_ready", payload: { projectId } });
+        maybeStartBackend(projectId, projectPath);
       }
     } else {
       broadcast({ type: "preview_ready", payload: { projectId } });
+      maybeStartBackend(projectId, projectPath);
     }
   }
 

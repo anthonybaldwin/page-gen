@@ -6,6 +6,7 @@ import { mkdirSync, rmSync } from "fs";
 import { resolve } from "path";
 import { abortOrchestration } from "../agents/orchestrator.ts";
 import { stopPreviewServer } from "../preview/vite-server.ts";
+import { stopBackendServer } from "../preview/backend-server.ts";
 
 export const projectRoutes = new Hono();
 
@@ -84,7 +85,8 @@ projectRoutes.delete("/:id", async (c) => {
   await db.delete(schema.chats).where(eq(schema.chats.projectId, id));
   await db.delete(schema.projects).where(eq(schema.projects.id, id));
 
-  // Stop any running preview server, then remove project directory from disk
+  // Stop any running servers, then remove project directory from disk
+  await stopBackendServer(id);
   await stopPreviewServer(id);
   try {
     rmSync(resolve("projects", id), { recursive: true, force: true });

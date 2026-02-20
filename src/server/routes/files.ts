@@ -4,6 +4,7 @@ import { join, dirname, relative } from "path";
 import { zipSync, strToU8 } from "fflate";
 import type { FileNode } from "../../shared/types.ts";
 import { startPreviewServer, getPreviewUrl, stopPreviewServer } from "../preview/vite-server.ts";
+import { stopBackendServer } from "../preview/backend-server.ts";
 import { broadcastFilesChanged } from "../ws.ts";
 
 export const fileRoutes = new Hono();
@@ -117,6 +118,7 @@ fileRoutes.post("/preview/:projectId", async (c) => {
 // Stop preview server for a project
 fileRoutes.delete("/preview/:projectId", async (c) => {
   const projectId = c.req.param("projectId");
+  await stopBackendServer(projectId);
   await stopPreviewServer(projectId);
   return c.json({ ok: true });
 });

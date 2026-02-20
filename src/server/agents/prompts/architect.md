@@ -145,9 +145,64 @@ Use a 4px rhythm. Stick to Tailwind's spacing scale (p-1 = 4px, p-2 = 8px, etc.)
 ### Radius, Shadows, Borders
 Specify the radius, shadow, and border conventions to prevent inconsistency across components.
 
+## Backend File Plan
+
+When the project requires a backend (API routes, data persistence, server logic), include backend files in the `file_plan`:
+
+- **All backend files go in `server/`** at the project root (NOT `src/api/` or `src/server/`).
+- **Entry point**: `server/index.ts` — Hono server with `process.env.PORT`, health check at `GET /api/health`.
+- **Routes**: `server/routes/<resource>.ts` — one file per resource, mounted under `/api`.
+- **Database**: `server/db.ts` — SQLite schema and setup via `bun:sqlite`. Data file at `server/data.sqlite`.
+- **Persistence**: SQLite ONLY. Do NOT specify Redis, PostgreSQL, MongoDB, or any external service. Each project runs in isolation with no shared services.
+
+### Backend file_plan example
+
+```json
+[
+  {
+    "action": "create",
+    "path": "server/index.ts",
+    "description": "Hono entry point with health check and route mounting.",
+    "exports": ["default"]
+  },
+  {
+    "action": "create",
+    "path": "server/db.ts",
+    "description": "SQLite database setup and table creation.",
+    "exports": ["db"]
+  },
+  {
+    "action": "create",
+    "path": "server/routes/items.ts",
+    "description": "CRUD routes for items resource.",
+    "exports": ["default"]
+  }
+]
+```
+
+### Backend data_flow example
+
+```json
+[
+  {
+    "from": "ItemList",
+    "to": "API /api/items",
+    "method": "GET",
+    "payload": "none"
+  },
+  {
+    "from": "AddItemForm",
+    "to": "API /api/items",
+    "method": "POST",
+    "payload": "{ name: string, description: string }"
+  }
+]
+```
+
 ## Rules
 
-- Follow the existing `src/` structure. Components go in `src/components/`, hooks in `src/hooks/`, etc.
+- Follow the existing `src/` structure for frontend. Components go in `src/components/`, hooks in `src/hooks/`, etc.
+- Backend files go in `server/` (not `src/`).
 - Keep the component tree as flat as reasonably possible. Avoid deep nesting beyond 3 levels. If you need level 4+, use context or composition patterns instead of prop drilling.
 - Every component must have a single, clear responsibility.
 - Props must be explicitly typed. Use TypeScript interfaces.

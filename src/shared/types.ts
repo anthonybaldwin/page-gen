@@ -130,7 +130,7 @@ export interface IntentClassification {
 }
 
 export interface WsMessage {
-  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "pipeline_interrupted" | "test_results" | "test_result_incremental" | "chat_renamed";
+  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "pipeline_interrupted" | "test_results" | "test_result_incremental" | "chat_renamed" | "backend_ready" | "backend_error";
   payload: Record<string, unknown>;
 }
 

@@ -40,6 +40,32 @@ graph TD
 - **Per-project mutex:** Prevents concurrent `bun install` on the same project directory.
 - **Cleanup:** Servers are killed when the project is closed or the app exits.
 
+### 1b. Per-Project Backend Servers
+
+Projects that include a `server/index.ts` entry point get a backend process alongside Vite:
+
+```mermaid
+graph TD
+  subgraph Pool["Port Mapping"]
+    V1["Vite :3001<br>Frontend"]
+    B1["Bun :4001<br>Backend"]
+  end
+
+  FE["Preview iframe"] -->|localhost:3001| V1
+  V1 -->|"/api/*" proxy| B1
+  B1 -->|SQLite| DB["server/data.sqlite"]
+```
+
+- **Port derivation:** `backendPort = frontendPort + 1000`. E.g., Vite on 3005 → backend on 4005. No separate port pool needed.
+- **Framework:** Hono (already in `package.json`), running on Bun. Entry point: `server/index.ts`.
+- **Startup:** Eagerly started by the orchestrator after a successful build check, when `server/index.ts` exists on disk.
+- **Health check:** Polls `GET /api/health` every 500ms for up to 10s. Once ready, `enableViteProxy()` rewrites `vite.config.ts` with an `/api` proxy block pointing at the backend port.
+- **Persistence:** SQLite only via `bun:sqlite`. Data file at `server/data.sqlite` (per-project, zero cross-project conflicts). No external services (Redis, Postgres, etc.) allowed.
+- **Lifecycle:** Mirrors Vite server exactly — `proc.exited` handler auto-cleans up on crash. Explicitly stopped when project is deleted or preview is stopped.
+- **Frontend-only projects:** No backend process spawned, no proxy in Vite config, no changes at all.
+
+**Key files:** `src/server/preview/backend-server.ts`, `src/server/preview/vite-server.ts` (`enableViteProxy`, `getFrontendPort`)
+
 ### 2. Pipeline-Aware Preview Gating
 
 The preview doesn't blindly reload on every file change:
@@ -88,12 +114,12 @@ graph TB
 
 - **Source is read-only:** Application code is bind-mounted as `:ro`. Generated code cannot modify the app itself.
 - **Data isolation:** SQLite database, project files, and logs each get their own writable volume.
-- **Network:** Ports 3000 (API), 3001–3020 (preview servers), and 5173 (Vite frontend) are mapped.
+- **Network:** Ports 3000 (API), 3001–3020 (preview Vite servers), 4001–4020 (preview backend servers), and 5173 (Vite frontend) are mapped.
 - **Vite binding:** `PREVIEW_HOST=0.0.0.0` ensures Vite binds to all interfaces inside the container (browser connects via Docker port mapping).
 - **Log format:** `LOG_FORMAT=json` by default in Docker for machine-parseable output.
 - **Multi-stage Dockerfile:** `dev` target for development (bind-mounted source), `production` target for deployment (compiled frontend, production deps only).
 
-**Key files:** `src/server/preview/vite-server.ts`, `src/server/agents/orchestrator.ts` (`extractAndWriteFiles`), `Dockerfile`, `docker-compose.yml`
+**Key files:** `src/server/preview/vite-server.ts`, `src/server/preview/backend-server.ts`, `src/server/agents/orchestrator.ts` (`extractAndWriteFiles`), `Dockerfile`, `docker-compose.yml`
 
 ## Alternatives Considered
 

@@ -72,11 +72,25 @@ This prevents the preview from flashing broken content when agents write files t
 - No access to parent app's localStorage, cookies, or DOM
 - Completely isolated execution environment
 
+### Backend Server (Full-Stack Projects)
+
+Projects that include a `server/index.ts` entry point automatically get a backend process alongside Vite:
+
+- **Framework:** Hono on Bun. Entry point: `server/index.ts`. All routes under `/api/`.
+- **Port derivation:** `backendPort = frontendPort + 1000` (e.g., Vite on 3005 → backend on 4005).
+- **Startup:** The orchestrator starts the backend after a successful build check if `server/index.ts` exists.
+- **Health check:** Polls `GET /api/health` every 500ms for up to 10s.
+- **Proxy injection:** Once the backend is ready, `enableViteProxy()` rewrites `vite.config.ts` to add an `/api` proxy. Vite auto-restarts with the proxy active.
+- **Persistence:** SQLite only via `bun:sqlite`. Data file at `server/data.sqlite` (per-project, zero cross-project conflicts).
+- **Frontend-only projects:** No backend spawned, no proxy in Vite config, no changes at all.
+- **Error handling:** Backend stderr is streamed to logs in real-time. Crashes broadcast `backend_error` WebSocket events. Health check failures are logged with the last 10 lines of stderr.
+
 ### Server Lifecycle
-- Servers are started on-demand via `POST /api/files/preview/{projectId}`
+- Vite servers are started on-demand via `POST /api/files/preview/{projectId}`
+- Backend servers are started eagerly by the orchestrator after build passes
 - `startPreviewServer()` runs full scaffolding before spawning Vite
-- Servers are cleaned up when the project is closed or the app exits
-- Port pool: 3001-3020 with automatic reuse — stopped servers release their port back to the pool
+- Servers are cleaned up when the project is closed or deleted
+- Vite port pool: 3001-3020 with automatic reuse. Backend ports: 4001-4020 (derived from frontend port + 1000).
 - Port readiness is verified by polling before returning the URL
 
 ### Docker Support
@@ -100,3 +114,6 @@ The editor closes automatically when switching projects, resetting the tab back 
 - **Module not found:** Check that `bun install` ran successfully in the project directory
 - **HMR not working:** Verify Vite config exists in the project directory
 - **Port conflict:** Check if another process is using the assigned port
+- **API returns 404:** Check that `server/index.ts` exists and the backend started (look for `backend_ready` or `backend_error` in WS events). Verify `vite.config.ts` has the `/api` proxy block.
+- **Backend crashes on start:** Check logs for `[backend]` tag — stderr is streamed in real-time. Common cause: syntax errors in `server/index.ts` or missing `export default`.
+- **Health check timeout:** Backend may be starting slowly or not exposing `GET /api/health`. Check that the entry point uses `process.env.PORT`.

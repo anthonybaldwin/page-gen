@@ -31,7 +31,7 @@ The Dockerfile also has a `production` target that pre-compiles the frontend int
 
 ```bash
 docker build --target production -t pagegen .
-docker run -p 3000:3000 -p 3001-3020:3001-3020 pagegen
+docker run -p 3000:3000 -p 3001-3020:3001-3020 -p 4001-4020:4001-4020 pagegen
 ```
 
 ## Volumes
@@ -53,6 +53,7 @@ Named volumes persist across container restarts.
 | `5173` | Vite dev server (frontend + HMR) |
 | `3000` | Hono backend (API + WebSocket) |
 | `3001-3020` | Preview Vite dev servers (one per active project) |
+| `4001-4020` | Preview backend servers (one per full-stack project, derived from frontend port + 1000) |
 
 ## Environment Variables
 
@@ -84,7 +85,7 @@ LLM prompt/response logs are separate text files in `logs/llm/` (too large for N
 
 ## Preview Port Pool
 
-Preview servers use a port pool (3001-3020) with automatic recycling. When a preview server stops, its port returns to the pool for reuse. This keeps the port range bounded even with many project starts/stops.
+Preview Vite servers use a port pool (3001-3020) with automatic recycling. When a preview server stops, its port returns to the pool for reuse. Full-stack projects also get a backend server on ports 4001-4020 (derived as `frontendPort + 1000`). Both are stopped when a project is deleted or its preview is closed.
 
 ## What Stays the Same
 

@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync } from "fs";
+import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { log, logError } from "../services/logger.ts";
 
@@ -90,6 +90,8 @@ function ensureProjectHasPackageJson(projectPath: string) {
   // Inherit versions from our own package.json (Dependabot keeps them current)
   if (!deps.react) deps.react = OUR_DEPS.react || "^19.2.0";
   if (!deps["react-dom"]) deps["react-dom"] = OUR_DEPS["react-dom"] || "^19.2.0";
+  if (!deps.hono) deps.hono = OUR_DEPS.hono || "^4.11.0";
+  if (!deps.zod) deps.zod = OUR_DEPS.zod || "^4.3.0";
 
   if (!devDeps.vite) devDeps.vite = OUR_DEPS.vite || "^7.3.0";
   if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = OUR_DEPS["@vitejs/plugin-react"] || "^5.1.0";
@@ -209,7 +211,7 @@ function ensureProjectHasTsConfig(projectPath: string) {
       resolveJsonModule: true,
       isolatedModules: true,
     },
-    include: ["src"],
+    include: ["src", "server"],
     exclude: ["node_modules", "dist"],
   };
 
@@ -422,4 +424,50 @@ export function invalidateProjectDeps(projectPath: string) {
     ? projectPath
     : join(process.cwd(), projectPath);
   installedProjects.delete(fullPath);
+}
+
+/**
+ * Get the frontend (Vite) port for a running project, or null if not running.
+ */
+export function getFrontendPort(projectId: string): number | null {
+  return activeServers.get(projectId)?.port ?? null;
+}
+
+/**
+ * Rewrite vite.config.ts to include an /api proxy block pointing at the
+ * backend port. Vite's file watcher detects the config change and auto-restarts.
+ * Called by backend-server.ts after the backend process is confirmed ready.
+ */
+export function enableViteProxy(projectPath: string, backendPort: number) {
+  const configPath = join(projectPath, "vite.config.ts");
+  if (!existsSync(configPath)) return;
+
+  const current = readFileSync(configPath, "utf-8");
+
+  // Already has proxy config — skip rewrite
+  if (current.includes("/api")) return;
+
+  const config = `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  root: ".",
+  server: {
+    hmr: true,
+    proxy: {
+      "/api": {
+        target: "http://localhost:${backendPort}",
+        changeOrigin: true,
+      },
+    },
+  },
+});
+`;
+
+  // Delete and re-create to ensure Vite's watcher picks up the change
+  try { unlinkSync(configPath); } catch { /* may not exist */ }
+  writeFileSync(configPath, config, "utf-8");
+  log("preview", `Injected Vite proxy config for backend port ${backendPort}`);
 }
