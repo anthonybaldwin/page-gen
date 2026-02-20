@@ -187,14 +187,6 @@ export function buildFileManifest(agentOutput: string): string {
     if (!files.includes(match[1]!)) files.push(match[1]!);
   }
 
-  if (files.length === 0) {
-    // Fallback: extract from markdown code blocks with file paths
-    const codeBlockRegex = /(?:###\s+|\/\/\s*)((?:src\/|\.\/)?[\w./-]+\.\w+)/g;
-    while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
-      if (!files.includes(match[1]!)) files.push(match[1]!);
-    }
-  }
-
   if (files.length === 0) return truncateOutput(agentOutput, MAX_OUTPUT_CHARS);
 
   return `Files written (${files.length}):\n${files.map(f => `- ${f}`).join("\n")}\n\n(Agent has tools — use read_file to inspect any file above)`;
@@ -224,7 +216,7 @@ function truncateAllOutputs(result: Record<string, string>): Record<string, stri
 
 /** Check if an agent is a tool-using dev agent (writes files to disk). */
 function isToolUsingAgent(name: string): boolean {
-  return name.startsWith("frontend-dev") || name === "backend-dev" || name === "styling";
+  return name === "frontend-dev" || name === "backend-dev" || name === "styling";
 }
 
 /**
@@ -239,97 +231,6 @@ function manifestifyDevOutputs(result: Record<string, string>): Record<string, s
   return out;
 }
 
-/**
- * Extract assigned file paths from a parallel dev agent's input string.
- * Returns empty array if the input doesn't match the expected pattern.
- */
-export function extractAssignedFiles(stepInput: string): string[] {
-  const match = stepInput.match(/Implement ONLY these files[^:]*:\s*([\s\S]+?)\.\s*Do NOT/);
-  if (!match?.[1]) return [];
-  return match[1].split(",").map((f) => f.trim()).filter(Boolean);
-}
-
-/**
- * Truncate architect output to only include file_plan entries relevant to a specific dev agent.
- * Preserves design_system, component_tree, and top-level metadata.
- * Falls back to full output if JSON parsing fails.
- */
-export function truncateArchitectForAgent(architectOutput: string, agentFiles: string[]): string {
-  if (agentFiles.length === 0) return architectOutput;
-  try {
-    const parsed = JSON.parse(architectOutput);
-    if (parsed.file_plan && Array.isArray(parsed.file_plan)) {
-      const fileSet = new Set(agentFiles.map((f) => f.replace(/^\.\//, "")));
-      // Also build a set of basenames for matching test_plan component names
-      const baseNameSet = new Set(agentFiles.map((f) => {
-        const base = f.replace(/^\.\//, "").split("/").pop() || "";
-        return base.replace(/\.\w+$/, ""); // strip extension
-      }));
-
-      const filtered = { ...parsed };
-
-      // Keep FULL file_plan so every agent sees all exports/imports contracts
-      // (file_plan is NOT filtered — agents need it for correct import paths)
-
-      // Filter test_plan to only entries relevant to assigned files
-      if (parsed.test_plan && Array.isArray(parsed.test_plan)) {
-        filtered.test_plan = parsed.test_plan.filter((t: { test_file?: string; component?: string }) => {
-          if (t.test_file) {
-            const tf = t.test_file.replace(/^\.\//, "");
-            if (fileSet.has(tf)) return true;
-          }
-          if (t.component && baseNameSet.has(t.component)) return true;
-          return false;
-        });
-      }
-
-      // Prune component_tree to only include nodes referencing assigned files
-      if (parsed.component_tree) {
-        filtered.component_tree = pruneComponentTree(parsed.component_tree, fileSet);
-      }
-
-      return JSON.stringify(filtered);
-    }
-  } catch {
-    // Not valid JSON — return truncated original
-  }
-  return truncateOutput(architectOutput, 10_000);
-}
-
-/**
- * Recursively prune a component tree, keeping only nodes whose file matches
- * an assigned file, plus any ancestor nodes leading to matched files.
- * Returns null if the subtree has no matching nodes.
- */
-function pruneComponentTree(
-  node: { name?: string; file?: string; children?: unknown[] } | unknown,
-  fileSet: Set<string>,
-): unknown {
-  if (!node || typeof node !== "object") return node;
-  const n = node as { name?: string; file?: string; children?: unknown[] };
-
-  // Leaf node or node without children
-  if (!n.children || !Array.isArray(n.children) || n.children.length === 0) {
-    if (n.file) {
-      const f = n.file.replace(/^\.\//, "");
-      return fileSet.has(f) ? node : null;
-    }
-    return node; // No file field — keep (could be structural)
-  }
-
-  // Recurse into children, keeping only matched subtrees
-  const prunedChildren = n.children
-    .map((child) => pruneComponentTree(child, fileSet))
-    .filter((child) => child !== null);
-
-  // If this node's own file matches, keep it with pruned children
-  const selfMatch = n.file ? fileSet.has(n.file.replace(/^\.\//, "")) : false;
-  if (prunedChildren.length > 0 || selfMatch) {
-    return { ...n, children: prunedChildren };
-  }
-
-  return null;
-}
 
 /**
  * Filter upstream outputs so each agent only receives relevant data.
@@ -343,10 +244,8 @@ export function filterUpstreamOutputs(
   agentResults: Map<string, string>,
   phase?: string,
   projectPath?: string,
-  assignedFiles?: string[],
 ): Record<string, string> {
   const all = Object.fromEntries(agentResults);
-  const key = instanceId ?? agentName;
 
   const pick = (keys: string[]) => {
     const result: Record<string, string> = {};
@@ -384,34 +283,7 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
-  // frontend-dev-N (parallel instances) → architect (truncated to assigned files) + design system
-  if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
-    const result = pick(["architect"]);
-
-    // Component agents get the shared agent's file manifest so they know what exists on disk
-    if (key !== "frontend-dev-shared" && all["frontend-dev-shared"]) {
-      result["frontend-dev-shared"] = buildFileManifest(all["frontend-dev-shared"]);
-    }
-
-    // Truncate architect output to only include file_plan entries for this agent's files
-    if (assignedFiles && assignedFiles.length > 0 && result["architect"]) {
-      result["architect"] = truncateArchitectForAgent(result["architect"], assignedFiles);
-    }
-    injectDesignSystem(result);
-    return truncateAllOutputs(result);
-  }
-
-  // frontend-dev-app → architect + file manifests from other frontend-dev-* agents + design system
-  if (key === "frontend-dev-app") {
-    const devKeys = Object.keys(all).filter(k => k.startsWith("frontend-dev-") && k !== "frontend-dev-app");
-    const result = pick(["architect", ...devKeys]);
-    // Convert dev outputs to file manifests — app agent has tools to read_file
-    const manifested = manifestifyDevOutputs(result);
-    injectDesignSystem(manifested);
-    return truncateAllOutputs(manifested);
-  }
-
-  // frontend-dev (single instance, non-parallel) → architect + research
+  // frontend-dev → architect + research
   if (agentName === "frontend-dev") {
     const result = pick(["architect", "research"]);
     injectDesignSystem(result);
@@ -617,11 +489,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     completedAt: null,
   });
 
-  // Extract assigned files for parallel dev agents (used to truncate architect output)
-  const assignedFiles = step.instanceId ? extractAssignedFiles(step.input) : undefined;
-
   // Pre-flight cost estimate: estimate input tokens before calling agent
-  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath, assignedFiles);
+  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath);
   const estimatedPromptChars = step.input.length
     + Object.values(preflightUpstream).reduce((sum, v) => sum + v.length, 0)
     + chatHistory.reduce((sum, m) => sum + m.content.length, 0);
@@ -953,6 +822,23 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return resumeOrchestration({ ...input, pipelineRunId: interruptedId });
   }
 
+  // --- Preflight: verify core pipeline agents can resolve a provider model ---
+  const CORE_PIPELINE_AGENTS: AgentName[] = ["research", "architect", "frontend-dev", "styling", "code-review", "security", "qa"];
+  const preflightErrors: string[] = [];
+  for (const agentName of CORE_PIPELINE_AGENTS) {
+    const agentConfig = getAgentConfigResolved(agentName);
+    if (!agentConfig) continue;
+    const model = resolveProviderModel(agentConfig, providers);
+    if (!model) {
+      preflightErrors.push(`${agentName} requires "${agentConfig.provider}" provider but no API key is configured`);
+    }
+  }
+  if (preflightErrors.length > 0) {
+    abortControllers.delete(chatId);
+    broadcastAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
+    return;
+  }
+
   // Collect agent outputs internally — only the final summary is shown to user
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
@@ -1194,69 +1080,17 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     log("orchestrator", "Architect failed but research succeeded — using fallback pipeline");
   }
 
-  // Phase 3: Parse architect output and build parallel dev steps (or fall back to single frontend-dev)
+  // Phase 3: Build single frontend-dev pipeline (research + architect already completed)
   const researchOutput = agentResults.get("research") || "";
-  const architectOutput = agentResults.get("architect") || "";
-  const groupedPlan = parseArchitectFilePlan(architectOutput);
 
-  const includeBackend = classification.scope === "frontend" || classification.scope === "styling"
-    ? false
-    : researchOutput ? needsBackend(researchOutput) : false;
-
-  let plan: ExecutionPlan;
-  if (groupedPlan && (groupedPlan.components.length + groupedPlan.shared.length + groupedPlan.app.length) > 0) {
-    // Parallel dev pipeline
-    const devSteps = buildParallelDevSteps(groupedPlan, architectOutput, userMessage);
-    const lastDevId = devSteps[devSteps.length - 1]?.instanceId ?? "frontend-dev";
-
-    const postDevSteps: ExecutionPlan["steps"] = [];
-
-    if (includeBackend) {
-      postDevSteps.push({
-        agentName: "backend-dev",
-        input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your server code following the plan. Original request: ${userMessage}`,
-        dependsOn: [lastDevId],
-      });
-    }
-
-    const stylingDeps = includeBackend ? [lastDevId, "backend-dev"] : [lastDevId];
-    postDevSteps.push(
-      {
-        agentName: "styling",
-        input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: stylingDeps,
-      },
-      {
-        agentName: "code-review",
-        input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["styling"],
-      },
-      {
-        agentName: "security",
-        input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["styling"],
-      },
-      {
-        agentName: "qa",
-        input: `Validate the implementation against the research requirements (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-        dependsOn: ["styling"],
-      },
-    );
-
-    plan = { steps: [...devSteps, ...postDevSteps] };
-    const totalFiles = groupedPlan.shared.length + groupedPlan.components.length + groupedPlan.app.length;
-    log("orchestrator", `Parallel dev pipeline: ${devSteps.length} frontend-dev agents for ${totalFiles} files`);
-  } else {
-    // Fallback: single frontend-dev (current behavior)
-    log("orchestrator", `Using single frontend-dev (architect file_plan not parseable or empty)`);
-    plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
-    // Remove architect step since it already ran
-    plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
-    // Rewrite deps that pointed to "architect" to point to nothing (already completed)
-    for (const step of plan.steps) {
-      if (step.dependsOn) {
-        step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
-      }
+  log("orchestrator", "Building single frontend-dev pipeline");
+  const plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+  // Remove architect step since it already ran
+  plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+  // Rewrite deps that pointed to "architect" to point to nothing (already completed)
+  for (const step of plan.steps) {
+    if (step.dependsOn) {
+      step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
     }
   }
 
@@ -1406,44 +1240,18 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   if (intent === "fix") {
     plan = buildExecutionPlan(originalMessage, undefined, "fix", scope);
   } else {
-    // Build mode: try parallel dev if architect completed
-    const architectOutput = agentResults.get("architect") || "";
-    const groupedPlan = architectOutput ? parseArchitectFilePlan(architectOutput) : null;
-    const includeBackend = scope === "frontend" || scope === "styling"
-      ? false : researchOutput ? needsBackend(researchOutput) : false;
-
-    if (groupedPlan && (groupedPlan.components.length + groupedPlan.shared.length + groupedPlan.app.length) > 0) {
-      const devSteps = buildParallelDevSteps(groupedPlan, architectOutput, originalMessage);
-      const lastDevId = devSteps[devSteps.length - 1]?.instanceId ?? "frontend-dev";
-      const postDevSteps: ExecutionPlan["steps"] = [];
-      if (includeBackend) {
-        postDevSteps.push({
-          agentName: "backend-dev",
-          input: `Implement the backend API routes and server logic defined in the architect's plan. Original request: ${originalMessage}`,
-          dependsOn: [lastDevId],
-        });
-      }
-      const stylingDeps = includeBackend ? [lastDevId, "backend-dev"] : [lastDevId];
-      postDevSteps.push(
-        { agentName: "styling", input: `Apply design polish. Original request: ${originalMessage}`, dependsOn: stylingDeps },
-        { agentName: "code-review", input: `Review all code. Original request: ${originalMessage}`, dependsOn: ["styling"] },
-        { agentName: "security", input: `Security review. Original request: ${originalMessage}`, dependsOn: ["styling"] },
-        { agentName: "qa", input: `Validate implementation. Original request: ${originalMessage}`, dependsOn: ["styling"] },
-      );
-      plan = { steps: [...devSteps, ...postDevSteps] };
-    } else {
-      plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
-      // Remove architect step since it already ran
-      plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
-      for (const step of plan.steps) {
-        if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
-      }
+    // Build mode: single frontend-dev pipeline
+    plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+    // Remove architect step since it already ran
+    plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+    for (const step of plan.steps) {
+      if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
     }
   }
 
-  // Filter plan to only remaining steps (using instanceId for matching)
+  // Filter plan to only remaining steps
   const completedAgentNames = new Set(completedAgents);
-  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.instanceId ?? s.agentName));
+  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
 
   if (remainingSteps.length === 0) {
     // All agents completed — just run finish pipeline
@@ -2254,7 +2062,17 @@ async function runFixAgent(
       },
     };
 
-    const remediationTools = createAgentTools(ctx.projectPath, ctx.projectId);
+    // Apply same tool subset filtering as normal step execution (Fix C)
+    const enabledRemTools = getAgentTools(agentName);
+    let remediationToolSubset: ReturnType<typeof createAgentTools>["tools"] | undefined;
+    if (enabledRemTools.length > 0) {
+      const allRemTools = createAgentTools(ctx.projectPath, ctx.projectId);
+      remediationToolSubset = Object.fromEntries(
+        enabledRemTools
+          .filter((t) => t in allRemTools.tools)
+          .map((t) => [t, allRemTools.tools[t as keyof typeof allRemTools.tools]])
+      ) as typeof allRemTools.tools;
+    }
 
     // Write-ahead: provisional tracking before LLM call
     const remProviderKey = ctx.apiKeys[config.provider];
@@ -2269,7 +2087,7 @@ async function runFixAgent(
       });
     }
 
-    const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationTools.tools, ctx.signal, ctx.chatId, undefined, {
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationToolSubset, ctx.signal, ctx.chatId, undefined, {
       maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
       maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
     });
@@ -2589,8 +2407,6 @@ export function projectHasFiles(projectPath: string): boolean {
   return files.length > 0;
 }
 
-// --- Parallel frontend-dev helpers ---
-
 export interface FilePlanEntry {
   action: string;
   path: string;
@@ -2599,135 +2415,6 @@ export interface FilePlanEntry {
   imports?: Record<string, string[]>;
 }
 
-export interface GroupedFilePlan {
-  shared: FilePlanEntry[];
-  components: FilePlanEntry[];
-  app: FilePlanEntry[];
-}
-
-/**
- * Parse the architect's file_plan from its output.
- * Extracts the JSON block, separates files into shared/components/app groups.
- * Returns null if parsing fails (caller should fall back to single frontend-dev).
- */
-export function parseArchitectFilePlan(architectOutput: string): GroupedFilePlan | null {
-  let parsed: { file_plan?: FilePlanEntry[] };
-  try {
-    parsed = JSON.parse(architectOutput);
-  } catch {
-    // Try extracting JSON from markdown code block
-    const jsonMatch = architectOutput.match(/```(?:json)?\s*\n([\s\S]*?)\n\s*```/);
-    if (!jsonMatch) return null;
-    try {
-      parsed = JSON.parse(jsonMatch[1]!);
-    } catch {
-      return null;
-    }
-  }
-
-  const filePlan = parsed?.file_plan;
-  if (!Array.isArray(filePlan) || filePlan.length === 0) return null;
-
-  const shared: FilePlanEntry[] = [];
-  const components: FilePlanEntry[] = [];
-  const app: FilePlanEntry[] = [];
-
-  const SHARED_PATTERNS = /^src\/(hooks|utils|types|lib|helpers|constants|context)\//i;
-  const APP_PATTERN = /^src\/App\.tsx$/i;
-
-  for (const entry of filePlan) {
-    if (!entry.path) continue;
-    const path = entry.path.replace(/^\.\//, "");
-
-    if (APP_PATTERN.test(path)) {
-      app.push({ ...entry, path });
-    } else if (SHARED_PATTERNS.test(path)) {
-      shared.push({ ...entry, path });
-    } else {
-      components.push({ ...entry, path });
-    }
-  }
-
-  return { shared, components, app };
-}
-
-/**
- * Build parallel frontend-dev steps from a parsed file plan.
- * Orchestrator decides agent count based on total file count.
- * All non-App files are distributed evenly across N agents.
- * App.tsx agent runs last to compose everything.
- */
-export function buildParallelDevSteps(
-  groupedPlan: GroupedFilePlan,
-  _architectOutput: string,
-  userMessage: string,
-): ExecutionPlan["steps"] {
-  const hasShared = groupedPlan.shared.length > 0;
-  const hasComponents = groupedPlan.components.length > 0;
-  const hasApp = groupedPlan.app.length > 0;
-
-  if (!hasShared && !hasComponents && !hasApp) return [];
-
-  const steps: ExecutionPlan["steps"] = [];
-
-  // --- Shared files step: runs first, before component agents ---
-  if (hasShared) {
-    const sharedFileList = groupedPlan.shared.map((f) => f.path).join(", ");
-    steps.push({
-      agentName: "frontend-dev",
-      instanceId: "frontend-dev-shared",
-      input: `Implement ONLY these shared/utility files from the architect's plan (provided in Previous Agent Outputs): ${sharedFileList}. These are foundational files (types, hooks, utils) that other agents depend on. Do NOT create any files outside this list — other agents handle the rest. Original request: ${userMessage}`,
-      dependsOn: ["architect"],
-    });
-  }
-
-  // --- Component agents: depend on shared step (if it exists) ---
-  const componentDeps = hasShared ? ["architect", "frontend-dev-shared"] : ["architect"];
-
-  if (hasComponents) {
-    // Decide agent count based on component files only (shared handled separately)
-    const componentCount = groupedPlan.components.length;
-    const agentCount = componentCount <= 4 ? 1
-      : componentCount <= 8 ? 2
-      : componentCount <= 14 ? 3
-      : 4;
-
-    const batches: FilePlanEntry[][] = Array.from({ length: agentCount }, () => []);
-    for (let i = 0; i < groupedPlan.components.length; i++) {
-      batches[i % agentCount]!.push(groupedPlan.components[i]!);
-    }
-
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]!;
-      if (batch.length === 0) continue;
-
-      const instanceId = agentCount === 1 ? "frontend-dev-components" : `frontend-dev-${i + 1}`;
-      const fileList = batch.map((f) => f.path).join(", ");
-
-      steps.push({
-        agentName: "frontend-dev",
-        instanceId,
-        input: `Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create any files outside this list — other agents handle the rest. Original request: ${userMessage}`,
-        dependsOn: componentDeps,
-      });
-    }
-  }
-
-  // App.tsx — runs last, composes everything
-  if (hasApp) {
-    const allPriorIds = steps.map((s) => s.instanceId!);
-    if (allPriorIds.length === 0) allPriorIds.push("architect");
-
-    steps.push({
-      agentName: "frontend-dev",
-      instanceId: "frontend-dev-app",
-      input: `Implement ONLY src/App.tsx: import and compose all components created by other dev agents (their files are listed in Previous Agent Outputs). Wire up routing if needed. Original request: ${userMessage}`,
-      dependsOn: allPriorIds,
-    });
-  }
-
-  return steps;
-}
 
 export function buildExecutionPlan(
   userMessage: string,
@@ -2850,10 +2537,10 @@ export function buildExecutionPlan(
   return { steps };
 }
 
-/** Check whether an agent has the write_file tool enabled. */
+/** Check whether an agent has file-writing tools enabled (write_file or write_files). */
 export function agentHasFileTools(name: string): boolean {
   const tools = getAgentTools(name as import("../../shared/types.ts").AgentName);
-  return tools.includes("write_file");
+  return tools.includes("write_file") || tools.includes("write_files");
 }
 
 /** Check if the project has any test files on disk (.test./.spec. in src/, up to 3 levels deep) */
@@ -2964,16 +2651,20 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
     }
   }
 
-  // Fallback: ```lang\n// filepath\n...code...\n```
-  const codeBlockRegex = /```[\w]*\n\/\/\s*((?:src\/|\.\/)?[\w./-]+\.\w+)\n([\s\S]*?)```/g;
-  while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
-    addFile(match[1]!, match[2]!.trimEnd());
-  }
+  // Fallback: markdown/regex extraction — disabled by default to prevent
+  // writing markdown artifacts as code. Enable with ENABLE_FALLBACK_EXTRACTION=1.
+  if (process.env.ENABLE_FALLBACK_EXTRACTION === "1") {
+    // Fallback: ```lang\n// filepath\n...code...\n```
+    const codeBlockRegex = /```[\w]*\n\/\/\s*((?:src\/|\.\/)?[\w./-]+\.\w+)\n([\s\S]*?)```/g;
+    while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
+      addFile(match[1]!, match[2]!.trimEnd());
+    }
 
-  // Fallback: ### filepath (or **filepath**) followed by ```...```
-  const headingBlockRegex = /(?:###\s+|[*]{2}|`)(\S+\.(?:tsx?|jsx?|css|html|json|md))(?:[*]{2}|`)?[\s\S]*?```[\w]*\n([\s\S]*?)```/g;
-  while ((match = headingBlockRegex.exec(agentOutput)) !== null) {
-    addFile(match[1]!, match[2]!.trimEnd());
+    // Fallback: ### filepath (or **filepath**) followed by ```...```
+    const headingBlockRegex = /(?:###\s+|[*]{2}|`)(\S+\.(?:tsx?|jsx?|css|html|json|md))(?:[*]{2}|`)?[\s\S]*?```[\w]*\n([\s\S]*?)```/g;
+    while ((match = headingBlockRegex.exec(agentOutput)) !== null) {
+      addFile(match[1]!, match[2]!.trimEnd());
+    }
   }
 
   return files;
@@ -3189,7 +2880,17 @@ async function runBuildFix(params: {
       },
     };
 
-    const fixTools = createAgentTools(projectPath, projectId);
+    // Apply same tool subset filtering as normal step execution (Fix C)
+    const enabledFixTools = getAgentTools(fixAgent);
+    let fixToolSubset: ReturnType<typeof createAgentTools>["tools"] | undefined;
+    if (enabledFixTools.length > 0) {
+      const allFixTools = createAgentTools(projectPath, projectId);
+      fixToolSubset = Object.fromEntries(
+        enabledFixTools
+          .filter((t) => t in allFixTools.tools)
+          .map((t) => [t, allFixTools.tools[t as keyof typeof allFixTools.tools]])
+      ) as typeof allFixTools.tools;
+    }
 
     // Write-ahead: provisional tracking before LLM call
     const bfProviderKey = apiKeys[config.provider];
@@ -3204,7 +2905,7 @@ async function runBuildFix(params: {
       });
     }
 
-    const result = await runAgent(buildFixConfig, providers, fixInput, fixTools.tools, signal, chatId, undefined, {
+    const result = await runAgent(buildFixConfig, providers, fixInput, fixToolSubset, signal, chatId, undefined, {
       maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
       maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
     });

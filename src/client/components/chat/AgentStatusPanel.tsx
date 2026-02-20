@@ -48,8 +48,6 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   research: "Research",
   architect: "Architect",
   "frontend-dev": "Frontend Dev",
-  "frontend-dev-components": "Frontend Dev",
-  "frontend-dev-app": "Frontend Dev (App)",
   "backend-dev": "Backend Dev",
   styling: "Styling",
   testing: "Test Planner",
@@ -60,8 +58,6 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
 
 function resolveDisplayName(name: string): string {
   if (AGENT_DISPLAY_NAMES[name]) return AGENT_DISPLAY_NAMES[name];
-  const match = name.match(/^frontend-dev-(\d+)$/);
-  if (match) return `Frontend Dev ${match[1]}`;
   return name;
 }
 

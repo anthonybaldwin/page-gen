@@ -11,18 +11,14 @@ import {
   classifyIntent,
   parseVitestOutput,
   agentHasFileTools,
-  parseArchitectFilePlan,
-  buildParallelDevSteps,
   truncateOutput,
   buildFileManifest,
   filterUpstreamOutputs,
-  extractAssignedFiles,
-  truncateArchitectForAgent,
   isNonRetriableApiError,
   deduplicateErrors,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
-import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
+import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
 
 // --- sanitizeFilePath ---
 
@@ -543,18 +539,16 @@ describe("extractFilesFromOutput", () => {
     expect(files[0]!.path).toBe("src/App.tsx");
   });
 
-  test("extracts files from markdown code blocks with // filepath", () => {
+  test("ignores markdown code blocks by default (fallback extraction disabled)", () => {
     const output = "```tsx\n// src/App.tsx\nexport default function App() {}\n```";
     const files = extractFilesFromOutput(output);
-    expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe("src/App.tsx");
+    expect(files).toHaveLength(0);
   });
 
-  test("extracts files from ### heading + code block pattern", () => {
+  test("ignores ### heading + code block by default (fallback extraction disabled)", () => {
     const output = "### src/App.tsx\n```tsx\nexport default function App() {}\n```";
     const files = extractFilesFromOutput(output);
-    expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe("src/App.tsx");
+    expect(files).toHaveLength(0);
   });
 
   test("returns empty array for no files", () => {
@@ -966,276 +960,7 @@ describe("agentHasFileTools", () => {
   });
 });
 
-// --- parseArchitectFilePlan ---
 
-describe("parseArchitectFilePlan", () => {
-  function makeArchitectOutput(filePlan: Array<{ action: string; path: string; description?: string }>): string {
-    return JSON.stringify({
-      component_tree: { name: "App", file: "src/App.tsx", children: [] },
-      file_plan: filePlan,
-      dependencies: [],
-      shared_utilities: [],
-      test_plan: [],
-    });
-  }
-
-  test("parses valid JSON with file_plan", () => {
-    const output = makeArchitectOutput([
-      { action: "create", path: "src/components/Header.tsx", description: "Header component" },
-      { action: "create", path: "src/hooks/useTheme.ts", description: "Theme hook" },
-      { action: "modify", path: "src/App.tsx", description: "Root component" },
-    ]);
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.components).toHaveLength(1);
-    expect(result!.components[0]!.path).toBe("src/components/Header.tsx");
-    expect(result!.shared).toHaveLength(1);
-    expect(result!.shared[0]!.path).toBe("src/hooks/useTheme.ts");
-    expect(result!.app).toHaveLength(1);
-    expect(result!.app[0]!.path).toBe("src/App.tsx");
-  });
-
-  test("parses JSON embedded in markdown code block", () => {
-    const output = `Here is the architecture:
-
-\`\`\`json
-${makeArchitectOutput([
-      { action: "create", path: "src/components/Board.tsx" },
-      { action: "modify", path: "src/App.tsx" },
-    ])}
-\`\`\``;
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.components).toHaveLength(1);
-    expect(result!.app).toHaveLength(1);
-  });
-
-  test("returns null for invalid JSON", () => {
-    expect(parseArchitectFilePlan("not json at all")).toBeNull();
-  });
-
-  test("returns null for JSON without file_plan", () => {
-    expect(parseArchitectFilePlan(JSON.stringify({ component_tree: {} }))).toBeNull();
-  });
-
-  test("returns null for empty file_plan array", () => {
-    expect(parseArchitectFilePlan(makeArchitectOutput([]))).toBeNull();
-  });
-
-  test("categorizes shared files correctly", () => {
-    const output = makeArchitectOutput([
-      { action: "create", path: "src/hooks/useFoo.ts" },
-      { action: "create", path: "src/utils/helpers.ts" },
-      { action: "create", path: "src/types/game.ts" },
-      { action: "create", path: "src/lib/api.ts" },
-      { action: "create", path: "src/helpers/format.ts" },
-      { action: "create", path: "src/constants/config.ts" },
-      { action: "create", path: "src/context/ThemeContext.tsx" },
-    ]);
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.shared).toHaveLength(7);
-    expect(result!.components).toHaveLength(0);
-  });
-
-  test("categorizes component files correctly", () => {
-    const output = makeArchitectOutput([
-      { action: "create", path: "src/components/Tile.tsx" },
-      { action: "create", path: "src/components/Board.tsx" },
-      { action: "create", path: "src/pages/Home.tsx" },
-    ]);
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.components).toHaveLength(3);
-    expect(result!.shared).toHaveLength(0);
-  });
-
-  test("strips ./ prefix from paths", () => {
-    const output = makeArchitectOutput([
-      { action: "create", path: "./src/components/Tile.tsx" },
-    ]);
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.components[0]!.path).toBe("src/components/Tile.tsx");
-  });
-
-  test("skips entries without path", () => {
-    const output = JSON.stringify({
-      file_plan: [
-        { action: "create", path: "src/components/A.tsx" },
-        { action: "create" },
-        { action: "create", path: "" },
-      ],
-    });
-    const result = parseArchitectFilePlan(output);
-    expect(result).not.toBeNull();
-    expect(result!.components).toHaveLength(1);
-  });
-});
-
-// --- buildParallelDevSteps ---
-
-describe("buildParallelDevSteps", () => {
-  function makePlan(componentCount: number, sharedCount = 0, hasApp = true): GroupedFilePlan {
-    const components = Array.from({ length: componentCount }, (_, i) => ({
-      action: "create",
-      path: `src/components/Component${i + 1}.tsx`,
-    }));
-    const shared = Array.from({ length: sharedCount }, (_, i) => ({
-      action: "create",
-      path: `src/hooks/useHook${i + 1}.ts`,
-    }));
-    const app = hasApp ? [{ action: "modify", path: "src/App.tsx" }] : [];
-    return { components, shared, app };
-  }
-
-  test("shared files go to dedicated frontend-dev-shared step", () => {
-    const plan = makePlan(3, 2);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
-    expect(sharedStep).toBeDefined();
-    expect(sharedStep!.input).toContain("useHook1");
-    expect(sharedStep!.input).toContain("useHook2");
-    expect(sharedStep!.input).toContain("shared/utility files");
-  });
-
-  test("component agents do not contain shared files", () => {
-    const plan = makePlan(3, 2);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter(
-      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
-    );
-    for (const step of componentSteps) {
-      expect(step.input).not.toContain("useHook");
-    }
-  });
-
-  test("single agent for <= 4 component files", () => {
-    const plan = makePlan(3, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter(
-      (s) => s.instanceId !== "frontend-dev-app" && s.instanceId !== "frontend-dev-shared"
-    );
-    expect(devSteps).toHaveLength(1);
-    expect(devSteps[0]!.instanceId).toBe("frontend-dev-components");
-  });
-
-  test("2 agents for 5-8 component files", () => {
-    const plan = makePlan(6, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(devSteps).toHaveLength(2);
-    expect(devSteps[0]!.instanceId).toBe("frontend-dev-1");
-    expect(devSteps[1]!.instanceId).toBe("frontend-dev-2");
-  });
-
-  test("3 agents for 9-14 component files", () => {
-    const plan = makePlan(10, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(devSteps).toHaveLength(3);
-  });
-
-  test("4 agents (cap) for 15+ component files", () => {
-    const plan = makePlan(15, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(devSteps).toHaveLength(4);
-  });
-
-  test("agent count based on component files only, not shared", () => {
-    // 3 components (single agent) + 10 shared files should NOT increase agent count
-    const plan = makePlan(3, 10);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter(
-      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
-    );
-    expect(componentSteps).toHaveLength(1);
-    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-components");
-  });
-
-  test("app step always comes last", () => {
-    const plan = makePlan(6, 2);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const lastStep = steps[steps.length - 1]!;
-    expect(lastStep.instanceId).toBe("frontend-dev-app");
-  });
-
-  test("app step depends on ALL prior steps (shared + components)", () => {
-    const plan = makePlan(6, 2);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const appStep = steps.find((s) => s.instanceId === "frontend-dev-app")!;
-    const priorIds = steps.filter((s) => s.instanceId !== "frontend-dev-app").map((s) => s.instanceId);
-    expect(priorIds).toContain("frontend-dev-shared");
-    for (const id of priorIds) {
-      expect(appStep.dependsOn).toContain(id);
-    }
-  });
-
-  test("frontend-dev-shared depends only on architect", () => {
-    const plan = makePlan(6, 3);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared")!;
-    expect(sharedStep.dependsOn).toEqual(["architect"]);
-  });
-
-  test("component agents depend on architect + frontend-dev-shared when shared files exist", () => {
-    const plan = makePlan(6, 3);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter(
-      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
-    );
-    for (const step of componentSteps) {
-      expect(step.dependsOn).toEqual(["architect", "frontend-dev-shared"]);
-    }
-  });
-
-  test("component agents depend only on architect when no shared files", () => {
-    const plan = makePlan(6, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
-    for (const step of componentSteps) {
-      expect(step.dependsOn).toEqual(["architect"]);
-    }
-  });
-
-  test("no frontend-dev-shared step when no shared files", () => {
-    const plan = makePlan(6, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
-    expect(sharedStep).toBeUndefined();
-  });
-
-  test("all steps have agentName 'frontend-dev'", () => {
-    const plan = makePlan(10, 3);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    for (const step of steps) {
-      expect(step.agentName).toBe("frontend-dev");
-    }
-  });
-
-  test("no instanceId collisions", () => {
-    const plan = makePlan(15, 3);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const ids = steps.map((s) => s.instanceId);
-    const uniqueIds = new Set(ids);
-    expect(uniqueIds.size).toBe(ids.length);
-  });
-
-  test("user message appears in all step inputs", () => {
-    const plan = makePlan(3, 1);
-    const steps = buildParallelDevSteps(plan, "", "Build a Wordle clone");
-    for (const step of steps) {
-      expect(step.input).toContain("Build a Wordle clone");
-    }
-  });
-
-  test("returns empty for plan with no files", () => {
-    const plan: GroupedFilePlan = { shared: [], components: [], app: [] };
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    expect(steps).toHaveLength(0);
-  });
-});
 
 // --- truncateOutput ---
 
@@ -1318,21 +1043,19 @@ describe("filterUpstreamOutputs", () => {
   test("review agents get architect + project-source, not dev outputs", () => {
     const results = makeResults({
       architect: "architect output",
-      "frontend-dev-1": "dev output 1",
-      "frontend-dev-2": "dev output 2",
+      "frontend-dev": "dev output",
       styling: "styling output",
     });
     const filtered = filterUpstreamOutputs("code-review", undefined, results);
     expect(filtered).toHaveProperty("architect");
-    expect(filtered).not.toHaveProperty("frontend-dev-1");
-    expect(filtered).not.toHaveProperty("frontend-dev-2");
+    expect(filtered).not.toHaveProperty("frontend-dev");
     expect(filtered).not.toHaveProperty("styling");
   });
 
   test("remediation phase gets architect + review findings only", () => {
     const results = makeResults({
       architect: "architect output",
-      "frontend-dev-1": "dev output 1",
+      "frontend-dev": "dev output",
       "code-review": "review findings",
       security: "security findings",
       qa: "qa findings",
@@ -1342,36 +1065,19 @@ describe("filterUpstreamOutputs", () => {
     expect(filtered).toHaveProperty("code-review");
     expect(filtered).toHaveProperty("security");
     expect(filtered).toHaveProperty("qa");
-    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("frontend-dev");
   });
 
   test("re-review phase gets architect only (no dev outputs)", () => {
     const results = makeResults({
       architect: "architect output",
-      "frontend-dev-1": "dev output 1",
+      "frontend-dev": "dev output",
       "code-review": "old review",
     });
     const filtered = filterUpstreamOutputs("code-review", undefined, results, "re-review");
     expect(filtered).toHaveProperty("architect");
-    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("frontend-dev");
     expect(filtered).not.toHaveProperty("code-review");
-  });
-
-  test("frontend-dev-app gets manifested dev outputs", () => {
-    const devOutput = `<tool_call>
-{"name": "write_file", "parameters": {"path": "src/Hero.tsx", "content": "component code"}}
-</tool_call>`;
-    const results = makeResults({
-      architect: "architect output",
-      "frontend-dev-1": devOutput,
-    });
-    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-app", results);
-    expect(filtered).toHaveProperty("architect");
-    expect(filtered).toHaveProperty("frontend-dev-1");
-    // Should be manifested, not the full tool call output
-    expect(filtered["frontend-dev-1"]).toContain("Files written");
-    expect(filtered["frontend-dev-1"]).toContain("src/Hero.tsx");
-    expect(filtered["frontend-dev-1"]).not.toContain("component code");
   });
 
   test("all outputs are truncated", () => {
@@ -1387,14 +1093,14 @@ describe("filterUpstreamOutputs", () => {
   test("build-fix phase gets architect + review findings only", () => {
     const results = makeResults({
       architect: "arch",
-      "frontend-dev-1": "dev",
+      "frontend-dev": "dev",
       "code-review": "review",
       research: "research",
     });
     const filtered = filterUpstreamOutputs("frontend-dev", undefined, results, "build-fix");
     expect(filtered).toHaveProperty("architect");
     expect(filtered).toHaveProperty("code-review");
-    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("frontend-dev");
     expect(filtered).not.toHaveProperty("research");
   });
 
@@ -1420,35 +1126,6 @@ describe("filterUpstreamOutputs", () => {
     expect(filtered).toHaveProperty("architect");
     expect(filtered).toHaveProperty("code-review");
     expect(filtered).not.toHaveProperty("project-source");
-  });
-
-  test("component agents receive frontend-dev-shared manifest", () => {
-    const sharedOutput = `<tool_call>
-{"name": "write_file", "parameters": {"path": "src/types/index.ts", "content": "export type GameState = {};"}}
-</tool_call>`;
-    const results = makeResults({
-      architect: "architect output",
-      "frontend-dev-shared": sharedOutput,
-    });
-    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-1", results);
-    expect(filtered).toHaveProperty("architect");
-    expect(filtered).toHaveProperty("frontend-dev-shared");
-    expect(filtered["frontend-dev-shared"]).toContain("Files written");
-    expect(filtered["frontend-dev-shared"]).toContain("src/types/index.ts");
-    expect(filtered["frontend-dev-shared"]).not.toContain("export type GameState");
-  });
-
-  test("frontend-dev-shared does NOT receive its own manifest", () => {
-    const sharedOutput = `<tool_call>
-{"name": "write_file", "parameters": {"path": "src/types/index.ts", "content": "types"}}
-</tool_call>`;
-    const results = makeResults({
-      architect: "architect output",
-      "frontend-dev-shared": sharedOutput,
-    });
-    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-shared", results);
-    expect(filtered).toHaveProperty("architect");
-    expect(filtered).not.toHaveProperty("frontend-dev-shared");
   });
 });
 
@@ -1582,153 +1259,6 @@ describe("buildSplitPrompt", () => {
   });
 });
 
-// --- extractAssignedFiles ---
-
-describe("extractAssignedFiles", () => {
-  test("extracts file paths from standard parallel dev input", () => {
-    const input = "Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): src/components/Hero.tsx, src/components/Footer.tsx. Do NOT create any files outside this list — other agents handle the rest. Original request: build me a landing page";
-    const files = extractAssignedFiles(input);
-    expect(files).toEqual(["src/components/Hero.tsx", "src/components/Footer.tsx"]);
-  });
-
-  test("extracts single file", () => {
-    const input = "Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): src/components/Hero.tsx. Do NOT create any files outside this list — other agents handle the rest. Original request: test";
-    const files = extractAssignedFiles(input);
-    expect(files).toEqual(["src/components/Hero.tsx"]);
-  });
-
-  test("returns empty array for non-matching input", () => {
-    const input = "Implement ONLY src/App.tsx: import and compose all components";
-    const files = extractAssignedFiles(input);
-    expect(files).toEqual([]);
-  });
-
-  test("returns empty array for empty string", () => {
-    expect(extractAssignedFiles("")).toEqual([]);
-  });
-});
-
-// --- truncateArchitectForAgent ---
-
-describe("truncateArchitectForAgent", () => {
-  const fullArchitect = JSON.stringify({
-    design_system: { colors: { primary: "#3b82f6" } },
-    component_tree: ["App", "Hero", "Footer"],
-    file_plan: [
-      { action: "create", path: "src/components/Hero.tsx", description: "Hero section" },
-      { action: "create", path: "src/components/Footer.tsx", description: "Footer section" },
-      { action: "create", path: "src/components/Nav.tsx", description: "Navigation" },
-      { action: "create", path: "src/App.tsx", description: "Root app" },
-    ],
-  });
-
-  test("preserves full file_plan for all agents (no filtering)", () => {
-    const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx", "src/components/Footer.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(4);
-    expect(parsed.file_plan.map((e: { path: string }) => e.path)).toEqual([
-      "src/components/Hero.tsx",
-      "src/components/Footer.tsx",
-      "src/components/Nav.tsx",
-      "src/App.tsx",
-    ]);
-  });
-
-  test("preserves design_system", () => {
-    const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.design_system).toEqual({ colors: { primary: "#3b82f6" } });
-  });
-
-  test("returns truncated output for invalid JSON", () => {
-    const result = truncateArchitectForAgent("not json at all", ["src/components/Hero.tsx"]);
-    expect(result).toBe("not json at all");
-  });
-
-  test("preserves full file_plan even with ./ prefix paths", () => {
-    const architect = JSON.stringify({
-      file_plan: [
-        { action: "create", path: "./src/Hero.tsx" },
-        { action: "create", path: "./src/Footer.tsx" },
-      ],
-    });
-    const result = truncateArchitectForAgent(architect, ["src/Hero.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(2);
-  });
-
-  test("preserves full file_plan even when no assigned files match", () => {
-    const result = truncateArchitectForAgent(fullArchitect, ["src/nonexistent.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(4);
-  });
-
-  test("exports and imports fields preserved through truncation", () => {
-    const architect = JSON.stringify({
-      file_plan: [
-        { action: "create", path: "src/types/index.ts", exports: ["GameState", "TileStatus"] },
-        { action: "create", path: "src/components/Board.tsx", exports: ["Board"], imports: { "../types": ["GameState"] } },
-      ],
-      test_plan: [],
-    });
-    const result = truncateArchitectForAgent(architect, ["src/components/Board.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(2);
-    expect(parsed.file_plan[0].exports).toEqual(["GameState", "TileStatus"]);
-    expect(parsed.file_plan[1].imports).toEqual({ "../types": ["GameState"] });
-  });
-
-  test("filters test_plan to only assigned files", () => {
-    const architect = JSON.stringify({
-      file_plan: [
-        { action: "create", path: "src/components/Hero.tsx" },
-        { action: "create", path: "src/components/Footer.tsx" },
-      ],
-      test_plan: [
-        { test_file: "src/components/__tests__/Hero.test.tsx", component: "Hero" },
-        { test_file: "src/components/__tests__/Footer.test.tsx", component: "Footer" },
-        { test_file: "src/components/__tests__/Nav.test.tsx", component: "Nav" },
-      ],
-    });
-    const result = truncateArchitectForAgent(architect, ["src/components/Hero.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.test_plan).toHaveLength(1);
-    expect(parsed.test_plan[0].component).toBe("Hero");
-  });
-
-  test("prunes component_tree to only assigned files", () => {
-    const architect = JSON.stringify({
-      file_plan: [
-        { action: "create", path: "src/components/Hero.tsx" },
-      ],
-      component_tree: {
-        name: "App",
-        file: "src/App.tsx",
-        children: [
-          { name: "Hero", file: "src/components/Hero.tsx", children: [] },
-          { name: "Footer", file: "src/components/Footer.tsx", children: [] },
-        ],
-      },
-    });
-    const result = truncateArchitectForAgent(architect, ["src/components/Hero.tsx"]);
-    const parsed = JSON.parse(result);
-    // App root should remain (ancestor of matched Hero)
-    expect(parsed.component_tree.name).toBe("App");
-    // Only Hero child should remain
-    expect(parsed.component_tree.children).toHaveLength(1);
-    expect(parsed.component_tree.children[0].name).toBe("Hero");
-  });
-
-  test("keeps full test_plan when not an array", () => {
-    const architect = JSON.stringify({
-      file_plan: [{ action: "create", path: "src/App.tsx" }],
-      test_plan: "run all tests",
-    });
-    const result = truncateArchitectForAgent(architect, ["src/App.tsx"]);
-    const parsed = JSON.parse(result);
-    expect(parsed.test_plan).toBe("run all tests");
-  });
-});
 
 // --- deduplicateErrors ---
 

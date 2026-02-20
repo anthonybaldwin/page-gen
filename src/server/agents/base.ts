@@ -31,12 +31,8 @@ const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
 };
 const DEFAULT_MAX_TOOL_STEPS = 10;
 
-/** Resolve a human-readable display name for parallel frontend-dev instances. */
+/** Resolve a human-readable display name for an agent instance. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
-  if (instanceId === "frontend-dev-components") return "Frontend Dev";
-  if (instanceId === "frontend-dev-app") return "Frontend Dev (App)";
-  const match = instanceId.match(/^frontend-dev-(\d+)$/);
-  if (match) return `Frontend Dev ${match[1]}`;
   return fallback;
 }
 
@@ -147,6 +143,8 @@ export async function runAgent(
     let lastBroadcast = 0;
     const THROTTLE_MS = 150;
     const filesWritten: string[] = [];
+    let streamErrorCount = 0;
+    const MAX_STREAM_ERRORS = 3;
 
     let streamPartCount = 0;
     for await (const part of result.fullStream) {
@@ -191,7 +189,12 @@ export async function runAgent(
           break;
         }
         case "error": {
-          logWarn("pipeline", `agent=${broadcastName} stream error event: ${JSON.stringify((part as { error: unknown }).error)}`);
+          streamErrorCount++;
+          const errorDetail = JSON.stringify((part as { error: unknown }).error);
+          logWarn("pipeline", `agent=${broadcastName} stream error event (${streamErrorCount}/${MAX_STREAM_ERRORS}): ${errorDetail}`);
+          if (streamErrorCount >= MAX_STREAM_ERRORS) {
+            throw new Error(`Agent stream hit ${MAX_STREAM_ERRORS} errors — failing deterministically. Last error: ${errorDetail}`);
+          }
           break;
         }
         case "step-finish" as string: {
@@ -210,9 +213,9 @@ export async function runAgent(
     // Log finish reason and response metadata for diagnosing silent API failures
     const finishReason = await result.finishReason;
     try {
-      const response = await result.response;
+      const response = await result.response as Record<string, unknown>;
       const status = response?.status;
-      const headers = response?.headers;
+      const headers = response?.headers as Record<string, string> | undefined;
       const retryAfter = headers?.["retry-after"];
       const requestId = headers?.["request-id"] || headers?.["x-request-id"];
       log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} status=${status} streamParts=${streamPartCount}${requestId ? ` requestId=${requestId}` : ""}${retryAfter ? ` retryAfter=${retryAfter}` : ""}`);
@@ -225,6 +228,27 @@ export async function runAgent(
       broadcastAgentStatus(cid, broadcastName, "failed");
       broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
       throw new Error(`Agent stream ended with finishReason=${finishReason} (tool-use step likely failed)`);
+    }
+
+    // finishReason=length means output was truncated. Behavior depends on agent type:
+    // - Review agents (code-review, qa, security): output must be complete — fail
+    // - Tool-writing agents: acceptable only if files were written (work is on disk)
+    // - Others: fail and retry
+    if (finishReason === "length") {
+      const REVIEW_AGENTS = new Set(["code-review", "qa", "security"]);
+      if (REVIEW_AGENTS.has(config.name)) {
+        broadcastAgentStatus(cid, broadcastName, "failed");
+        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
+        throw new Error(`Review agent "${config.name}" output was truncated (finishReason=length) — output must be complete`);
+      }
+      const TOOL_AGENTS = new Set(["frontend-dev", "backend-dev", "styling"]);
+      if (TOOL_AGENTS.has(config.name) && filesWritten.length > 0) {
+        logWarn("pipeline", `agent=${broadcastName} truncated (finishReason=length) but ${filesWritten.length} files written — accepting`);
+      } else {
+        broadcastAgentStatus(cid, broadcastName, "failed");
+        broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
+        throw new Error(`Agent "${config.name}" output was truncated (finishReason=length) with no files written — failing`);
+      }
     }
 
     // Use totalUsage to aggregate tokens across ALL steps (not just the last one).

@@ -34,12 +34,12 @@ You MUST modify `src/App.tsx` to import and render your components. If the archi
 
 ## File Plan Visibility
 
-You can see the FULL `file_plan` in the architect's output, including files assigned to other agents. Use it to:
-- Reference correct import paths for files you depend on
+You can see the FULL `file_plan` in the architect's output. Use it to:
+- Reference correct import paths
 - Use the exact export names from each file's `exports` field
 - Use the exact import paths from your file's `imports` field
 
-You MUST only implement the files assigned to you. Do NOT create files for other agents.
+Implement ALL files in the file plan. You are the sole frontend developer.
 
 ## Tailwind CSS Rules
 
@@ -80,7 +80,7 @@ Always handle: empty arrays (show placeholder text), null/undefined (fallback de
 
 ## Rules
 
-- **Implement ONLY the files assigned to you.** Do not create files assigned to other agents.
+- **Implement ALL files in the file plan.** You are the sole frontend developer.
 - Implement exactly what the architecture specifies. No extras.
 - Every file must be importable and free of TypeScript errors.
 - No `// TODO` placeholders. No `any` type. Keep files under 200 lines.

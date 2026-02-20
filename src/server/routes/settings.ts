@@ -130,6 +130,47 @@ settingsRoutes.put("/agents/:name", async (c) => {
 
   const body = await c.req.json<{ provider?: string; model?: string }>();
 
+  // Validate provider value
+  const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
+  if (body.provider && !VALID_PROVIDERS.has(body.provider)) {
+    return c.json({ error: `Invalid provider "${body.provider}". Must be one of: ${[...VALID_PROVIDERS].join(", ")}` }, 400);
+  }
+
+  // Build known model → provider mapping for compatibility checks
+  const MODEL_PROVIDERS: Record<string, string> = {};
+  for (const id of Object.values(ANTHROPIC_MODELS)) MODEL_PROVIDERS[id] = "anthropic";
+  for (const id of Object.values(OPENAI_MODELS)) MODEL_PROVIDERS[id] = "openai";
+  for (const id of Object.values(GOOGLE_MODELS)) MODEL_PROVIDERS[id] = "google";
+
+  // Also include custom models from pricing overrides
+  const allPricingEntries = getAllPricing();
+  for (const p of allPricingEntries) {
+    if (p.provider && !MODEL_PROVIDERS[p.model]) {
+      MODEL_PROVIDERS[p.model] = p.provider;
+    }
+  }
+
+  // Determine effective provider (new value or existing override or default)
+  const effectiveProvider = body.provider
+    || db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.provider`)).get()?.value
+    || (() => { const base = getAllAgentConfigs().find(a => a.name === name); return base?.provider || "anthropic"; })();
+
+  // If model is provided, validate provider/model compatibility
+  if (body.model) {
+    // Reject unknown models that don't have pricing configured
+    if (!getModelPricing(body.model)) {
+      return c.json({ error: "Unknown model requires pricing configuration", requiresPricing: true }, 400);
+    }
+
+    // Check model/provider compatibility
+    const modelProvider = MODEL_PROVIDERS[body.model];
+    if (modelProvider && modelProvider !== effectiveProvider) {
+      return c.json({
+        error: `Model "${body.model}" belongs to provider "${modelProvider}" but agent is configured for "${effectiveProvider}". Set provider to "${modelProvider}" first.`,
+      }, 400);
+    }
+  }
+
   if (body.provider) {
     const key = `agent.${name}.provider`;
     const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
@@ -141,11 +182,6 @@ settingsRoutes.put("/agents/:name", async (c) => {
   }
 
   if (body.model) {
-    // Reject unknown models that don't have pricing configured
-    if (!getModelPricing(body.model)) {
-      return c.json({ error: "Unknown model requires pricing configuration", requiresPricing: true }, 400);
-    }
-
     const key = `agent.${name}.model`;
     const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
     if (existing) {
