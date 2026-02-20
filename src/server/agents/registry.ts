@@ -125,10 +125,10 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   "frontend-dev": [...ALL_TOOLS],
   "backend-dev": [...ALL_TOOLS],
   styling: [...ALL_TOOLS],
-  testing: ["read_file", "list_files"],
-  "code-review": ["read_file", "list_files"],
-  qa: ["read_file", "list_files"],
-  security: ["read_file", "list_files"],
+  testing: [],       // planner — receives context in prompt, no file access needed
+  "code-review": [], // reviewer — receives code in prompt, tools cause extra round-trips
+  qa: [],            // reviewer — receives code in prompt, tools cause extra round-trips
+  security: [],      // reviewer — receives code in prompt, tools cause extra round-trips
 };
 
 export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator"]);

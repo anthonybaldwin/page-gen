@@ -80,12 +80,18 @@ describe("Agent Tool Defaults", () => {
     expect(DEFAULT_AGENT_TOOLS["orchestrator"]).toEqual([]);
   });
 
-  test("read-only agents default to read_file + list_files", () => {
-    for (const name of ["research", "architect", "testing", "code-review", "qa", "security"] as AgentName[]) {
+  test("research and architect default to read_file + list_files", () => {
+    for (const name of ["research", "architect"] as AgentName[]) {
       const tools = DEFAULT_AGENT_TOOLS[name];
       expect(tools).toContain("read_file");
       expect(tools).toContain("list_files");
       expect(tools).not.toContain("write_file");
+    }
+  });
+
+  test("review and testing agents default to no tools (single-shot)", () => {
+    for (const name of ["testing", "code-review", "qa", "security"] as AgentName[]) {
+      expect(DEFAULT_AGENT_TOOLS[name]).toEqual([]);
     }
   });
 
@@ -96,6 +102,6 @@ describe("Agent Tool Defaults", () => {
   test("getAgentTools returns defaults when no DB override", () => {
     expect(getAgentTools("frontend-dev")).toEqual(ALL_TOOLS);
     expect(getAgentTools("orchestrator")).toEqual([]);
-    expect(getAgentTools("testing")).toEqual(["read_file", "list_files"]);
+    expect(getAgentTools("testing")).toEqual([]);
   });
 });
