@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
+import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
@@ -265,10 +266,7 @@ settingsRoutes.post("/validate-key", async (c) => {
           prompt: "Say hi",
           maxOutputTokens: 16,
         });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const meta = (result as any)?.providerMetadata?.anthropic;
-        const cacheCreate = Number(meta?.cacheCreationInputTokens ?? meta?.cache_creation_input_tokens) || 0;
-        const cacheRead = Number(meta?.cacheReadInputTokens ?? meta?.cache_read_input_tokens) || 0;
+        const { cacheCreationInputTokens: cacheCreate, cacheReadInputTokens: cacheRead } = extractAnthropicCacheTokens(result);
         trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage, cacheCreate, cacheRead);
         return c.json({ valid: true, provider: "anthropic" });
       }

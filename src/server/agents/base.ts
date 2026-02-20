@@ -8,6 +8,7 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
+import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 
 /** Per-agent output token caps to reduce chattiness and speed up generation. */
 const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
@@ -262,18 +263,12 @@ export async function runAgent(
     try {
       const steps = await result.steps;
       for (const step of steps) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const meta = (step as any).providerMetadata?.anthropic;
-        if (meta && typeof meta === "object") {
-          // Try both camelCase (AI SDK v4) and snake_case (raw Anthropic response)
-          const creation = Number(meta.cacheCreationInputTokens ?? meta.cache_creation_input_tokens) || 0;
-          const read = Number(meta.cacheReadInputTokens ?? meta.cache_read_input_tokens) || 0;
-          if (creation > 0 || read > 0) {
-            log("pipeline", `cache tokens step: creation=${creation} read=${read} keys=[${Object.keys(meta).join(", ")}]`);
-          }
-          cacheCreationInputTokens += creation;
-          cacheReadInputTokens += read;
+        const { cacheCreationInputTokens: creation, cacheReadInputTokens: read } = extractAnthropicCacheTokens(step);
+        if (creation > 0 || read > 0) {
+          log("pipeline", `cache tokens step: creation=${creation} read=${read}`);
         }
+        cacheCreationInputTokens += creation;
+        cacheReadInputTokens += read;
       }
     } catch {
       // Provider metadata not available — continue with base tokens only

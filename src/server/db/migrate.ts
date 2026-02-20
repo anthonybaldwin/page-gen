@@ -135,5 +135,21 @@ export function runMigrations() {
     // Column already exists — ignore
   }
 
+  // Add cache token columns to token_usage
+  try {
+    db.run(sql`ALTER TABLE token_usage ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0`);
+  } catch { /* already exists */ }
+  try {
+    db.run(sql`ALTER TABLE token_usage ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0`);
+  } catch { /* already exists */ }
+
+  // Add cache token columns to billing_ledger
+  try {
+    db.run(sql`ALTER TABLE billing_ledger ADD COLUMN cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0`);
+  } catch { /* already exists */ }
+  try {
+    db.run(sql`ALTER TABLE billing_ledger ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0`);
+  } catch { /* already exists */ }
+
   console.log("[db] Migrations complete");
 }

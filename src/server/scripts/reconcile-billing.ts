@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { recomputeRowCost, type BillingLedgerCostRow, type ReconcileCacheMode } from "../services/billing-reconcile.ts";
+import { recomputeRowCost, type BillingLedgerCostRow } from "../services/billing-reconcile.ts";
 
 interface CliOptions {
   dbPath?: string;
@@ -7,12 +7,12 @@ interface CliOptions {
   provider?: string;
   projectId?: string;
   chatId?: string;
+  chatTitle?: string;
   model?: string;
   from?: number;
   to?: number;
   limit?: number;
   minDelta: number;
-  cacheMode: ReconcileCacheMode;
 }
 
 function printHelp() {
@@ -27,17 +27,17 @@ Options:
   --provider <name>       Filter by provider (anthropic|openai|google|...)
   --projectId <id>        Filter by project ID
   --chatId <id>           Filter by chat ID
+  --chatTitle <title>     Filter by chat title (exact match)
   --model <id>            Filter by model ID
   --from <msEpoch>        Filter created_at >= from
   --to <msEpoch>          Filter created_at <= to
   --limit <n>             Limit number of rows processed
   --min-delta <usd>       Only update rows with abs(delta) >= this value (default: 0.000001)
-  --cache-mode <mode>     How to treat inferred cache tokens: create|read (default: create)
   --help                  Show this help
 
 Examples:
   bun run billing:reconcile --projectId FceCywv9vPzIgFMfwZkhD
-  bun run billing:reconcile --provider anthropic --cache-mode read --apply
+  bun run billing:reconcile --chatTitle "Calculator" --apply
 `);
 }
 
@@ -45,7 +45,6 @@ function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     apply: false,
     minDelta: 0.000001,
-    cacheMode: "create",
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -66,6 +65,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--chatId":
         opts.chatId = argv[++i];
         break;
+      case "--chatTitle":
+        opts.chatTitle = argv[++i];
+        break;
       case "--model":
         opts.model = argv[++i];
         break;
@@ -81,14 +83,6 @@ function parseArgs(argv: string[]): CliOptions {
       case "--min-delta":
         opts.minDelta = Number(argv[++i]);
         break;
-      case "--cache-mode": {
-        const mode = argv[++i];
-        if (mode === "create" || mode === "read") {
-          opts.cacheMode = mode;
-          break;
-        }
-        throw new Error(`Invalid --cache-mode "${mode}" (expected create|read)`);
-      }
       case "--help":
       case "-h":
         printHelp();
@@ -125,6 +119,10 @@ async function main() {
     conditions.push("chat_id = ?");
     values.push(opts.chatId);
   }
+  if (opts.chatTitle) {
+    conditions.push("chat_title = ?");
+    values.push(opts.chatTitle);
+  }
   if (opts.model) {
     conditions.push("model = ?");
     values.push(opts.model);
@@ -148,6 +146,8 @@ async function main() {
       input_tokens as inputTokens,
       output_tokens as outputTokens,
       total_tokens as totalTokens,
+      coalesce(cache_creation_input_tokens, 0) as cacheCreationInputTokens,
+      coalesce(cache_read_input_tokens, 0) as cacheReadInputTokens,
       cost_estimate as costEstimate
     from billing_ledger
     ${where}
@@ -166,7 +166,7 @@ async function main() {
   let unchanged = 0;
 
   for (const row of rows) {
-    const newCost = recomputeRowCost(row, estimateCost, opts.cacheMode);
+    const newCost = recomputeRowCost(row, estimateCost);
     const delta = newCost - row.costEstimate;
     if (Math.abs(delta) < opts.minDelta) {
       unchanged++;
@@ -176,7 +176,7 @@ async function main() {
   }
 
   const totalOld = rows.reduce((sum, r) => sum + r.costEstimate, 0);
-  const totalNew = rows.reduce((sum, r) => sum + recomputeRowCost(r, estimateCost, opts.cacheMode), 0);
+  const totalNew = rows.reduce((sum, r) => sum + recomputeRowCost(r, estimateCost), 0);
   const totalDelta = totalNew - totalOld;
 
   console.log(`Rows scanned: ${rows.length}`);
@@ -185,7 +185,7 @@ async function main() {
   console.log(`Total old cost: $${totalOld.toFixed(6)}`);
   console.log(`Total new cost: $${totalNew.toFixed(6)}`);
   console.log(`Total delta: $${totalDelta.toFixed(6)}`);
-  console.log(`Mode: ${opts.apply ? "APPLY" : "DRY-RUN"} (cache-mode=${opts.cacheMode})`);
+  console.log(`Mode: ${opts.apply ? "APPLY" : "DRY-RUN"}`);
 
   if (updates.length > 0) {
     const sample = updates.slice(0, 10);
@@ -219,4 +219,3 @@ main().catch((err) => {
   console.error(`billing:reconcile failed: ${message}`);
   process.exit(1);
 });
-

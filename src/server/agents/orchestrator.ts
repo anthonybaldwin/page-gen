@@ -17,6 +17,7 @@ import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
+import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 
 const MAX_RETRIES = 3;
 const MAX_UNIQUE_ERRORS = 10;
@@ -201,7 +202,7 @@ export function buildFixPlan(userMessage: string, scope: IntentScope): Execution
   return { steps };
 }
 
-function buildQuickEditInput(scope: "styling" | "frontend", originalRequest: string): string {
+function buildQuickEditInput(scope: IntentScope, originalRequest: string): string {
   const scopeText = scope === "styling" ? "styling " : "";
   return `Fix the following ${scopeText}issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: ${originalRequest}`;
 }
@@ -1760,10 +1761,7 @@ async function handleQuestion(ctx: {
           startedAt: Date.now(), completedAt: Date.now(),
         }).run();
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const qAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
-        const cacheCreation = Number(qAnthropicMeta?.cacheCreationInputTokens ?? qAnthropicMeta?.cache_creation_input_tokens) || 0;
-        const cacheRead = Number(qAnthropicMeta?.cacheReadInputTokens ?? qAnthropicMeta?.cache_read_input_tokens) || 0;
+        const { cacheCreationInputTokens: cacheCreation, cacheReadInputTokens: cacheRead } = extractAnthropicCacheTokens(result);
 
         // SDK inputTokens includes cache tokens — subtract to get non-cached count
         const qRawInput = result.usage.inputTokens || 0;
@@ -1888,10 +1886,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
     if (providerKey) {
       const sRawInput = result.usage.inputTokens || 0;
       const outputTokens = result.usage.outputTokens || 0;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
-      const summaryCacheCreation = Number(sAnthropicMeta?.cacheCreationInputTokens ?? sAnthropicMeta?.cache_creation_input_tokens) || 0;
-      const summaryCacheRead = Number(sAnthropicMeta?.cacheReadInputTokens ?? sAnthropicMeta?.cache_read_input_tokens) || 0;
+      const { cacheCreationInputTokens: summaryCacheCreation, cacheReadInputTokens: summaryCacheRead } = extractAnthropicCacheTokens(result);
       // SDK inputTokens includes cache tokens — subtract to get non-cached count
       const inputTokens = Math.max(0, sRawInput - summaryCacheCreation - summaryCacheRead);
 
@@ -2473,10 +2468,7 @@ export async function classifyIntent(
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const classifyAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
-    const classifyCacheCreation = Number(classifyAnthropicMeta?.cacheCreationInputTokens ?? classifyAnthropicMeta?.cache_creation_input_tokens) || 0;
-    const classifyCacheRead = Number(classifyAnthropicMeta?.cacheReadInputTokens ?? classifyAnthropicMeta?.cache_read_input_tokens) || 0;
+    const { cacheCreationInputTokens: classifyCacheCreation, cacheReadInputTokens: classifyCacheRead } = extractAnthropicCacheTokens(result);
     const classifyRawInput = result.usage.inputTokens || 0;
     const classifyInputTokens = Math.max(0, classifyRawInput - classifyCacheCreation - classifyCacheRead);
 

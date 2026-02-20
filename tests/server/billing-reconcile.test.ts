@@ -10,6 +10,8 @@ describe("billing-reconcile helpers", () => {
       inputTokens: 1000,
       outputTokens: 200,
       totalTokens: 1800,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
       costEstimate: 0,
     };
     expect(inferCacheTokensFromLedgerRow(row)).toBe(600);
@@ -23,12 +25,14 @@ describe("billing-reconcile helpers", () => {
       inputTokens: 1000,
       outputTokens: 200,
       totalTokens: 1100,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
       costEstimate: 0,
     };
     expect(inferCacheTokensFromLedgerRow(row)).toBe(0);
   });
 
-  test("recomputeRowCost routes inferred cache as creation tokens in create mode", () => {
+  test("recomputeRowCost uses stored cache columns when available", () => {
     const row = {
       id: "r3",
       provider: "anthropic",
@@ -36,6 +40,8 @@ describe("billing-reconcile helpers", () => {
       inputTokens: 1000,
       outputTokens: 200,
       totalTokens: 1800,
+      cacheCreationInputTokens: 100,
+      cacheReadInputTokens: 500,
       costEstimate: 0,
     };
     const calls: Array<{ create: number; read: number }> = [];
@@ -45,14 +51,13 @@ describe("billing-reconcile helpers", () => {
         calls.push({ create, read });
         return input + output + create + read;
       },
-      "create",
     );
     expect(cost).toBe(1800);
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ create: 600, read: 0 });
+    expect(calls[0]).toEqual({ create: 100, read: 500 });
   });
 
-  test("recomputeRowCost routes inferred cache as read tokens in read mode", () => {
+  test("recomputeRowCost falls back to inference for legacy rows (no stored cache)", () => {
     const row = {
       id: "r4",
       provider: "anthropic",
@@ -60,6 +65,8 @@ describe("billing-reconcile helpers", () => {
       inputTokens: 1000,
       outputTokens: 200,
       totalTokens: 1800,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
       costEstimate: 0,
     };
     const calls: Array<{ create: number; read: number }> = [];
@@ -69,10 +76,9 @@ describe("billing-reconcile helpers", () => {
         calls.push({ create, read });
         return 0;
       },
-      "read",
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual({ create: 0, read: 600 });
+    // Legacy fallback assumes cache-creation (worst case)
+    expect(calls[0]).toEqual({ create: 600, read: 0 });
   });
 });
-
