@@ -260,20 +260,79 @@ export function truncateArchitectForAgent(architectOutput: string, agentFiles: s
     const parsed = JSON.parse(architectOutput);
     if (parsed.file_plan && Array.isArray(parsed.file_plan)) {
       const fileSet = new Set(agentFiles.map((f) => f.replace(/^\.\//, "")));
-      const filtered = {
-        ...parsed,
-        file_plan: parsed.file_plan.filter((entry: { path?: string }) => {
-          if (!entry.path) return false;
-          const p = entry.path.replace(/^\.\//, "");
-          return fileSet.has(p);
-        }),
-      };
+      // Also build a set of basenames for matching test_plan component names
+      const baseNameSet = new Set(agentFiles.map((f) => {
+        const base = f.replace(/^\.\//, "").split("/").pop() || "";
+        return base.replace(/\.\w+$/, ""); // strip extension
+      }));
+
+      const filtered = { ...parsed };
+
+      // Filter file_plan to only assigned files
+      filtered.file_plan = parsed.file_plan.filter((entry: { path?: string }) => {
+        if (!entry.path) return false;
+        const p = entry.path.replace(/^\.\//, "");
+        return fileSet.has(p);
+      });
+
+      // Filter test_plan to only entries relevant to assigned files
+      if (parsed.test_plan && Array.isArray(parsed.test_plan)) {
+        filtered.test_plan = parsed.test_plan.filter((t: { test_file?: string; component?: string }) => {
+          if (t.test_file) {
+            const tf = t.test_file.replace(/^\.\//, "");
+            if (fileSet.has(tf)) return true;
+          }
+          if (t.component && baseNameSet.has(t.component)) return true;
+          return false;
+        });
+      }
+
+      // Prune component_tree to only include nodes referencing assigned files
+      if (parsed.component_tree) {
+        filtered.component_tree = pruneComponentTree(parsed.component_tree, fileSet);
+      }
+
       return JSON.stringify(filtered);
     }
   } catch {
     // Not valid JSON — return truncated original
   }
   return truncateOutput(architectOutput, 10_000);
+}
+
+/**
+ * Recursively prune a component tree, keeping only nodes whose file matches
+ * an assigned file, plus any ancestor nodes leading to matched files.
+ * Returns null if the subtree has no matching nodes.
+ */
+function pruneComponentTree(
+  node: { name?: string; file?: string; children?: unknown[] } | unknown,
+  fileSet: Set<string>,
+): unknown {
+  if (!node || typeof node !== "object") return node;
+  const n = node as { name?: string; file?: string; children?: unknown[] };
+
+  // Leaf node or node without children
+  if (!n.children || !Array.isArray(n.children) || n.children.length === 0) {
+    if (n.file) {
+      const f = n.file.replace(/^\.\//, "");
+      return fileSet.has(f) ? node : null;
+    }
+    return node; // No file field — keep (could be structural)
+  }
+
+  // Recurse into children, keeping only matched subtrees
+  const prunedChildren = n.children
+    .map((child) => pruneComponentTree(child, fileSet))
+    .filter((child) => child !== null);
+
+  // If this node's own file matches, keep it with pruned children
+  const selfMatch = n.file ? fileSet.has(n.file.replace(/^\.\//, "")) : false;
+  if (prunedChildren.length > 0 || selfMatch) {
+    return { ...n, children: prunedChildren };
+  }
+
+  return null;
 }
 
 /**
@@ -305,11 +364,15 @@ export function filterUpstreamOutputs(
 
   // --- Remediation phase: targeted filtering instead of sending everything ---
   if (phase === "remediation" || phase === "build-fix") {
-    // Remediation dev agents have tools — they only need review findings + architect
+    // Remediation/fix agents have tools (read_file, list_files) — they only need
+    // review findings + architect. Explicitly skip project-source to save ~15K tokens.
     const reviewKeys = Object.keys(all).filter(k =>
       k === "code-review" || k === "security" || k === "qa"
     );
-    const result = pick(["architect", ...reviewKeys]);
+    const result: Record<string, string> = {};
+    for (const k of ["architect", ...reviewKeys]) {
+      if (all[k] !== undefined) result[k] = all[k];
+    }
     return truncateAllOutputs(result);
   }
 
@@ -2092,14 +2155,22 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
     const fixAgents = determineFixAgents(findings);
 
     // 4. Run each fix agent
+    let totalFilesWritten = 0;
     for (const fixAgentName of fixAgents) {
       if (ctx.signal.aborted) return;
 
       const fixResult = await runFixAgent(fixAgentName, cycleLabel, findings, ctx);
       if (!fixResult) return; // Fix agent failed — can't continue
+      totalFilesWritten += fixResult.filesWritten;
     }
 
     if (ctx.signal.aborted) return;
+
+    // Skip re-review if fix agents wrote 0 files — no point re-reviewing unchanged code
+    if (totalFilesWritten === 0) {
+      log("orchestrator", `Remediation cycle ${cycleLabel}: fix agents wrote 0 files — skipping re-review`);
+      return;
+    }
 
     // 5. Only re-run the review agents that had issues (not all three)
     const reviewsToRerun: Array<"code-review" | "security" | "qa"> = [];
@@ -2120,14 +2191,14 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
 
 /**
  * Run a dev agent to fix remediation findings.
- * Returns the agent's output content, or null on failure.
+ * Returns the agent's output content and files-written count, or null on failure.
  */
 async function runFixAgent(
   agentName: AgentName,
   cycle: number,
   findings: ReviewFindings,
   ctx: RemediationContext,
-): Promise<string | null> {
+): Promise<{ content: string; filesWritten: number } | null> {
   const maxCallsRem = getMaxAgentCalls();
   if (ctx.callCounter.value >= maxCallsRem) {
     broadcastAgentError(ctx.chatId, "orchestrator", `Agent call limit reached (${maxCallsRem}). Stopping remediation.`);
@@ -2196,7 +2267,10 @@ async function runFixAgent(
       });
     }
 
-    const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationTools.tools, ctx.signal, ctx.chatId);
+    const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationTools.tools, ctx.signal, ctx.chatId, undefined, {
+      maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
+      maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
+    });
 
     if (result.tokenUsage && remProviderKey && remProvisionalIds) {
       finalizeTokenUsage(remProvisionalIds, {
@@ -2230,9 +2304,10 @@ async function runFixAgent(
 
     // Extract and write remediated files (hybrid: native + fallback)
     const nativeRemediation = result.filesWritten || [];
-    extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId, new Set(nativeRemediation));
+    const fallbackRemediation = extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId, new Set(nativeRemediation));
+    const totalFiles = nativeRemediation.length + fallbackRemediation.length;
 
-    return result.content;
+    return { content: result.content, filesWritten: totalFiles };
   } catch (err) {
     if (!ctx.signal.aborted) {
       const errorMsg = err instanceof Error ? err.message : String(err);

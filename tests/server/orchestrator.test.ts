@@ -20,7 +20,7 @@ import {
   truncateArchitectForAgent,
   isNonRetriableApiError,
 } from "../../src/server/agents/orchestrator.ts";
-import { buildPrompt } from "../../src/server/agents/base.ts";
+import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
 
 // --- sanitizeFilePath ---
@@ -1347,6 +1347,30 @@ describe("filterUpstreamOutputs", () => {
     expect(filtered).not.toHaveProperty("frontend-dev-1");
     expect(filtered).not.toHaveProperty("research");
   });
+
+  test("remediation phase excludes project-source even when present", () => {
+    const results = makeResults({
+      architect: "architect output",
+      "code-review": "review findings",
+      "project-source": "full project source code here",
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", undefined, results, "remediation");
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("code-review");
+    expect(filtered).not.toHaveProperty("project-source");
+  });
+
+  test("build-fix phase excludes project-source even when present", () => {
+    const results = makeResults({
+      architect: "architect output",
+      "code-review": "review findings",
+      "project-source": "full project source code here",
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", undefined, results, "build-fix");
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("code-review");
+    expect(filtered).not.toHaveProperty("project-source");
+  });
 });
 
 // --- buildPrompt (chat history capping) ---
@@ -1410,6 +1434,72 @@ describe("buildPrompt", () => {
     });
     expect(prompt).toContain("architecture plan here");
     expect(prompt).toContain("build something");
+  });
+});
+
+// --- buildSplitPrompt ---
+
+describe("buildSplitPrompt", () => {
+  test("puts current request in dynamicSuffix", () => {
+    const result = buildSplitPrompt({
+      userMessage: "build a calculator",
+      chatHistory: [],
+      projectPath: "/tmp/test",
+    });
+    expect(result.dynamicSuffix).toContain("build a calculator");
+    expect(result.dynamicSuffix).toContain("Current Request");
+  });
+
+  test("puts upstream outputs in cacheablePrefix", () => {
+    const result = buildSplitPrompt({
+      userMessage: "build something",
+      chatHistory: [],
+      projectPath: "/tmp/test",
+      context: {
+        upstreamOutputs: {
+          architect: "architecture plan here",
+        },
+      },
+    });
+    expect(result.cacheablePrefix).toContain("architecture plan here");
+    expect(result.cacheablePrefix).toContain("Previous Agent Outputs");
+    expect(result.dynamicSuffix).not.toContain("architecture plan here");
+  });
+
+  test("cacheablePrefix is empty when no history or context", () => {
+    const result = buildSplitPrompt({
+      userMessage: "test",
+      chatHistory: [],
+      projectPath: "/tmp/test",
+    });
+    expect(result.cacheablePrefix).toBe("");
+    expect(result.dynamicSuffix).toContain("test");
+  });
+
+  test("puts chat history in cacheablePrefix", () => {
+    const result = buildSplitPrompt({
+      userMessage: "test",
+      chatHistory: [{ role: "user", content: "hello" }],
+      projectPath: "/tmp/test",
+    });
+    expect(result.cacheablePrefix).toContain("hello");
+    expect(result.cacheablePrefix).toContain("Chat History");
+    expect(result.dynamicSuffix).not.toContain("hello");
+  });
+
+  test("combined output matches buildPrompt", () => {
+    const input = {
+      userMessage: "build something",
+      chatHistory: [{ role: "user", content: "previous message" }],
+      projectPath: "/tmp/test",
+      context: {
+        upstreamOutputs: { architect: "plan" },
+      },
+    };
+    const fullPrompt = buildPrompt(input);
+    const split = buildSplitPrompt(input);
+    const combined = `${split.cacheablePrefix}\n${split.dynamicSuffix}`;
+    expect(combined).toBe(fullPrompt);
   });
 });
 
@@ -1486,6 +1576,57 @@ describe("truncateArchitectForAgent", () => {
     const result = truncateArchitectForAgent(fullArchitect, ["src/nonexistent.tsx"]);
     const parsed = JSON.parse(result);
     expect(parsed.file_plan).toHaveLength(0);
+  });
+
+  test("filters test_plan to only assigned files", () => {
+    const architect = JSON.stringify({
+      file_plan: [
+        { action: "create", path: "src/components/Hero.tsx" },
+        { action: "create", path: "src/components/Footer.tsx" },
+      ],
+      test_plan: [
+        { test_file: "src/components/__tests__/Hero.test.tsx", component: "Hero" },
+        { test_file: "src/components/__tests__/Footer.test.tsx", component: "Footer" },
+        { test_file: "src/components/__tests__/Nav.test.tsx", component: "Nav" },
+      ],
+    });
+    const result = truncateArchitectForAgent(architect, ["src/components/Hero.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.test_plan).toHaveLength(1);
+    expect(parsed.test_plan[0].component).toBe("Hero");
+  });
+
+  test("prunes component_tree to only assigned files", () => {
+    const architect = JSON.stringify({
+      file_plan: [
+        { action: "create", path: "src/components/Hero.tsx" },
+      ],
+      component_tree: {
+        name: "App",
+        file: "src/App.tsx",
+        children: [
+          { name: "Hero", file: "src/components/Hero.tsx", children: [] },
+          { name: "Footer", file: "src/components/Footer.tsx", children: [] },
+        ],
+      },
+    });
+    const result = truncateArchitectForAgent(architect, ["src/components/Hero.tsx"]);
+    const parsed = JSON.parse(result);
+    // App root should remain (ancestor of matched Hero)
+    expect(parsed.component_tree.name).toBe("App");
+    // Only Hero child should remain
+    expect(parsed.component_tree.children).toHaveLength(1);
+    expect(parsed.component_tree.children[0].name).toBe("Hero");
+  });
+
+  test("keeps full test_plan when not an array", () => {
+    const architect = JSON.stringify({
+      file_plan: [{ action: "create", path: "src/App.tsx" }],
+      test_plan: "run all tests",
+    });
+    const result = truncateArchitectForAgent(architect, ["src/App.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.test_plan).toBe("run all tests");
   });
 });
 

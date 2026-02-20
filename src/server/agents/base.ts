@@ -99,16 +99,46 @@ export async function runAgent(
   broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "started");
 
   try {
-    const builtPrompt = buildPrompt(input);
+    const { cacheablePrefix, dynamicSuffix } = buildSplitPrompt(input);
+    const builtPrompt = cacheablePrefix ? `${cacheablePrefix}\n${dynamicSuffix}` : dynamicSuffix;
     log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars system=${systemPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
     const maxOutputTokens = overrides?.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS[config.name] ?? DEFAULT_MAX_OUTPUT_TOKENS;
     const maxToolSteps = overrides?.maxToolSteps ?? AGENT_MAX_TOOL_STEPS[config.name] ?? DEFAULT_MAX_TOOL_STEPS;
+    const isAnthropic = config.provider === "anthropic";
+
+    // For Anthropic: use array system format with cache_control and split user messages
+    // For other providers: keep the simple system + prompt format
     const result = streamText({
       model: provider,
-      system: systemPrompt,
-      prompt: builtPrompt,
+      ...(isAnthropic
+        ? {
+            system: [
+              {
+                type: "text" as const,
+                text: systemPrompt,
+                providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+              },
+            ],
+            messages: [{
+              role: "user" as const,
+              content: cacheablePrefix
+                ? [
+                    {
+                      type: "text" as const,
+                      text: cacheablePrefix,
+                      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+                    },
+                    { type: "text" as const, text: dynamicSuffix },
+                  ]
+                : [{ type: "text" as const, text: dynamicSuffix }],
+            }],
+          }
+        : {
+            system: systemPrompt,
+            prompt: builtPrompt,
+          }),
       maxOutputTokens,
       ...(tools ? { tools, stopWhen: stepCountIs(maxToolSteps) } : {}),
       ...(abortSignal ? { abortSignal } : {}),
@@ -288,66 +318,77 @@ function getProviderModel(config: AgentConfig, providers: ProviderInstance) {
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_CHARS = 3_000;
 
+export interface SplitPrompt {
+  /** Cacheable prefix: chat history + context + upstream outputs (stable across tool-use turns) */
+  cacheablePrefix: string;
+  /** Dynamic suffix: current request (changes each turn) */
+  dynamicSuffix: string;
+}
+
 export function buildPrompt(input: AgentInput): string {
-  const parts: string[] = [];
+  const { cacheablePrefix, dynamicSuffix } = buildSplitPrompt(input);
+  return cacheablePrefix ? `${cacheablePrefix}\n${dynamicSuffix}` : dynamicSuffix;
+}
+
+export function buildSplitPrompt(input: AgentInput): SplitPrompt {
+  const prefixParts: string[] = [];
   const sizeBreakdown: Record<string, number> = {};
 
   if (input.chatHistory.length > 0) {
-    parts.push("## Chat History");
-    const historyStart = parts.join("\n").length;
+    prefixParts.push("## Chat History");
+    const historyStart = prefixParts.join("\n").length;
 
     // Cap chat history: keep only last N messages, truncate to char limit
     let history = input.chatHistory;
     if (history.length > MAX_HISTORY_MESSAGES) {
       const omitted = history.length - MAX_HISTORY_MESSAGES;
       history = history.slice(-MAX_HISTORY_MESSAGES);
-      parts.push(`_(${omitted} earlier messages omitted)_`);
+      prefixParts.push(`_(${omitted} earlier messages omitted)_`);
     }
 
     let historyChars = 0;
     for (const msg of history) {
       const line = `**${msg.role}:** ${msg.content}`;
       if (historyChars + line.length > MAX_HISTORY_CHARS) {
-        parts.push(`_(remaining history truncated — ${MAX_HISTORY_CHARS} char cap)_`);
+        prefixParts.push(`_(remaining history truncated — ${MAX_HISTORY_CHARS} char cap)_`);
         break;
       }
-      parts.push(line);
+      prefixParts.push(line);
       historyChars += line.length;
     }
-    parts.push("");
-    sizeBreakdown.chatHistory = parts.join("\n").length - historyStart;
+    prefixParts.push("");
+    sizeBreakdown.chatHistory = prefixParts.join("\n").length - historyStart;
   }
 
   if (input.context) {
     const { upstreamOutputs, ...rest } = input.context as Record<string, unknown>;
 
     if (Object.keys(rest).length > 0) {
-      parts.push("## Context");
-      parts.push(JSON.stringify(rest, null, 2));
-      parts.push("");
+      prefixParts.push("## Context");
+      prefixParts.push(JSON.stringify(rest, null, 2));
+      prefixParts.push("");
     }
 
     if (upstreamOutputs && typeof upstreamOutputs === "object") {
-      parts.push("## Previous Agent Outputs");
+      prefixParts.push("## Previous Agent Outputs");
       for (const [agent, output] of Object.entries(upstreamOutputs as Record<string, string>)) {
-        parts.push(`### ${agent}`);
-        parts.push(String(output));
-        parts.push("");
+        prefixParts.push(`### ${agent}`);
+        prefixParts.push(String(output));
+        prefixParts.push("");
         sizeBreakdown[`upstream:${agent}`] = String(output).length;
       }
     }
   }
 
-  parts.push("## Current Request");
-  parts.push(input.userMessage);
-
-  const prompt = parts.join("\n");
+  const cacheablePrefix = prefixParts.join("\n");
+  const dynamicSuffix = `## Current Request\n${input.userMessage}`;
 
   // Log prompt size breakdown
+  const totalLen = cacheablePrefix.length + (cacheablePrefix ? 1 : 0) + dynamicSuffix.length;
   const breakdown = Object.entries(sizeBreakdown)
     .map(([k, v]) => `${k}=${v.toLocaleString()}`)
     .join(" ");
-  log("pipeline", `prompt total=${prompt.length.toLocaleString()}chars ${breakdown}`);
+  log("pipeline", `prompt total=${totalLen.toLocaleString()}chars prefix=${cacheablePrefix.length.toLocaleString()}chars ${breakdown}`);
 
-  return prompt;
+  return { cacheablePrefix, dynamicSuffix };
 }
