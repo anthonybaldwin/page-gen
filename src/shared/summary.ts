@@ -88,6 +88,31 @@ function extractJsonSummary(text: string): string | null {
   }
 }
 
+/**
+ * Strip trailing JSON summary blocks from agent output.
+ * Frontend-dev/styling agents often append `{ "files_written": [...], "notes": "..." }`
+ * at the end of their content. This strips it so the UI doesn't show raw JSON.
+ */
+export function stripTrailingJson(text: string): string {
+  if (!text) return text;
+
+  // Match a trailing JSON object (possibly preceded by blank lines)
+  const match = text.match(/\n\s*(\{[\s\S]*\})\s*$/);
+  if (!match) return text;
+
+  try {
+    const parsed = JSON.parse(match[1]!);
+    // Only strip if it looks like an agent summary (has files_written, notes, or summary keys)
+    if (parsed.files_written || parsed.notes || parsed.summary || parsed.files_modified) {
+      return text.slice(0, match.index!).trimEnd();
+    }
+  } catch {
+    // Not valid JSON — leave as-is
+  }
+
+  return text;
+}
+
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str;
   return str.slice(0, max - 3) + "...";

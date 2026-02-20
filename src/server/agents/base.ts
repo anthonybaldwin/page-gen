@@ -6,7 +6,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
-import { extractSummary } from "../../shared/summary.ts";
+import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
@@ -134,19 +134,23 @@ export async function runAgent(
       broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "streaming", { chunk: pendingChunk });
     }
 
-    const usage = await result.usage;
+    // Use totalUsage to aggregate tokens across ALL steps (not just the last one).
+    // Multi-step tool-use agents re-send full context each step, so result.usage
+    // (last step only) dramatically undercounts actual token consumption.
+    const usage = await result.totalUsage;
 
-    // Extract Anthropic cache tokens from provider metadata
+    // Aggregate Anthropic cache tokens from ALL steps, not just the last response
     let cacheCreationInputTokens = 0;
     let cacheReadInputTokens = 0;
     try {
-      const response = await result.response;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const respAny = response as any;
-      const anthropicMeta = respAny?.providerMetadata?.anthropic;
-      if (anthropicMeta && typeof anthropicMeta === "object") {
-        cacheCreationInputTokens = Number(anthropicMeta.cacheCreationInputTokens) || 0;
-        cacheReadInputTokens = Number(anthropicMeta.cacheReadInputTokens) || 0;
+      const steps = await result.steps;
+      for (const step of steps) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const meta = (step as any).providerMetadata?.anthropic;
+        if (meta && typeof meta === "object") {
+          cacheCreationInputTokens += Number(meta.cacheCreationInputTokens) || 0;
+          cacheReadInputTokens += Number(meta.cacheReadInputTokens) || 0;
+        }
       }
     } catch {
       // Provider metadata not available — continue with base tokens only
@@ -157,14 +161,16 @@ export async function runAgent(
     const outputTokens = usage?.outputTokens || 0;
     const totalInputTokens = inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
 
-    const summary = extractSummary(fullText, config.name);
+    // Strip trailing JSON summaries (e.g. { "files_written": [...] }) before broadcast
+    const cleanText = stripTrailingJson(fullText);
+    const summary = extractSummary(cleanText, config.name);
 
     broadcastAgentStatus(cid, broadcastName, "completed");
-    broadcastAgentStream(cid, broadcastName, fullText);
+    broadcastAgentStream(cid, broadcastName, cleanText);
     broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "completed", { summary });
 
     return {
-      content: fullText,
+      content: cleanText,
       filesWritten: filesWritten.length > 0 ? filesWritten : undefined,
       tokenUsage: {
         inputTokens,

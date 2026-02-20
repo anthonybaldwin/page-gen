@@ -406,6 +406,24 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const classification = await classifyIntent(userMessage, hasFiles, providers);
   console.log(`[orchestrator] Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
 
+  // Track classifyIntent token usage (previously untracked)
+  if (classification.tokenUsage) {
+    const providerKey = apiKeys[classification.tokenUsage.provider];
+    if (providerKey) {
+      trackTokenUsage({
+        executionId: nanoid(),
+        chatId,
+        agentName: "orchestrator:classify",
+        provider: classification.tokenUsage.provider,
+        model: classification.tokenUsage.model,
+        apiKey: providerKey,
+        inputTokens: classification.tokenUsage.inputTokens,
+        outputTokens: classification.tokenUsage.outputTokens,
+        projectId, projectName, chatTitle,
+      });
+    }
+  }
+
   // --- Question mode: direct answer, no pipeline ---
   if (classification.intent === "question") {
     broadcast({
@@ -1723,7 +1741,7 @@ export async function classifyIntent(
   userMessage: string,
   hasExistingFiles: boolean,
   providers: ProviderInstance
-): Promise<IntentClassification> {
+): Promise<IntentClassification & { tokenUsage?: { inputTokens: number; outputTokens: number; provider: string; model: string } }> {
   // Fast path: empty project → always build
   if (!hasExistingFiles) {
     return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
@@ -1751,7 +1769,15 @@ export async function classifyIntent(
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
 
-    return { intent, scope, reasoning: parsed.reasoning || "" };
+    return {
+      intent, scope, reasoning: parsed.reasoning || "",
+      tokenUsage: {
+        inputTokens: result.usage.inputTokens || 0,
+        outputTokens: result.usage.outputTokens || 0,
+        provider: orchestratorConfig.provider,
+        model: orchestratorConfig.model,
+      },
+    };
   } catch (err) {
     console.error("[orchestrator] Intent classification failed, defaulting to build:", err);
     return { intent: "build", scope: "full", reasoning: "Fallback: classification error" };

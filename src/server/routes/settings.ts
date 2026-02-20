@@ -3,8 +3,10 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
+import { trackTokenUsage } from "../services/token-tracker.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
@@ -199,32 +201,46 @@ settingsRoutes.post("/validate-key", async (c) => {
   const providers = createProviders(keys);
 
   try {
+    const trackValidation = (provider: string, model: string, apiKey: string, usage: { inputTokens?: number; outputTokens?: number }) => {
+      trackTokenUsage({
+        executionId: nanoid(),
+        chatId: "system:key-validation",
+        agentName: "system:validate-key",
+        provider, model, apiKey,
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+      });
+    };
+
     switch (body.provider) {
       case "anthropic": {
         if (!providers.anthropic) return c.json({ error: "No Anthropic key provided" }, 400);
-        await generateText({
+        const result = await generateText({
           model: providers.anthropic("claude-haiku-4-5-20251001"),
           prompt: "Say hi",
           maxOutputTokens: 16,
         });
+        trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage);
         return c.json({ valid: true, provider: "anthropic" });
       }
       case "openai": {
         if (!providers.openai) return c.json({ error: "No OpenAI key provided" }, 400);
-        await generateText({
+        const result = await generateText({
           model: providers.openai("gpt-5.2"),
           prompt: "Say hi",
           maxOutputTokens: 16,
         });
+        trackValidation("openai", "gpt-5.2", keys.openai.apiKey, result.usage);
         return c.json({ valid: true, provider: "openai" });
       }
       case "google": {
         if (!providers.google) return c.json({ error: "No Google key provided" }, 400);
-        await generateText({
+        const result = await generateText({
           model: providers.google("gemini-2.5-flash"),
           prompt: "Say hi",
           maxOutputTokens: 16,
         });
+        trackValidation("google", "gemini-2.5-flash", keys.google.apiKey, result.usage);
         return c.json({ valid: true, provider: "google" });
       }
       default:
