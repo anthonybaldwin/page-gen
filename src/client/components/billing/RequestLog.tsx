@@ -39,14 +39,14 @@ export function RequestLog({ filterQuery }: Props) {
   }, [filterQuery]);
 
   if (records.length === 0) {
-    return <p className="text-sm text-zinc-500">No requests recorded yet.</p>;
+    return <p className="text-sm text-muted-foreground">No requests recorded yet.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-left text-zinc-500 border-b border-zinc-800">
+          <tr className="text-left text-muted-foreground border-b border-border">
             <th className="pb-2 pr-3">Time</th>
             <th className="pb-2 pr-3">Agent</th>
             <th className="pb-2 pr-3">Model</th>
@@ -60,16 +60,16 @@ export function RequestLog({ filterQuery }: Props) {
         </thead>
         <tbody>
           {records.map((r) => (
-            <tr key={r.id} className="border-b border-zinc-800/50 text-zinc-300">
-              <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{formatTime(r.createdAt)}</td>
+            <tr key={r.id} className="border-b border-border/50 text-foreground">
+              <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">{formatTime(r.createdAt)}</td>
               <td className="py-1.5 pr-3 whitespace-nowrap">{r.agentName}</td>
-              <td className="py-1.5 pr-3 text-zinc-500 whitespace-nowrap">{r.model}</td>
-              <td className="py-1.5 pr-3 text-zinc-500 truncate max-w-[120px]">{r.chatTitle || "—"}</td>
+              <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">{r.model}</td>
+              <td className="py-1.5 pr-3 text-muted-foreground truncate max-w-[120px]">{r.chatTitle || "—"}</td>
               <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.inputTokens.toLocaleString()}</td>
               <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.outputTokens.toLocaleString()}</td>
-              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-zinc-500">{r.cacheCreationInputTokens ? r.cacheCreationInputTokens.toLocaleString() : "—"}</td>
-              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-zinc-500">{r.cacheReadInputTokens ? r.cacheReadInputTokens.toLocaleString() : "—"}</td>
-              <td className="py-1.5 text-right text-green-400 whitespace-nowrap">${r.costEstimate.toFixed(4)}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-muted-foreground">{r.cacheCreationInputTokens ? r.cacheCreationInputTokens.toLocaleString() : "—"}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-muted-foreground">{r.cacheReadInputTokens ? r.cacheReadInputTokens.toLocaleString() : "—"}</td>
+              <td className="py-1.5 text-right text-emerald-500 dark:text-emerald-400 whitespace-nowrap">${r.costEstimate.toFixed(4)}</td>
             </tr>
           ))}
         </tbody>
