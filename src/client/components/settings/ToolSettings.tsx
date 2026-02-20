@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
+import { Button } from "../ui/button.tsx";
+import { Checkbox } from "../ui/checkbox.tsx";
 import type { AgentToolConfig, ToolName } from "../../../shared/types.ts";
 
 const AGENT_GROUPS: { label: string; agents: string[] }[] = [
@@ -81,18 +83,18 @@ export function ToolSettings() {
   }
 
   if (configs.length === 0) {
-    return <p className="text-sm text-zinc-500">Loading tool configs...</p>;
+    return <p className="text-sm text-muted-foreground">Loading tool configs...</p>;
   }
 
   return (
     <div className="space-y-6">
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-muted-foreground">
         Control which native tools each agent can use during pipeline runs. Changes take effect on the next run.
       </p>
 
       {AGENT_GROUPS.map((group) => (
         <div key={group.label}>
-          <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.label}
           </h3>
           <div className="space-y-3">
@@ -105,42 +107,45 @@ export function ToolSettings() {
               return (
                 <div
                   key={agentName}
-                  className="rounded-lg bg-zinc-800/50 border border-zinc-700/50 p-3"
+                  className="rounded-lg bg-muted/50 border border-border/50 p-3"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white">
+                      <span className="text-sm font-medium text-foreground">
                         {config.displayName}
                       </span>
                       {config.isOverridden && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
                           custom
                         </span>
                       )}
                       {config.isReadOnly && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-600/30 text-zinc-500">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                           no tools
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       {config.isOverridden && (
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleReset(agentName)}
                           disabled={saving === agentName}
-                          className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="h-6 px-2 text-xs text-muted-foreground"
                         >
                           Reset
-                        </button>
+                        </Button>
                       )}
                       {dirty && (
-                        <button
+                        <Button
+                          size="sm"
                           onClick={() => handleSave(agentName)}
                           disabled={saving === agentName}
-                          className="rounded px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
+                          className="h-7 text-xs"
                         >
                           {saving === agentName ? "..." : "Save"}
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -151,16 +156,14 @@ export function ToolSettings() {
                         key={tool}
                         className={`flex items-center gap-1.5 text-xs ${
                           config.isReadOnly
-                            ? "text-zinc-600 cursor-not-allowed"
-                            : "text-zinc-300 cursor-pointer"
+                            ? "text-muted-foreground/50 cursor-not-allowed"
+                            : "text-muted-foreground cursor-pointer"
                         }`}
                       >
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={local.includes(tool)}
-                          onChange={() => toggleTool(agentName, tool)}
+                          onCheckedChange={() => toggleTool(agentName, tool)}
                           disabled={config.isReadOnly}
-                          className="rounded border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 disabled:opacity-30"
                         />
                         {TOOL_LABELS[tool]}
                       </label>
