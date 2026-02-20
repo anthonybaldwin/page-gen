@@ -3,7 +3,7 @@ import { useProjectStore } from "../../stores/projectStore.ts";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, ExternalLink } from "lucide-react";
 import type { FileNode } from "../../../shared/types.ts";
 
 function hasAppComponent(tree: FileNode[]): boolean {
@@ -262,17 +262,28 @@ export function LivePreview() {
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card">
         <div className={`w-2 h-2 rounded-full ${serverAlive ? "bg-emerald-500" : "bg-amber-400 animate-pulse"}`} />
         <span className="text-xs text-muted-foreground truncate">{previewUrl}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto h-6 px-2"
-          onClick={() => {
-            if (iframeRef.current) iframeRef.current.src = previewUrl;
-          }}
-          aria-label="Reload preview"
-        >
-          <RefreshCw className="h-3 w-3" />
-        </Button>
+        <div className="ml-auto flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2"
+            onClick={() => {
+              if (iframeRef.current) iframeRef.current.src = previewUrl;
+            }}
+            aria-label="Reload preview"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2"
+            onClick={() => window.open(previewUrl, "_blank")}
+            aria-label="Open in new tab"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
       <div className="flex-1 relative" style={{ backgroundColor: "#ffffff" }}>
         <iframe
