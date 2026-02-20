@@ -57,6 +57,8 @@ Rules:
 - Scope is required when meaningful (agent name, subsystem, feature).
 - If needed, include a body explaining WHY (not just what).
 - Reference ADRs when relevant.
+- For Codex-authored commits, include this trailer exactly:
+  `Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
 
 Allowed types:
 
