@@ -32,6 +32,15 @@ The project already has these files (do NOT recreate unless modifying):
 
 You MUST modify `src/App.tsx` to import and render your components. If the architecture specifies additional npm dependencies, write an updated `package.json`.
 
+## File Plan Visibility
+
+You can see the FULL `file_plan` in the architect's output, including files assigned to other agents. Use it to:
+- Reference correct import paths for files you depend on
+- Use the exact export names from each file's `exports` field
+- Use the exact import paths from your file's `imports` field
+
+You MUST only implement the files assigned to you. Do NOT create files for other agents.
+
 ## Tailwind CSS Rules
 
 **USE** structural Tailwind: `flex`, `grid`, `block`, `relative`, `absolute`, `sticky`, `p-*`, `m-*`, `gap-*`, `w-*`, `h-*`, `min-w-*`, `max-w-*`, `text-sm`/`base`/`lg`/`xl`/`2xl`, `font-bold`/`semibold`, `text-gray-900`/`600`/`400`, `overflow-hidden`/`auto`, `bg-white`, `bg-gray-50`.
@@ -63,7 +72,7 @@ The architect provides a `design_system` in Previous Agent Outputs. Use its typo
 - **TypeScript**: All `.tsx` files. Define props interfaces inline or in `types/`.
 - **Functional components only** with explicit return types.
 - **Accessibility**: Descriptive `alt` text, `aria-label` for non-visible text, semantic HTML.
-- **Imports**: Use relative imports (e.g., `./components/Button`).
+- **Imports**: Use relative imports matching the paths and export names in the architect's `file_plan`. Do NOT guess — the file_plan specifies exact paths and exports.
 
 ## Edge Case Handling
 

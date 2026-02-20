@@ -1089,26 +1089,38 @@ describe("buildParallelDevSteps", () => {
     return { components, shared, app };
   }
 
-  test("shared and component files are pooled together for batching", () => {
-    const plan = makePlan(3, 2); // 5 total files → 2 agents
+  test("shared files go to dedicated frontend-dev-shared step", () => {
+    const plan = makePlan(3, 2);
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
-    expect(devSteps).toHaveLength(2);
-    // Shared files distributed across agents alongside components
-    const allInputs = devSteps.map((s) => s.input).join(" ");
-    expect(allInputs).toContain("useHook1");
-    expect(allInputs).toContain("Component1");
+    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
+    expect(sharedStep).toBeDefined();
+    expect(sharedStep!.input).toContain("useHook1");
+    expect(sharedStep!.input).toContain("useHook2");
+    expect(sharedStep!.input).toContain("shared/utility files");
   });
 
-  test("single agent for <= 4 total files", () => {
-    const plan = makePlan(3, 1); // 4 total
+  test("component agents do not contain shared files", () => {
+    const plan = makePlan(3, 2);
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
+    const componentSteps = steps.filter(
+      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
+    );
+    for (const step of componentSteps) {
+      expect(step.input).not.toContain("useHook");
+    }
+  });
+
+  test("single agent for <= 4 component files", () => {
+    const plan = makePlan(3, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const devSteps = steps.filter(
+      (s) => s.instanceId !== "frontend-dev-app" && s.instanceId !== "frontend-dev-shared"
+    );
     expect(devSteps).toHaveLength(1);
     expect(devSteps[0]!.instanceId).toBe("frontend-dev-components");
   });
 
-  test("2 agents for 5-8 total files", () => {
+  test("2 agents for 5-8 component files", () => {
     const plan = makePlan(6, 0);
     const steps = buildParallelDevSteps(plan, "", "Build app");
     const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
@@ -1117,18 +1129,29 @@ describe("buildParallelDevSteps", () => {
     expect(devSteps[1]!.instanceId).toBe("frontend-dev-2");
   });
 
-  test("3 agents for 9-14 total files", () => {
-    const plan = makePlan(8, 2); // 10 total
+  test("3 agents for 9-14 component files", () => {
+    const plan = makePlan(10, 0);
     const steps = buildParallelDevSteps(plan, "", "Build app");
     const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
     expect(devSteps).toHaveLength(3);
   });
 
-  test("4 agents (cap) for 15+ total files", () => {
-    const plan = makePlan(12, 3); // 15 total
+  test("4 agents (cap) for 15+ component files", () => {
+    const plan = makePlan(15, 0);
     const steps = buildParallelDevSteps(plan, "", "Build app");
     const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
     expect(devSteps).toHaveLength(4);
+  });
+
+  test("agent count based on component files only, not shared", () => {
+    // 3 components (single agent) + 10 shared files should NOT increase agent count
+    const plan = makePlan(3, 10);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter(
+      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
+    );
+    expect(componentSteps).toHaveLength(1);
+    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-components");
   });
 
   test("app step always comes last", () => {
@@ -1138,23 +1161,49 @@ describe("buildParallelDevSteps", () => {
     expect(lastStep.instanceId).toBe("frontend-dev-app");
   });
 
-  test("app step depends on ALL prior steps", () => {
+  test("app step depends on ALL prior steps (shared + components)", () => {
     const plan = makePlan(6, 2);
     const steps = buildParallelDevSteps(plan, "", "Build app");
     const appStep = steps.find((s) => s.instanceId === "frontend-dev-app")!;
     const priorIds = steps.filter((s) => s.instanceId !== "frontend-dev-app").map((s) => s.instanceId);
+    expect(priorIds).toContain("frontend-dev-shared");
     for (const id of priorIds) {
       expect(appStep.dependsOn).toContain(id);
     }
   });
 
-  test("all dev agents depend only on architect", () => {
-    const plan = makePlan(6, 3); // 9 total → 3 agents
+  test("frontend-dev-shared depends only on architect", () => {
+    const plan = makePlan(6, 3);
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
-    for (const step of devSteps) {
+    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared")!;
+    expect(sharedStep.dependsOn).toEqual(["architect"]);
+  });
+
+  test("component agents depend on architect + frontend-dev-shared when shared files exist", () => {
+    const plan = makePlan(6, 3);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter(
+      (s) => s.instanceId !== "frontend-dev-shared" && s.instanceId !== "frontend-dev-app"
+    );
+    for (const step of componentSteps) {
+      expect(step.dependsOn).toEqual(["architect", "frontend-dev-shared"]);
+    }
+  });
+
+  test("component agents depend only on architect when no shared files", () => {
+    const plan = makePlan(6, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const componentSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
+    for (const step of componentSteps) {
       expect(step.dependsOn).toEqual(["architect"]);
     }
+  });
+
+  test("no frontend-dev-shared step when no shared files", () => {
+    const plan = makePlan(6, 0);
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
+    expect(sharedStep).toBeUndefined();
   });
 
   test("all steps have agentName 'frontend-dev'", () => {
@@ -1372,6 +1421,35 @@ describe("filterUpstreamOutputs", () => {
     expect(filtered).toHaveProperty("code-review");
     expect(filtered).not.toHaveProperty("project-source");
   });
+
+  test("component agents receive frontend-dev-shared manifest", () => {
+    const sharedOutput = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/types/index.ts", "content": "export type GameState = {};"}}
+</tool_call>`;
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-shared": sharedOutput,
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-1", results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("frontend-dev-shared");
+    expect(filtered["frontend-dev-shared"]).toContain("Files written");
+    expect(filtered["frontend-dev-shared"]).toContain("src/types/index.ts");
+    expect(filtered["frontend-dev-shared"]).not.toContain("export type GameState");
+  });
+
+  test("frontend-dev-shared does NOT receive its own manifest", () => {
+    const sharedOutput = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/types/index.ts", "content": "types"}}
+</tool_call>`;
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-shared": sharedOutput,
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-shared", results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).not.toHaveProperty("frontend-dev-shared");
+  });
 });
 
 // --- buildPrompt (chat history capping) ---
@@ -1544,19 +1622,22 @@ describe("truncateArchitectForAgent", () => {
     ],
   });
 
-  test("filters file_plan to only assigned files", () => {
+  test("preserves full file_plan for all agents (no filtering)", () => {
     const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx", "src/components/Footer.tsx"]);
     const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(2);
-    expect(parsed.file_plan[0].path).toBe("src/components/Hero.tsx");
-    expect(parsed.file_plan[1].path).toBe("src/components/Footer.tsx");
+    expect(parsed.file_plan).toHaveLength(4);
+    expect(parsed.file_plan.map((e: { path: string }) => e.path)).toEqual([
+      "src/components/Hero.tsx",
+      "src/components/Footer.tsx",
+      "src/components/Nav.tsx",
+      "src/App.tsx",
+    ]);
   });
 
-  test("preserves design_system and component_tree", () => {
+  test("preserves design_system", () => {
     const result = truncateArchitectForAgent(fullArchitect, ["src/components/Hero.tsx"]);
     const parsed = JSON.parse(result);
     expect(parsed.design_system).toEqual({ colors: { primary: "#3b82f6" } });
-    expect(parsed.component_tree).toEqual(["App", "Hero", "Footer"]);
   });
 
   test("returns truncated output for invalid JSON", () => {
@@ -1564,19 +1645,37 @@ describe("truncateArchitectForAgent", () => {
     expect(result).toBe("not json at all");
   });
 
-  test("strips ./ prefix when matching", () => {
+  test("preserves full file_plan even with ./ prefix paths", () => {
     const architect = JSON.stringify({
-      file_plan: [{ action: "create", path: "./src/Hero.tsx" }],
+      file_plan: [
+        { action: "create", path: "./src/Hero.tsx" },
+        { action: "create", path: "./src/Footer.tsx" },
+      ],
     });
     const result = truncateArchitectForAgent(architect, ["src/Hero.tsx"]);
     const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(1);
+    expect(parsed.file_plan).toHaveLength(2);
   });
 
-  test("returns empty file_plan when no matches", () => {
+  test("preserves full file_plan even when no assigned files match", () => {
     const result = truncateArchitectForAgent(fullArchitect, ["src/nonexistent.tsx"]);
     const parsed = JSON.parse(result);
-    expect(parsed.file_plan).toHaveLength(0);
+    expect(parsed.file_plan).toHaveLength(4);
+  });
+
+  test("exports and imports fields preserved through truncation", () => {
+    const architect = JSON.stringify({
+      file_plan: [
+        { action: "create", path: "src/types/index.ts", exports: ["GameState", "TileStatus"] },
+        { action: "create", path: "src/components/Board.tsx", exports: ["Board"], imports: { "../types": ["GameState"] } },
+      ],
+      test_plan: [],
+    });
+    const result = truncateArchitectForAgent(architect, ["src/components/Board.tsx"]);
+    const parsed = JSON.parse(result);
+    expect(parsed.file_plan).toHaveLength(2);
+    expect(parsed.file_plan[0].exports).toEqual(["GameState", "TileStatus"]);
+    expect(parsed.file_plan[1].imports).toEqual({ "../types": ["GameState"] });
   });
 
   test("filters test_plan to only assigned files", () => {

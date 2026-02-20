@@ -71,13 +71,22 @@ Return a JSON architecture document:
   "file_plan": [
     {
       "action": "create",
+      "path": "src/types/index.ts",
+      "description": "Shared TypeScript type definitions.",
+      "exports": ["GameState", "TileStatus"]
+    },
+    {
+      "action": "create",
       "path": "src/components/HeroSection.tsx",
-      "description": "Hero section with headline, subtext, CTA."
+      "description": "Hero section with headline, subtext, CTA.",
+      "exports": ["HeroSection"],
+      "imports": { "../types": ["GameState"] }
     },
     {
       "action": "modify",
       "path": "src/App.tsx",
-      "description": "Import and render all page components."
+      "description": "Import and render all page components.",
+      "imports": { "./components/HeroSection": ["HeroSection"] }
     }
   ],
   "dependencies": [
@@ -155,6 +164,8 @@ Specify the radius, shadow, and border conventions to prevent inconsistency acro
   ```
 - List only dependencies not already in the scaffold (react, react-dom, vite, tailwindcss are already present).
 - Flag any architectural risk (circular deps, prop drilling beyond 2 levels, large bundle additions).
+- Every `file_plan` entry MUST include an `exports` array listing all named exports (components, types, hooks, functions). For default exports, list the name.
+- Include `imports` mapping relative paths to consumed exports, for any file that imports from other files in the plan. This ensures agents use exact paths and names.
 - Return ONLY the JSON. No explanatory prose before or after.
 
 ## Output Discipline

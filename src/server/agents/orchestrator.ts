@@ -268,12 +268,8 @@ export function truncateArchitectForAgent(architectOutput: string, agentFiles: s
 
       const filtered = { ...parsed };
 
-      // Filter file_plan to only assigned files
-      filtered.file_plan = parsed.file_plan.filter((entry: { path?: string }) => {
-        if (!entry.path) return false;
-        const p = entry.path.replace(/^\.\//, "");
-        return fileSet.has(p);
-      });
+      // Keep FULL file_plan so every agent sees all exports/imports contracts
+      // (file_plan is NOT filtered — agents need it for correct import paths)
 
       // Filter test_plan to only entries relevant to assigned files
       if (parsed.test_plan && Array.isArray(parsed.test_plan)) {
@@ -391,6 +387,12 @@ export function filterUpstreamOutputs(
   // frontend-dev-N (parallel instances) → architect (truncated to assigned files) + design system
   if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
     const result = pick(["architect"]);
+
+    // Component agents get the shared agent's file manifest so they know what exists on disk
+    if (key !== "frontend-dev-shared" && all["frontend-dev-shared"]) {
+      result["frontend-dev-shared"] = buildFileManifest(all["frontend-dev-shared"]);
+    }
+
     // Truncate architect output to only include file_plan entries for this agent's files
     if (assignedFiles && assignedFiles.length > 0 && result["architect"]) {
       result["architect"] = truncateArchitectForAgent(result["architect"], assignedFiles);
@@ -2593,6 +2595,8 @@ export interface FilePlanEntry {
   action: string;
   path: string;
   description?: string;
+  exports?: string[];
+  imports?: Record<string, string[]>;
 }
 
 export interface GroupedFilePlan {
@@ -2658,23 +2662,39 @@ export function buildParallelDevSteps(
   _architectOutput: string,
   userMessage: string,
 ): ExecutionPlan["steps"] {
-  // Merge all files except App.tsx into one pool — no artificial shared/component split
-  const allFiles = [...groupedPlan.shared, ...groupedPlan.components];
-  if (allFiles.length === 0 && groupedPlan.app.length === 0) return [];
+  const hasShared = groupedPlan.shared.length > 0;
+  const hasComponents = groupedPlan.components.length > 0;
+  const hasApp = groupedPlan.app.length > 0;
+
+  if (!hasShared && !hasComponents && !hasApp) return [];
 
   const steps: ExecutionPlan["steps"] = [];
 
-  // Decide agent count based on total files to write
-  const agentCount = allFiles.length <= 4 ? 1
-    : allFiles.length <= 8 ? 2
-    : allFiles.length <= 14 ? 3
-    : 4;
+  // --- Shared files step: runs first, before component agents ---
+  if (hasShared) {
+    const sharedFileList = groupedPlan.shared.map((f) => f.path).join(", ");
+    steps.push({
+      agentName: "frontend-dev",
+      instanceId: "frontend-dev-shared",
+      input: `Implement ONLY these shared/utility files from the architect's plan (provided in Previous Agent Outputs): ${sharedFileList}. These are foundational files (types, hooks, utils) that other agents depend on. Do NOT create any files outside this list — other agents handle the rest. Original request: ${userMessage}`,
+      dependsOn: ["architect"],
+    });
+  }
 
-  if (allFiles.length > 0) {
-    // Distribute files round-robin across agents
+  // --- Component agents: depend on shared step (if it exists) ---
+  const componentDeps = hasShared ? ["architect", "frontend-dev-shared"] : ["architect"];
+
+  if (hasComponents) {
+    // Decide agent count based on component files only (shared handled separately)
+    const componentCount = groupedPlan.components.length;
+    const agentCount = componentCount <= 4 ? 1
+      : componentCount <= 8 ? 2
+      : componentCount <= 14 ? 3
+      : 4;
+
     const batches: FilePlanEntry[][] = Array.from({ length: agentCount }, () => []);
-    for (let i = 0; i < allFiles.length; i++) {
-      batches[i % agentCount]!.push(allFiles[i]!);
+    for (let i = 0; i < groupedPlan.components.length; i++) {
+      batches[i % agentCount]!.push(groupedPlan.components[i]!);
     }
 
     for (let i = 0; i < batches.length; i++) {
@@ -2688,21 +2708,23 @@ export function buildParallelDevSteps(
         agentName: "frontend-dev",
         instanceId,
         input: `Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create any files outside this list — other agents handle the rest. Original request: ${userMessage}`,
-        dependsOn: ["architect"],
+        dependsOn: componentDeps,
       });
     }
   }
 
   // App.tsx — runs last, composes everything
-  const allPriorIds = steps.map((s) => s.instanceId!);
-  if (allPriorIds.length === 0) allPriorIds.push("architect");
+  if (hasApp) {
+    const allPriorIds = steps.map((s) => s.instanceId!);
+    if (allPriorIds.length === 0) allPriorIds.push("architect");
 
-  steps.push({
-    agentName: "frontend-dev",
-    instanceId: "frontend-dev-app",
-    input: `Implement ONLY src/App.tsx: import and compose all components created by other dev agents (their files are listed in Previous Agent Outputs). Wire up routing if needed. Original request: ${userMessage}`,
-    dependsOn: allPriorIds,
-  });
+    steps.push({
+      agentName: "frontend-dev",
+      instanceId: "frontend-dev-app",
+      input: `Implement ONLY src/App.tsx: import and compose all components created by other dev agents (their files are listed in Previous Agent Outputs). Wire up routing if needed. Original request: ${userMessage}`,
+      dependsOn: allPriorIds,
+    });
+  }
 
   return steps;
 }
