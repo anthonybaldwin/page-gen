@@ -14,6 +14,8 @@ interface UsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
   totalCost: number;
   requestCount: number;
 }
@@ -119,6 +121,11 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
                 <CardContent className="p-3">
                   <p className="text-xs text-muted-foreground">Input Tokens</p>
                   <p className="text-lg font-bold text-foreground">{summary.totalInputTokens.toLocaleString()}</p>
+                  {(summary.totalCacheCreationTokens > 0 || summary.totalCacheReadTokens > 0) && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      + {summary.totalCacheCreationTokens.toLocaleString()} cache write &middot; {summary.totalCacheReadTokens.toLocaleString()} cache read
+                    </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="shadow-none">

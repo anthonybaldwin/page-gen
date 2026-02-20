@@ -5,6 +5,8 @@ interface ModelUsage {
   provider: string;
   model: string;
   totalTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
   totalCost: number;
   requestCount: number;
 }
@@ -34,6 +36,9 @@ export function UsageByModel({ filterQuery }: Props) {
           </div>
           <div className="text-right">
             <p className="text-sm text-zinc-200">{row.totalTokens.toLocaleString()} tokens</p>
+            {(row.totalCacheCreationTokens > 0 || row.totalCacheReadTokens > 0) && (
+              <p className="text-[10px] text-zinc-500">{row.totalCacheCreationTokens.toLocaleString()} cache write &middot; {row.totalCacheReadTokens.toLocaleString()} cache read</p>
+            )}
             <p className="text-xs text-green-400">${row.totalCost.toFixed(4)}</p>
           </div>
         </div>

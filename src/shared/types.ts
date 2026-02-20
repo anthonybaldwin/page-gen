@@ -51,6 +51,8 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
   costEstimate: number;
   createdAt: number;
 }

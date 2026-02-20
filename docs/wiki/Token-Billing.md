@@ -22,6 +22,7 @@ Notes:
   - cache creation tokens
   - cache read tokens
 - This prevents double-counting when provider SDK `inputTokens` includes cached tokens.
+- Cache token breakdown (creation + read) is surfaced in the usage dashboard: summary cards, grouped views (by agent/model/provider), and per-request log columns.
 
 ## Dual-Write Architecture
 
@@ -112,16 +113,6 @@ All limits are stored in the `app_settings` table and configurable from Settings
 
 ### Reset
 - `DELETE /api/usage/reset` — Clears all rows from `token_usage` and `billing_ledger`. Returns `{ ok: true, deleted: { tokenUsage: N, billingLedger: M } }`. Useful for fresh testing.
-
-## Historical Reconciliation
-
-For one-time correction of historical ledger costs after pricing/multiplier changes:
-
-- Dry run: `bun run billing:reconcile`
-- Apply updates: `bun run billing:reconcile --apply`
-- Scoped example: `bun run billing:reconcile --provider anthropic --projectId <projectId> --apply`
-
-The reconciliation script recalculates `billing_ledger.cost_estimate` from stored token fields and current pricing settings.
 
 ## Real-Time Cost Display
 

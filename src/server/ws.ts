@@ -61,6 +61,8 @@ export function broadcastTokenUsage(payload: {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
   costEstimate: number;
 }) {
   broadcast({

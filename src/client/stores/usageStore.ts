@@ -11,6 +11,8 @@ interface UsageState {
   projectTokens: number;
   projectCost: number;
   activeProjectId: string | null;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
   setRecords: (records: TokenUsage[]) => void;
   addRecord: (record: TokenUsage) => void;
   setActiveChatId: (chatId: string | null) => void;
@@ -27,6 +29,8 @@ interface UsageState {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
     costEstimate: number;
   }) => void;
 }
@@ -41,6 +45,8 @@ export const useUsageStore = create<UsageState>((set) => ({
   projectTokens: 0,
   projectCost: 0,
   activeProjectId: null,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
 
   setRecords: (records) =>
     set({
@@ -79,6 +85,8 @@ export const useUsageStore = create<UsageState>((set) => ({
       const newTotal = {
         totalTokens: state.totalTokens + payload.totalTokens,
         totalCost: state.totalCost + payload.costEstimate,
+        cacheCreationTokens: state.cacheCreationTokens + (payload.cacheCreationInputTokens || 0),
+        cacheReadTokens: state.cacheReadTokens + (payload.cacheReadInputTokens || 0),
       };
       const chatUpdate =
         state.activeChatId && payload.chatId === state.activeChatId

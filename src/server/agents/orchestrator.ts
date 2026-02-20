@@ -704,6 +704,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           inputTokens: result.tokenUsage.inputTokens,
           outputTokens: result.tokenUsage.outputTokens,
           totalTokens,
+          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens || 0,
+          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
           costEstimate: costEst,
         });
       }
@@ -1788,6 +1790,8 @@ async function handleQuestion(ctx: {
           inputTokens: qInputTokens,
           outputTokens: result.usage.outputTokens || 0,
           totalTokens: qRawInput + (result.usage.outputTokens || 0),
+          cacheCreationInputTokens: cacheCreation,
+          cacheReadInputTokens: cacheRead,
           costEstimate: record.costEstimate,
         });
 
@@ -1920,6 +1924,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
         model: summaryConfig.model,
         inputTokens, outputTokens,
         totalTokens: sRawInput + outputTokens,
+        cacheCreationInputTokens: summaryCacheCreation,
+        cacheReadInputTokens: summaryCacheRead,
         costEstimate: record.costEstimate,
       });
 
@@ -2231,7 +2237,10 @@ async function runFixAgent(
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
-        totalTokens, costEstimate: costEst,
+        totalTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
+        costEstimate: costEst,
       });
     }
 
@@ -2355,7 +2364,10 @@ async function runReviewAgent(
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
-        totalTokens, costEstimate: costEst,
+        totalTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
+        costEstimate: costEst,
       });
     }
 
@@ -3059,7 +3071,10 @@ async function runBuildFix(params: {
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
-        totalTokens, costEstimate: costEst,
+        totalTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
+        costEstimate: costEst,
       });
     }
 

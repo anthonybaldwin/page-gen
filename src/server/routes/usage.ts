@@ -51,6 +51,8 @@ usageRoutes.get("/summary", (c) => {
       totalInputTokens: sql<number>`sum(${schema.billingLedger.inputTokens})`,
       totalOutputTokens: sql<number>`sum(${schema.billingLedger.outputTokens})`,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCacheCreationTokens: sql<number>`sum(${schema.billingLedger.cacheCreationInputTokens})`,
+      totalCacheReadTokens: sql<number>`sum(${schema.billingLedger.cacheReadInputTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
@@ -62,6 +64,8 @@ usageRoutes.get("/summary", (c) => {
     totalInputTokens: result?.totalInputTokens || 0,
     totalOutputTokens: result?.totalOutputTokens || 0,
     totalTokens: result?.totalTokens || 0,
+    totalCacheCreationTokens: result?.totalCacheCreationTokens || 0,
+    totalCacheReadTokens: result?.totalCacheReadTokens || 0,
     totalCost: result?.totalCost || 0,
     requestCount: result?.requestCount || 0,
     estimatedTokens: getEstimatedTokenTotal(),
@@ -76,6 +80,8 @@ usageRoutes.get("/by-agent", (c) => {
       agentName: schema.billingLedger.agentName,
       models: sql<string>`group_concat(distinct ${schema.billingLedger.model})`,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCacheCreationTokens: sql<number>`sum(${schema.billingLedger.cacheCreationInputTokens})`,
+      totalCacheReadTokens: sql<number>`sum(${schema.billingLedger.cacheReadInputTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
@@ -95,6 +101,8 @@ usageRoutes.get("/by-model", (c) => {
       provider: schema.billingLedger.provider,
       model: schema.billingLedger.model,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCacheCreationTokens: sql<number>`sum(${schema.billingLedger.cacheCreationInputTokens})`,
+      totalCacheReadTokens: sql<number>`sum(${schema.billingLedger.cacheReadInputTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
@@ -113,6 +121,8 @@ usageRoutes.get("/by-provider", (c) => {
     .select({
       provider: schema.billingLedger.provider,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCacheCreationTokens: sql<number>`sum(${schema.billingLedger.cacheCreationInputTokens})`,
+      totalCacheReadTokens: sql<number>`sum(${schema.billingLedger.cacheReadInputTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })
@@ -133,6 +143,8 @@ usageRoutes.get("/by-project", (c) => {
       totalInputTokens: sql<number>`sum(${schema.billingLedger.inputTokens})`,
       totalOutputTokens: sql<number>`sum(${schema.billingLedger.outputTokens})`,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCacheCreationTokens: sql<number>`sum(${schema.billingLedger.cacheCreationInputTokens})`,
+      totalCacheReadTokens: sql<number>`sum(${schema.billingLedger.cacheReadInputTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
     })

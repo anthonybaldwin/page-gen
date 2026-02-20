@@ -10,6 +10,8 @@ interface LedgerRecord {
   chatTitle: string | null;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
   totalTokens: number;
   costEstimate: number;
   createdAt: number;
@@ -51,6 +53,8 @@ export function RequestLog({ filterQuery }: Props) {
             <th className="pb-2 pr-3">Chat</th>
             <th className="pb-2 pr-3 text-right">Input</th>
             <th className="pb-2 pr-3 text-right">Output</th>
+            <th className="pb-2 pr-3 text-right">Cache Write</th>
+            <th className="pb-2 pr-3 text-right">Cache Read</th>
             <th className="pb-2 text-right">Cost</th>
           </tr>
         </thead>
@@ -63,6 +67,8 @@ export function RequestLog({ filterQuery }: Props) {
               <td className="py-1.5 pr-3 text-zinc-500 truncate max-w-[120px]">{r.chatTitle || "—"}</td>
               <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.inputTokens.toLocaleString()}</td>
               <td className="py-1.5 pr-3 text-right whitespace-nowrap">{r.outputTokens.toLocaleString()}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-zinc-500">{r.cacheCreationInputTokens ? r.cacheCreationInputTokens.toLocaleString() : "—"}</td>
+              <td className="py-1.5 pr-3 text-right whitespace-nowrap text-zinc-500">{r.cacheReadInputTokens ? r.cacheReadInputTokens.toLocaleString() : "—"}</td>
               <td className="py-1.5 text-right text-green-400 whitespace-nowrap">${r.costEstimate.toFixed(4)}</td>
             </tr>
           ))}
