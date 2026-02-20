@@ -1872,7 +1872,8 @@ export async function classifyIntent(
       maxOutputTokens: 100,
     });
 
-    const parsed = JSON.parse(result.text.trim());
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/m, "");
+    const parsed = JSON.parse(raw);
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
 
