@@ -371,7 +371,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Usage dashboard dialog */}
       <Dialog open={showUsage} onOpenChange={setShowUsage}>
-        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0">
+        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0 top-[10vh] translate-y-0 flex flex-col overflow-hidden">
           <DialogHeader className="sr-only">
             <DialogTitle>Usage Dashboard</DialogTitle>
           </DialogHeader>
@@ -381,7 +381,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Settings dialog */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0">
+        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0 top-[10vh] translate-y-0 flex flex-col overflow-hidden">
           <DialogHeader className="sr-only">
             <DialogTitle>Settings</DialogTitle>
           </DialogHeader>
