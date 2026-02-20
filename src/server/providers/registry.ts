@@ -59,7 +59,14 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
             if (Array.isArray(msg.content)) {
               for (const block of msg.content) {
                 if (block.type === "tool_use" && typeof block.input === "string") {
-                  block.input = JSON.parse(block.input);
+                  try {
+                    block.input = JSON.parse(block.input);
+                  } catch {
+                    // Input is malformed JSON (model hit output token limit mid-string).
+                    // Log clearly and let the 400 happen — retrying won't help.
+                    logWarn("llm-http", `${provider} tool_use.input is invalid JSON (${block.input.length} chars, tool=${block.name || "?"}) — model likely hit output token limit`);
+                    block.input = {};
+                  }
                   modified = true;
                 }
               }
