@@ -1,6 +1,15 @@
 import { useEffect, useState, useRef } from "react";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
+import { Badge } from "../ui/badge.tsx";
+import {
+  Circle,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  Square,
+} from "lucide-react";
 
 interface AgentState {
   name: string;
@@ -14,7 +23,6 @@ interface AgentState {
   completedAt?: number;
 }
 
-/** Returns elapsed time string like "12s" or "1m 5s" */
 function formatElapsed(startedAt?: number, completedAt?: number): string {
   if (!startedAt) return "";
   const end = completedAt || Date.now();
@@ -50,32 +58,31 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   qa: "QA",
 };
 
-/** Resolve display name for an agent, including parallel frontend-dev instances. */
 function resolveDisplayName(name: string): string {
   if (AGENT_DISPLAY_NAMES[name]) return AGENT_DISPLAY_NAMES[name];
-  // Match frontend-dev-N pattern (e.g., frontend-dev-1, frontend-dev-2)
   const match = name.match(/^frontend-dev-(\d+)$/);
   if (match) return `Frontend Dev ${match[1]}`;
   return name;
 }
 
-const STATUS_ICONS: Record<string, string> = {
-  pending: "\u25CB",   // ○
-  running: "\u25CF",   // ●
-  completed: "\u2713", // ✓
-  failed: "\u2717",    // ✗
-  retrying: "\u21BB",  // ↻
-  stopped: "\u25A0",   // ■
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "text-zinc-600",
-  running: "text-yellow-400",
-  completed: "text-green-400",
-  failed: "text-red-400",
-  retrying: "text-orange-400",
-  stopped: "text-zinc-400",
-};
+function StatusIcon({ status, className = "h-3.5 w-3.5" }: { status: string; className?: string }) {
+  switch (status) {
+    case "pending":
+      return <Circle className={`${className} text-muted-foreground/40`} />;
+    case "running":
+      return <Loader2 className={`${className} text-amber-400 animate-spin`} />;
+    case "completed":
+      return <CheckCircle2 className={`${className} text-emerald-500`} />;
+    case "failed":
+      return <XCircle className={`${className} text-destructive`} />;
+    case "retrying":
+      return <RefreshCw className={`${className} text-orange-400 animate-spin`} />;
+    case "stopped":
+      return <Square className={`${className} text-muted-foreground`} />;
+    default:
+      return <Circle className={`${className} text-muted-foreground/40`} />;
+  }
+}
 
 interface Props {
   chatId: string | null;
@@ -89,7 +96,6 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [, setTick] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Tick every second to update elapsed time for running agents
   useEffect(() => {
     if (pipelineActive) {
       tickRef.current = setInterval(() => setTick((t) => t + 1), 1000);
@@ -100,7 +106,6 @@ export function AgentStatusPanel({ chatId }: Props) {
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, [pipelineActive]);
 
-  // Reset all state and reconstruct from DB on chat change
   useEffect(() => {
     setAgents({});
     setPipelineActive(false);
@@ -136,15 +141,12 @@ export function AgentStatusPanel({ chatId }: Props) {
 
     const unsub = onWsMessage((msg) => {
       if (!chatId) return;
-      // Strict filter — only process messages for THIS chat
       const msgChatId = (msg.payload as { chatId?: string }).chatId;
       if (msgChatId !== chatId) return;
 
-      // Dynamic pipeline plan — update which agents to display
       if (msg.type === "pipeline_plan") {
         const { agents: agentNames } = msg.payload as { agents: string[] };
         if (agentNames.length === 0) {
-          // Question mode — hide the pipeline bar
           setPipelineAgents([]);
           return;
         }
@@ -172,7 +174,6 @@ export function AgentStatusPanel({ chatId }: Props) {
           setPipelineActive(false);
         }
 
-        // Reset all agent states when a new pipeline starts
         if (agentName === "orchestrator" && status === "running") {
           setAgents({});
           setPipelineActive(true);
@@ -225,7 +226,6 @@ export function AgentStatusPanel({ chatId }: Props) {
         }));
       }
 
-      // Test results — attach badge to testing agent
       if (msg.type === "test_results") {
         const { passed, total } = msg.payload as { passed: number; total: number };
         setAgents((prev) => ({
@@ -247,13 +247,12 @@ export function AgentStatusPanel({ chatId }: Props) {
 
   if (!pipelineActive && Object.keys(agents).length === 0) return null;
 
-  // Question mode with empty pipeline — don't render the bar
   if (pipelineAgents.length === 0) {
     return pipelineActive ? (
-      <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-          <span className="text-zinc-200 font-medium">Thinking...</span>
+      <div className="border-b border-border bg-card/50 px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
+          <span className="text-foreground font-medium">Thinking...</span>
         </div>
       </div>
     ) : null;
@@ -262,51 +261,46 @@ export function AgentStatusPanel({ chatId }: Props) {
   const runningAgents = Object.values(agents).filter((a) => a.status === "running");
 
   return (
-    <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
+    <div className="border-b border-border bg-card/50 px-4 py-3">
       {/* Pipeline progress bar */}
       <div className="flex items-center gap-1 mb-2 flex-wrap">
         {pipelineAgents.map((agent, i) => {
           const state = agents[agent.name];
           const status = state?.status || "pending";
-          const color = STATUS_COLORS[status] || STATUS_COLORS.pending;
-          const icon = STATUS_ICONS[status] || STATUS_ICONS.pending;
 
           return (
             <div key={`${agent.name}-${i}`} className="flex items-center">
               {i > 0 && (
                 <div
                   className={`w-4 h-px mx-0.5 ${
-                    status === "completed" ? "bg-green-400/40" : "bg-zinc-700"
+                    status === "completed" ? "bg-emerald-500/40" : "bg-border"
                   }`}
                 />
               )}
               <button
                 onClick={() => setExpanded(expanded === agent.name ? null : agent.name)}
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs whitespace-nowrap transition-colors hover:bg-zinc-800 ${
-                  status === "running" ? "bg-zinc-800" : ""
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs whitespace-nowrap transition-colors hover:bg-accent ${
+                  status === "running" ? "bg-accent" : ""
                 }`}
                 title={state?.error || status}
               >
-                <span className={`${color} ${status === "running" ? "animate-pulse" : ""}`}>
-                  {icon}
-                </span>
-                <span className={status === "running" ? "text-zinc-200" : "text-zinc-500"}>
+                <StatusIcon status={status} className="h-3 w-3" />
+                <span className={status === "running" ? "text-foreground" : "text-muted-foreground"}>
                   {agent.displayName}
                   {state?.phase === "remediation" && " (fixing)"}
                   {(status === "running" || status === "completed" || status === "failed") && state?.startedAt && (
-                    <span className="ml-1 text-zinc-600 font-normal">
+                    <span className="ml-1 text-muted-foreground/50 font-normal">
                       ({formatElapsed(state.startedAt, status === "running" ? undefined : state?.completedAt)})
                     </span>
                   )}
                 </span>
                 {state?.testBadge && (
-                  <span className={`ml-1 text-[10px] font-medium ${
-                    state.testBadge.passed === state.testBadge.total
-                      ? "text-green-400"
-                      : "text-red-400"
-                  }`}>
-                    {state.testBadge.passed === state.testBadge.total ? "\u2713" : "\u2717"} {state.testBadge.passed}/{state.testBadge.total}
-                  </span>
+                  <Badge
+                    variant={state.testBadge.passed === state.testBadge.total ? "default" : "destructive"}
+                    className="text-[10px] px-1 py-0 h-4 ml-1"
+                  >
+                    {state.testBadge.passed}/{state.testBadge.total}
+                  </Badge>
                 )}
               </button>
             </div>
@@ -314,19 +308,19 @@ export function AgentStatusPanel({ chatId }: Props) {
         })}
       </div>
 
-      {/* Current activity label — show all running agents */}
+      {/* Current activity label */}
       {runningAgents.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
           <span>
             {runningAgents.length === 1 ? (
               <>
-                <span className="text-zinc-200 font-medium">{runningAgents[0]!.displayName}</span>
+                <span className="text-foreground font-medium">{runningAgents[0]!.displayName}</span>
                 {runningAgents[0]!.phase === "remediation" ? " is fixing issues..." : " is working..."}
               </>
             ) : (
               <>
-                <span className="text-zinc-200 font-medium">
+                <span className="text-foreground font-medium">
                   {runningAgents.map((a) => a.displayName).join(", ")}
                 </span>
                 {" are working in parallel..."}
@@ -340,14 +334,14 @@ export function AgentStatusPanel({ chatId }: Props) {
       {Object.values(agents)
         .filter((a) => a.status === "failed" && a.error)
         .map((a, i) => (
-          <div key={`${a.name}-err-${i}`} className="mt-2 text-xs text-red-400 bg-red-900/20 rounded px-3 py-2">
+          <div key={`${a.name}-err-${i}`} className="mt-2 text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
             <span className="font-medium">{a.displayName}:</span> {a.error}
           </div>
         ))}
 
       {/* Expanded stream view */}
       {expanded && agents[expanded]?.stream && (
-        <pre className="mt-2 text-xs text-zinc-500 bg-zinc-950 rounded p-2 max-h-40 overflow-y-auto whitespace-pre-wrap">
+        <pre className="mt-2 text-xs text-muted-foreground bg-muted rounded-md p-2 max-h-40 overflow-y-auto whitespace-pre-wrap">
           {agents[expanded].stream}
         </pre>
       )}
