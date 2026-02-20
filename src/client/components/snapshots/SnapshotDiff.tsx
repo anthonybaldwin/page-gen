@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { api } from "../../lib/api.ts";
+import { Button } from "../ui/button.tsx";
+import { Loader2 } from "lucide-react";
 
 interface SnapshotDetail {
   id: string;
@@ -26,13 +28,16 @@ export function SnapshotDiff({ snapshotId }: { snapshotId: string }) {
 
   if (!snapshot) {
     return (
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={loadSnapshot}
         disabled={loading}
-        className="text-xs text-zinc-500 hover:text-zinc-300"
+        className="text-xs"
       >
+        {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
         {loading ? "Loading..." : "View files"}
-      </button>
+      </Button>
     );
   }
 
@@ -41,9 +46,9 @@ export function SnapshotDiff({ snapshotId }: { snapshotId: string }) {
 
   return (
     <div className="mt-2 space-y-1">
-      <p className="text-xs text-zinc-500">{files.length} files in snapshot</p>
+      <p className="text-xs text-muted-foreground">{files.length} files in snapshot</p>
       {files.map((file) => (
-        <div key={file} className="text-xs text-zinc-400 pl-2">
+        <div key={file} className="text-xs text-muted-foreground/80 pl-2">
           {file}
         </div>
       ))}

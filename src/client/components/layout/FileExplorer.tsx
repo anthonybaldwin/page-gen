@@ -2,7 +2,17 @@ import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { api } from "../../lib/api.ts";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
+import { Button } from "../ui/button.tsx";
+import { Folder, File, FileCode, ChevronRight, Download, RefreshCw, X } from "lucide-react";
 import type { FileNode } from "../../../shared/types.ts";
+
+function getFileIcon(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase();
+  if (ext && ["tsx", "ts", "jsx", "js", "css", "html", "json"].includes(ext)) {
+    return <FileCode className="h-3.5 w-3.5 text-primary/60 shrink-0" />;
+  }
+  return <File className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />;
+}
 
 function FileTreeNode({
   node,
@@ -22,11 +32,12 @@ function FileTreeNode({
       <div>
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1 w-full text-left py-0.5 hover:bg-zinc-800/50 rounded text-xs"
+          className="flex items-center gap-1.5 w-full text-left py-0.5 hover:bg-accent/50 rounded text-xs transition-colors"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
-          <span className="text-zinc-500">{expanded ? "▾" : "▸"}</span>
-          <span className="text-zinc-400">{node.name}/</span>
+          <ChevronRight className={`h-3 w-3 text-muted-foreground/50 transition-transform shrink-0 ${expanded ? "rotate-90" : ""}`} />
+          <Folder className="h-3.5 w-3.5 text-primary/50 shrink-0" />
+          <span className="text-muted-foreground">{node.name}</span>
         </button>
         {expanded &&
           node.children?.map((child) => (
@@ -45,11 +56,12 @@ function FileTreeNode({
   return (
     <button
       onClick={() => onSelect(node.path)}
-      className={`flex items-center w-full text-left py-0.5 rounded text-xs ${
-        selectedPath === node.path ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+      className={`flex items-center gap-1.5 w-full text-left py-0.5 rounded text-xs transition-colors ${
+        selectedPath === node.path ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       }`}
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
     >
+      {getFileIcon(node.name)}
       {node.name}
     </button>
   );
@@ -71,7 +83,6 @@ export function FileExplorer() {
     loadTree();
   }, [activeProject]);
 
-  // Auto-refresh tree when files change for this project
   useEffect(() => {
     connectWebSocket();
     const unsub = onWsMessage((msg) => {
@@ -125,28 +136,28 @@ export function FileExplorer() {
   }
 
   return (
-    <aside className="w-72 border-l border-zinc-800 bg-zinc-900 flex flex-col">
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-zinc-400">Files</h2>
+    <aside className="w-72 border-l border-border bg-card flex flex-col">
+      <div className="p-3 border-b border-border flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted-foreground">Files</h2>
         {activeProject && (
-          <div className="flex items-center gap-2">
-            <button onClick={handleDownload} className="text-xs text-zinc-500 hover:text-zinc-300">
-              Download
-            </button>
-            <button onClick={loadTree} className="text-xs text-zinc-500 hover:text-zinc-300">
-              Refresh
-            </button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="h-6 px-2" onClick={handleDownload} aria-label="Download project">
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2" onClick={loadTree} aria-label="Refresh file tree">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
           </div>
         )}
       </div>
 
       {!activeProject ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-zinc-600 p-2">No project selected</p>
+          <p className="text-xs text-muted-foreground/60 p-2">No project selected</p>
         </div>
       ) : tree.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-zinc-600 p-2">No files yet</p>
+          <p className="text-xs text-muted-foreground/60 p-2">No files yet</p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto py-1">
@@ -163,20 +174,23 @@ export function FileExplorer() {
       )}
 
       {fileContent !== null && (
-        <div className="border-t border-zinc-800 max-h-64 overflow-y-auto">
-          <div className="p-2 flex items-center justify-between bg-zinc-950">
-            <span className="text-xs text-zinc-500 truncate">{selectedPath}</span>
-            <button
+        <div className="border-t border-border max-h-64 overflow-y-auto">
+          <div className="p-2 flex items-center justify-between bg-muted">
+            <span className="text-xs text-muted-foreground truncate">{selectedPath}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5"
               onClick={() => {
                 setFileContent(null);
                 setSelectedPath(null);
               }}
-              className="text-xs text-zinc-500 hover:text-zinc-300"
+              aria-label="Close file preview"
             >
-              &times;
-            </button>
+              <X className="h-3 w-3" />
+            </Button>
           </div>
-          <pre className="p-2 text-xs text-zinc-300 overflow-x-auto whitespace-pre">{fileContent}</pre>
+          <pre className="p-2 text-xs text-foreground/80 overflow-x-auto whitespace-pre">{fileContent}</pre>
         </div>
       )}
     </aside>

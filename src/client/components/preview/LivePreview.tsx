@@ -2,9 +2,10 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
+import { Button } from "../ui/button.tsx";
+import { RefreshCw, Loader2 } from "lucide-react";
 import type { FileNode } from "../../../shared/types.ts";
 
-/** Check if the tree contains src/App.tsx or src/App.jsx — the scaffold imports ./App */
 function hasAppComponent(tree: FileNode[]): boolean {
   const srcDir = tree.find((n) => n.name === "src" && n.type === "directory");
   if (!srcDir?.children) return false;
@@ -15,42 +16,37 @@ function hasAppComponent(tree: FileNode[]): boolean {
 
 function EmptyProjectPlaceholder() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-zinc-950 gap-6 px-8">
+    <div className="flex-1 flex flex-col items-center justify-center bg-background gap-6 px-8">
       <svg
         width="200"
         height="160"
         viewBox="0 0 200 160"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className="opacity-30"
+        className="opacity-20"
       >
-        {/* Browser window frame */}
-        <rect x="20" y="16" width="160" height="112" rx="8" stroke="#71717a" strokeWidth="1.5" />
-        <line x1="20" y1="36" x2="180" y2="36" stroke="#71717a" strokeWidth="1.5" />
-        {/* Window dots */}
+        <rect x="20" y="16" width="160" height="112" rx="8" className="stroke-muted-foreground" strokeWidth="1.5" />
+        <line x1="20" y1="36" x2="180" y2="36" className="stroke-muted-foreground" strokeWidth="1.5" />
         <circle cx="34" cy="26" r="3" fill="#ef4444" opacity="0.6" />
         <circle cx="46" cy="26" r="3" fill="#eab308" opacity="0.6" />
         <circle cx="58" cy="26" r="3" fill="#22c55e" opacity="0.6" />
-        {/* Address bar */}
-        <rect x="72" y="22" width="96" height="8" rx="4" fill="#27272a" />
-        {/* Code lines */}
-        <rect x="36" y="48" width="48" height="4" rx="2" fill="#3b82f6" opacity="0.4" />
-        <rect x="36" y="58" width="72" height="4" rx="2" fill="#71717a" opacity="0.3" />
+        <rect x="72" y="22" width="96" height="8" rx="4" className="fill-muted" />
+        <rect x="36" y="48" width="48" height="4" rx="2" className="fill-primary" opacity="0.4" />
+        <rect x="36" y="58" width="72" height="4" rx="2" className="fill-muted-foreground" opacity="0.3" />
         <rect x="44" y="68" width="56" height="4" rx="2" fill="#a78bfa" opacity="0.35" />
-        <rect x="44" y="78" width="80" height="4" rx="2" fill="#71717a" opacity="0.3" />
+        <rect x="44" y="78" width="80" height="4" rx="2" className="fill-muted-foreground" opacity="0.3" />
         <rect x="44" y="88" width="40" height="4" rx="2" fill="#34d399" opacity="0.35" />
-        <rect x="36" y="98" width="32" height="4" rx="2" fill="#3b82f6" opacity="0.4" />
-        <rect x="36" y="108" width="64" height="4" rx="2" fill="#71717a" opacity="0.3" />
-        {/* Cursor blink line */}
-        <rect x="100" y="108" width="2" height="4" rx="1" fill="#3b82f6" opacity="0.7">
+        <rect x="36" y="98" width="32" height="4" rx="2" className="fill-primary" opacity="0.4" />
+        <rect x="36" y="108" width="64" height="4" rx="2" className="fill-muted-foreground" opacity="0.3" />
+        <rect x="100" y="108" width="2" height="4" rx="1" className="fill-primary" opacity="0.7">
           <animate attributeName="opacity" values="0.7;0;0.7" dur="1.2s" repeatCount="indefinite" />
         </rect>
       </svg>
       <div className="text-center space-y-2 max-w-xs">
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           Your live preview will appear here
         </p>
-        <p className="text-xs text-zinc-600">
+        <p className="text-xs text-muted-foreground/60">
           Describe what you want to build in the chat and agents will generate the code.
         </p>
       </div>
@@ -98,9 +94,7 @@ export function LivePreview() {
     }
   }, [startPreview]);
 
-  // Reset ALL state when project changes, stop old preview, then check for files
   useEffect(() => {
-    // Stop preview for the previous project
     const prevId = prevProjectRef.current;
     if (prevId && prevId !== activeProject?.id) {
       fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
@@ -117,7 +111,6 @@ export function LivePreview() {
 
     checkAndMaybeStartPreview(activeProject.id);
 
-    // Stop preview on unmount
     return () => {
       if (activeProject) {
         fetch(`/api/files/preview/${activeProject.id}`, { method: "DELETE" }).catch(() => {});
@@ -125,19 +118,17 @@ export function LivePreview() {
     };
   }, [activeProject, checkAndMaybeStartPreview]);
 
-  // Health check: poll the preview URL to detect server death
   useEffect(() => {
     if (!previewUrl || !activeProject) return;
     let cancelled = false;
 
     const check = async () => {
       try {
-        const res = await fetch(previewUrl, { mode: "no-cors", signal: AbortSignal.timeout(2000) });
+        await fetch(previewUrl, { mode: "no-cors", signal: AbortSignal.timeout(2000) });
         if (!cancelled) setServerAlive(true);
       } catch {
         if (!cancelled) {
           setServerAlive(false);
-          // Try to restart if server is dead
           if (!loading) {
             checkAndMaybeStartPreview(activeProject.id);
           }
@@ -145,21 +136,17 @@ export function LivePreview() {
       }
     };
 
-    // Check every 5s
     const interval = setInterval(check, 5000);
-    // Also check immediately
     check();
 
     return () => { cancelled = true; clearInterval(interval); };
   }, [previewUrl, activeProject, loading, checkAndMaybeStartPreview]);
 
-  // Listen for file changes — start preview if files appear, reload if already running
   useEffect(() => {
     if (!activeProject) return;
     connectWebSocket();
 
     const unsub = onWsMessage((msg) => {
-      // Track pipeline running state from orchestrator status
       if (msg.type === "agent_status") {
         const { agentName, status } = msg.payload as { agentName: string; status: string };
         if (agentName === "orchestrator") {
@@ -168,11 +155,9 @@ export function LivePreview() {
         }
       }
 
-      // Only start the preview on preview_ready (sent after a successful build check)
       if (msg.type === "preview_ready") {
         setServerAlive(true);
         if (previewUrl && iframeRef.current) {
-          // Use a short delay for HMR to settle, not the old 1s wait
           setTimeout(() => {
             if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
           }, 300);
@@ -180,7 +165,6 @@ export function LivePreview() {
           checkAndMaybeStartPreview(activeProject.id);
         }
       }
-      // files_changed only reloads when pipeline is NOT running — prevents broken preview mid-build
       if (msg.type === "files_changed" && !pipelineRunning && previewUrl && iframeRef.current) {
         setTimeout(() => {
           if (iframeRef.current && previewUrl) iframeRef.current.src = previewUrl;
@@ -193,8 +177,8 @@ export function LivePreview() {
 
   if (!activeProject) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-zinc-950">
-        <p className="text-zinc-500 text-sm">Select a project to preview</p>
+      <div className="flex-1 flex items-center justify-center bg-background">
+        <p className="text-muted-foreground text-sm">Select a project to preview</p>
       </div>
     );
   }
@@ -205,10 +189,10 @@ export function LivePreview() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-zinc-950">
+      <div className="flex-1 flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-zinc-500 text-sm">Starting preview server...</p>
+          <Loader2 className="h-6 w-6 text-primary animate-spin mx-auto mb-2" />
+          <p className="text-muted-foreground text-sm">Starting preview server...</p>
         </div>
       </div>
     );
@@ -216,15 +200,16 @@ export function LivePreview() {
 
   if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-zinc-950">
+      <div className="flex-1 flex items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-red-400 text-sm mb-2">{error}</p>
-          <button
+          <p className="text-destructive text-sm mb-2">{error}</p>
+          <Button
+            variant="link"
+            size="sm"
             onClick={() => startPreview(activeProject.id)}
-            className="text-blue-400 hover:text-blue-300 text-xs underline"
           >
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -237,18 +222,21 @@ export function LivePreview() {
   const showOverlay = !serverAlive || (pipelineRunning && !serverAlive);
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-950">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800 bg-zinc-900">
-        <div className={`w-2 h-2 rounded-full ${serverAlive ? "bg-green-400" : "bg-yellow-400 animate-pulse"}`} />
-        <span className="text-xs text-zinc-400 truncate">{previewUrl}</span>
-        <button
+    <div className="flex-1 flex flex-col bg-background">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card">
+        <div className={`w-2 h-2 rounded-full ${serverAlive ? "bg-emerald-500" : "bg-amber-400 animate-pulse"}`} />
+        <span className="text-xs text-muted-foreground truncate">{previewUrl}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto h-6 px-2"
           onClick={() => {
             if (iframeRef.current) iframeRef.current.src = previewUrl;
           }}
-          className="ml-auto text-xs text-zinc-500 hover:text-zinc-300"
+          aria-label="Reload preview"
         >
-          Reload
-        </button>
+          <RefreshCw className="h-3 w-3" />
+        </Button>
       </div>
       <div className="flex-1 relative">
         <iframe
@@ -260,9 +248,9 @@ export function LivePreview() {
           title="Live Preview"
         />
         {showOverlay && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 gap-4">
-            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-zinc-500 text-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-background gap-4">
+            <Loader2 className="h-6 w-6 text-primary animate-spin" />
+            <p className="text-muted-foreground text-sm">
               {pipelineRunning ? "Agents are building — preview will reload when ready" : "Preview server restarting..."}
             </p>
           </div>
