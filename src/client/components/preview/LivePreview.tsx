@@ -65,6 +65,7 @@ export function LivePreview() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [serverAlive, setServerAlive] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const prevProjectRef = useRef<string | null>(null);
 
@@ -110,6 +111,7 @@ export function LivePreview() {
     setLoading(false);
     setError(null);
     setReady(false);
+    setServerAlive(true);
 
     if (!activeProject) return;
 
@@ -122,6 +124,34 @@ export function LivePreview() {
       }
     };
   }, [activeProject, checkAndMaybeStartPreview]);
+
+  // Health check: poll the preview URL to detect server death
+  useEffect(() => {
+    if (!previewUrl || !activeProject) return;
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const res = await fetch(previewUrl, { mode: "no-cors", signal: AbortSignal.timeout(2000) });
+        if (!cancelled) setServerAlive(true);
+      } catch {
+        if (!cancelled) {
+          setServerAlive(false);
+          // Try to restart if server is dead
+          if (!loading) {
+            checkAndMaybeStartPreview(activeProject.id);
+          }
+        }
+      }
+    };
+
+    // Check every 5s
+    const interval = setInterval(check, 5000);
+    // Also check immediately
+    check();
+
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [previewUrl, activeProject, loading, checkAndMaybeStartPreview]);
 
   // Listen for file changes — start preview if files appear, reload if already running
   useEffect(() => {
@@ -140,6 +170,7 @@ export function LivePreview() {
 
       // Only start the preview on preview_ready (sent after a successful build check)
       if (msg.type === "preview_ready") {
+        setServerAlive(true);
         if (previewUrl && iframeRef.current) {
           // Use a short delay for HMR to settle, not the old 1s wait
           setTimeout(() => {
@@ -203,10 +234,12 @@ export function LivePreview() {
     return <EmptyProjectPlaceholder />;
   }
 
+  const showOverlay = !serverAlive || (pipelineRunning && !serverAlive);
+
   return (
     <div className="flex-1 flex flex-col bg-zinc-950">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-800 bg-zinc-900">
-        <div className="w-2 h-2 rounded-full bg-green-400" />
+        <div className={`w-2 h-2 rounded-full ${serverAlive ? "bg-green-400" : "bg-yellow-400 animate-pulse"}`} />
         <span className="text-xs text-zinc-400 truncate">{previewUrl}</span>
         <button
           onClick={() => {
@@ -217,21 +250,24 @@ export function LivePreview() {
           Reload
         </button>
       </div>
-      <iframe
-        ref={iframeRef}
-        id="preview-iframe"
-        src={previewUrl}
-        className="flex-1 w-full bg-white"
-        sandbox="allow-scripts allow-same-origin allow-forms"
-        title="Live Preview"
-        onError={() => {
-          if (activeProject) {
-            setPreviewUrl(null);
-            setReady(false);
-            setTimeout(() => checkAndMaybeStartPreview(activeProject.id), 1000);
-          }
-        }}
-      />
+      <div className="flex-1 relative">
+        <iframe
+          ref={iframeRef}
+          id="preview-iframe"
+          src={previewUrl}
+          className={`absolute inset-0 w-full h-full ${showOverlay ? "invisible" : ""}`}
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          title="Live Preview"
+        />
+        {showOverlay && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 gap-4">
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-zinc-500 text-sm">
+              {pipelineRunning ? "Agents are building — preview will reload when ready" : "Preview server restarting..."}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

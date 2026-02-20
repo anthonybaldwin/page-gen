@@ -302,10 +302,18 @@ export async function startPreviewServer(projectId: string, projectPath: string)
 
   activeServers.set(projectId, { port, process: proc });
 
-  // Auto-cleanup when process exits unexpectedly
-  proc.exited.then((code) => {
+  // Auto-cleanup when process exits unexpectedly — capture stderr for diagnostics
+  proc.exited.then(async (code) => {
     if (activeServers.get(projectId)?.process === proc) {
+      let stderrText = "";
+      try {
+        stderrText = await new Response(proc.stderr).text();
+      } catch { /* already consumed */ }
+      const reason = stderrText.trim().split("\n").slice(-5).join("\n") || "unknown";
       console.log(`[preview] Vite server for ${projectId} exited (code ${code}) — removing from active servers`);
+      if (code !== 0 && code !== null) {
+        console.log(`[preview] Death reason (last 5 lines):\n${reason}`);
+      }
       activeServers.delete(projectId);
     }
   });
