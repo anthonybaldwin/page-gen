@@ -57,13 +57,13 @@ export function UsageBadge({ onClick }: Props) {
         <span className="text-xs text-muted-foreground">Total spent</span>
         <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">{formatCost(totalCost)}</span>
       </div>
-      {activeProjectId && projectCost > 0 && (
+      {activeProjectId && (
         <div className="flex items-center justify-between mt-0.5">
           <span className="text-xs text-muted-foreground/60">This project</span>
           <span className="text-xs text-muted-foreground">{formatCost(projectCost)}</span>
         </div>
       )}
-      {activeChatId && chatCost > 0 && (
+      {activeChatId && (
         <div className="flex items-center justify-between mt-0.5">
           <span className="text-xs text-muted-foreground/60">This chat</span>
           <span className="text-xs text-muted-foreground">{formatCost(chatCost)}</span>
