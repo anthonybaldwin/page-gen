@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname, relative } from "path";
+import { zipSync, strToU8 } from "fflate";
 import type { FileNode } from "../../shared/types.ts";
-import { startPreviewServer, getPreviewUrl } from "../preview/vite-server.ts";
+import { startPreviewServer, getPreviewUrl, stopPreviewServer } from "../preview/vite-server.ts";
 import { broadcastFilesChanged } from "../ws.ts";
 
 export const fileRoutes = new Hono();
@@ -110,4 +111,51 @@ fileRoutes.post("/preview/:projectId", async (c) => {
     const message = err instanceof Error ? err.message : "Failed to start preview";
     return c.json({ error: message }, 500);
   }
+});
+
+// Stop preview server for a project
+fileRoutes.delete("/preview/:projectId", (c) => {
+  const projectId = c.req.param("projectId");
+  stopPreviewServer(projectId);
+  return c.json({ ok: true });
+});
+
+// Download project as zip
+fileRoutes.get("/zip/:projectId", (c) => {
+  const projectId = c.req.param("projectId");
+  const projectPath = join("./projects", projectId);
+  if (!existsSync(projectPath)) return c.json({ error: "Project not found" }, 404);
+
+  const EXCLUDE = new Set(["node_modules", "dist", "build", ".git"]);
+
+  function collectFiles(dir: string, basePath: string = ""): Record<string, Uint8Array> {
+    const result: Record<string, Uint8Array> = {};
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || EXCLUDE.has(entry.name)) continue;
+      const fullPath = join(dir, entry.name);
+      const relPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        Object.assign(result, collectFiles(fullPath, relPath));
+      } else {
+        try {
+          const content = readFileSync(fullPath);
+          result[relPath] = new Uint8Array(content);
+        } catch {
+          // skip unreadable files
+        }
+      }
+    }
+    return result;
+  }
+
+  const files = collectFiles(join(process.cwd(), projectPath));
+  const zipped = zipSync(files);
+
+  return new Response(Buffer.from(zipped) as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${projectId}.zip"`,
+    },
+  });
 });

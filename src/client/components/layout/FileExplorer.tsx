@@ -96,6 +96,23 @@ export function FileExplorer() {
     }
   }
 
+  async function handleDownload() {
+    if (!activeProject) return;
+    try {
+      const res = await fetch(`/api/files/zip/${activeProject.id}`);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeProject.name || activeProject.id}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // download failed silently
+    }
+  }
+
   async function handleSelectFile(path: string) {
     if (!activeProject) return;
     setSelectedPath(path);
@@ -112,9 +129,14 @@ export function FileExplorer() {
       <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
         <h2 className="text-sm font-medium text-zinc-400">Files</h2>
         {activeProject && (
-          <button onClick={loadTree} className="text-xs text-zinc-500 hover:text-zinc-300">
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleDownload} className="text-xs text-zinc-500 hover:text-zinc-300">
+              Download
+            </button>
+            <button onClick={loadTree} className="text-xs text-zinc-500 hover:text-zinc-300">
+              Refresh
+            </button>
+          </div>
         )}
       </div>
 

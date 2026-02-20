@@ -66,6 +66,7 @@ export function LivePreview() {
   const [ready, setReady] = useState(false);
   const [pipelineRunning, setPipelineRunning] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const prevProjectRef = useRef<string | null>(null);
 
   const startPreview = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -96,8 +97,15 @@ export function LivePreview() {
     }
   }, [startPreview]);
 
-  // Reset ALL state when project changes, then check for files
+  // Reset ALL state when project changes, stop old preview, then check for files
   useEffect(() => {
+    // Stop preview for the previous project
+    const prevId = prevProjectRef.current;
+    if (prevId && prevId !== activeProject?.id) {
+      fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
+    }
+    prevProjectRef.current = activeProject?.id ?? null;
+
     setPreviewUrl(null);
     setLoading(false);
     setError(null);
@@ -106,6 +114,13 @@ export function LivePreview() {
     if (!activeProject) return;
 
     checkAndMaybeStartPreview(activeProject.id);
+
+    // Stop preview on unmount
+    return () => {
+      if (activeProject) {
+        fetch(`/api/files/preview/${activeProject.id}`, { method: "DELETE" }).catch(() => {});
+      }
+    };
   }, [activeProject, checkAndMaybeStartPreview]);
 
   // Listen for file changes — start preview if files appear, reload if already running
@@ -209,6 +224,13 @@ export function LivePreview() {
         className="flex-1 w-full bg-white"
         sandbox="allow-scripts allow-same-origin allow-forms"
         title="Live Preview"
+        onError={() => {
+          if (activeProject) {
+            setPreviewUrl(null);
+            setReady(false);
+            setTimeout(() => checkAndMaybeStartPreview(activeProject.id), 1000);
+          }
+        }}
       />
     </div>
   );
