@@ -58,7 +58,7 @@ Rules:
 - If needed, include a body explaining WHY (not just what).
 - Reference ADRs when relevant.
 - For Codex-authored commits, include this trailer exactly:
-  `Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
+  `Co-authored-by: Codex <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>`
 
 Allowed types:
 
