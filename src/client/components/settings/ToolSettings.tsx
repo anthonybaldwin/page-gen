@@ -10,11 +10,12 @@ const AGENT_GROUPS: { label: string; agents: string[] }[] = [
 
 const TOOL_LABELS: Record<ToolName, string> = {
   write_file: "Write File",
+  write_files: "Write Files (Batch)",
   read_file: "Read File",
   list_files: "List Files",
 };
 
-const ALL_TOOL_NAMES: ToolName[] = ["write_file", "read_file", "list_files"];
+const ALL_TOOL_NAMES: ToolName[] = ["write_file", "write_files", "read_file", "list_files"];
 
 export function ToolSettings() {
   const [configs, setConfigs] = useState<AgentToolConfig[]>([]);

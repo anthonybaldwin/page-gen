@@ -68,10 +68,10 @@ describe("Agent Tool Defaults", () => {
     expect(Object.keys(DEFAULT_AGENT_TOOLS)).toHaveLength(AGENT_ROSTER.length);
   });
 
-  test("file-producing agents default to all 3 tools", () => {
+  test("file-producing agents default to all tools", () => {
     for (const name of ["frontend-dev", "backend-dev", "styling"] as AgentName[]) {
       const tools = DEFAULT_AGENT_TOOLS[name];
-      expect(tools).toHaveLength(3);
+      expect(tools).toHaveLength(ALL_TOOLS.length);
       for (const tool of ALL_TOOLS) {
         expect(tools).toContain(tool);
       }
