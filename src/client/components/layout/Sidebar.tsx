@@ -14,6 +14,7 @@ import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
 import { Separator } from "../ui/separator.tsx";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog.tsx";
 import {
   PanelLeft,
   Plus,
@@ -159,9 +160,14 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {error && (
         <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive text-xs">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-destructive hover:text-destructive/80 ml-1 underline">
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => setError(null)}
+            className="text-destructive hover:text-destructive/80 ml-1 h-auto p-0"
+          >
             dismiss
-          </button>
+          </Button>
         </div>
       )}
 
@@ -213,19 +219,22 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 autoFocus
               />
             ) : (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setActiveProject(project)}
                 onDoubleClick={() => { setEditingId(project.id); setEditingValue(project.name); }}
-                className={`flex-1 text-left rounded-l-md px-2 py-1.5 text-sm transition-colors truncate ${
+                className={`flex-1 justify-start h-auto rounded-r-none px-2 py-1.5 text-sm font-normal truncate ${
                   activeProject?.id === project.id
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50"
                 }`}
               >
                 {project.name}
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={async (e) => {
                 e.stopPropagation();
                 try {
@@ -241,11 +250,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   console.error("[sidebar] Failed to delete project:", err);
                 }
               }}
-              className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-muted-foreground hover:text-destructive transition-all"
+              className="opacity-0 group-hover:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive transition-all"
               title="Delete project"
             >
               <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </div>
         ))}
         {projects.length === 0 && !showNewProject && (
@@ -290,19 +299,22 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     autoFocus
                   />
                 ) : (
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => setActiveChat(chat)}
                     onDoubleClick={() => { setEditingId(chat.id); setEditingValue(chat.title); }}
-                    className={`flex-1 text-left rounded-l-md px-2 py-1.5 text-sm transition-colors truncate ${
+                    className={`flex-1 justify-start h-auto rounded-r-none px-2 py-1.5 text-sm font-normal truncate ${
                       activeChat?.id === chat.id
                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50"
                     }`}
                   >
                     {chat.title}
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={async (e) => {
                     e.stopPropagation();
                     try {
@@ -316,11 +328,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       console.error("[sidebar] Failed to delete chat:", err);
                     }
                   }}
-                  className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-muted-foreground hover:text-destructive transition-all"
+                  className="opacity-0 group-hover:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive transition-all"
                   title="Delete chat"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             ))}
             {chats.length === 0 && (
@@ -357,23 +369,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
       </div>
 
-      {/* Usage dashboard modal */}
-      {showUsage && (
-        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowUsage(false)}>
-          <div className="bg-card border border-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <UsageDashboard onClose={() => setShowUsage(false)} />
-          </div>
-        </div>
-      )}
+      {/* Usage dashboard dialog */}
+      <Dialog open={showUsage} onOpenChange={setShowUsage}>
+        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Usage Dashboard</DialogTitle>
+          </DialogHeader>
+          <UsageDashboard onClose={() => setShowUsage(false)} />
+        </DialogContent>
+      </Dialog>
 
-      {/* Settings modal */}
-      {showSettings && (
-        <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowSettings(false)}>
-          <div className="bg-card border border-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <SettingsModal onClose={() => setShowSettings(false)} />
-          </div>
-        </div>
-      )}
+      {/* Settings dialog */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="max-w-3xl max-h-[80vh] p-0 gap-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Settings</DialogTitle>
+          </DialogHeader>
+          <SettingsModal onClose={() => setShowSettings(false)} />
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
