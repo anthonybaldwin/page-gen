@@ -1,9 +1,12 @@
 import { mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
 
-const LOG_DIR = join(import.meta.dir, "../../../logs");
-const LOG_FILE = join(LOG_DIR, "pipeline.log");
+// --- Configuration ---
+
+const LOG_DIR = process.env.LOG_DIR || join(import.meta.dir, "../../../logs");
+const LOG_FILE = join(LOG_DIR, "app.jsonl");
 const LLM_LOG_DIR = join(LOG_DIR, "llm");
+const LOG_FORMAT = process.env.LOG_FORMAT || "text";
 
 let initialized = false;
 
@@ -15,58 +18,74 @@ function ensureDir() {
   }
 }
 
-export function log(tag: string, message: string, data?: Record<string, unknown>) {
+// --- Types ---
+
+interface LogEntry {
+  ts: string;
+  level: "info" | "warn" | "error";
+  tag: string;
+  msg: string;
+  [key: string]: unknown;
+}
+
+// --- Core emit ---
+
+function emit(entry: LogEntry) {
   ensureDir();
-  const ts = new Date().toISOString();
-  let line = `[${ts}] [${tag}] ${message}`;
-  if (data) {
-    line += "\n  " + JSON.stringify(data);
+  const json = JSON.stringify(entry);
+  appendFileSync(LOG_FILE, json + "\n");
+
+  if (LOG_FORMAT === "json") {
+    (entry.level === "error" ? process.stderr : process.stdout).write(json + "\n");
+  } else {
+    const prefix = `[${entry.tag}]`;
+    if (entry.level === "error") console.error(prefix, entry.msg, entry.error || "");
+    else if (entry.level === "warn") console.warn(prefix, entry.msg);
+    else console.log(prefix, entry.msg);
   }
-  line += "\n";
-  console.log(`[${tag}] ${message}`);
-  appendFileSync(LOG_FILE, line);
+}
+
+// --- Public API (same signatures as before) ---
+
+export function log(tag: string, message: string, data?: Record<string, unknown>) {
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "info", tag, msg: message };
+  if (data) entry.data = data;
+  emit(entry);
 }
 
 export function logError(tag: string, message: string, error?: unknown) {
-  ensureDir();
-  const ts = new Date().toISOString();
-  const errStr = error instanceof Error ? error.message : error !== undefined ? String(error) : "";
-  let line = `[${ts}] [${tag}] ERROR: ${message}`;
-  if (errStr) line += ` — ${errStr}`;
-  line += "\n";
-  console.error(`[${tag}] ${message}`, error !== undefined ? error : "");
-  appendFileSync(LOG_FILE, line);
+  const errStr = error instanceof Error ? error.message : error !== undefined ? String(error) : undefined;
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "error", tag, msg: message };
+  if (errStr) entry.error = errStr;
+  emit(entry);
 }
 
 export function logWarn(tag: string, message: string) {
-  ensureDir();
-  const ts = new Date().toISOString();
-  const line = `[${ts}] [${tag}] WARN: ${message}\n`;
-  console.warn(`[${tag}] ${message}`);
-  appendFileSync(LOG_FILE, line);
+  emit({ ts: new Date().toISOString(), level: "warn", tag, msg: message });
 }
 
 export function logBlock(tag: string, message: string, block: string) {
-  ensureDir();
-  const ts = new Date().toISOString();
-  const truncated = block.length > 2000
-    ? block.slice(0, 2000) + `... [truncated, ${block.length} total]`
-    : block;
-  const line = `[${ts}] [${tag}] ${message}\n${truncated}\n\n`;
-  console.log(`[${tag}] ${message} (${block.length.toLocaleString()}chars)`);
-  appendFileSync(LOG_FILE, line);
+  const truncated = block.length > 2000;
+  const text = truncated ? block.slice(0, 2000) : block;
+  emit({
+    ts: new Date().toISOString(),
+    level: "info",
+    tag,
+    msg: message,
+    data: { block: text, truncated, totalChars: block.length },
+  });
 }
 
 /**
  * Log full LLM input (system prompt + user prompt) to a per-agent file.
  * Files go to logs/llm/<timestamp>_<agent>.in.txt
- * This captures the EXACT context sent to the model for debugging.
  */
 export function logLLMInput(tag: string, agentName: string, systemPrompt: string, userPrompt: string) {
   ensureDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `${ts}_${agentName}.in.txt`;
   const filepath = join(LLM_LOG_DIR, filename);
+  const totalChars = systemPrompt.length + userPrompt.length;
 
   const content = [
     `=== SYSTEM PROMPT (${systemPrompt.length.toLocaleString()} chars) ===`,
@@ -77,13 +96,20 @@ export function logLLMInput(tag: string, agentName: string, systemPrompt: string
   ].join("\n");
 
   appendFileSync(filepath, content);
-  log(tag, `LLM input logged → logs/llm/${filename}`);
+  emit({
+    ts: new Date().toISOString(),
+    level: "info",
+    tag,
+    msg: "LLM input logged",
+    agent: agentName,
+    file: `llm/${filename}`,
+    chars: totalChars,
+  });
 }
 
 /**
  * Log full LLM output to a per-agent file.
  * Files go to logs/llm/<timestamp>_<agent>.out.txt
- * No truncation — captures the complete model response.
  */
 export function logLLMOutput(tag: string, agentName: string, output: string) {
   ensureDir();
@@ -92,5 +118,13 @@ export function logLLMOutput(tag: string, agentName: string, output: string) {
   const filepath = join(LLM_LOG_DIR, filename);
 
   appendFileSync(filepath, output);
-  log(tag, `LLM output logged → logs/llm/${filename} (${output.length.toLocaleString()} chars)`);
+  emit({
+    ts: new Date().toISOString(),
+    level: "info",
+    tag,
+    msg: "LLM output logged",
+    agent: agentName,
+    file: `llm/${filename}`,
+    chars: output.length,
+  });
 }

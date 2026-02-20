@@ -1,12 +1,29 @@
 import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync } from "fs";
 import { join } from "path";
+import { log, logError } from "../services/logger.ts";
 
 // Read versions from our own package.json so Dependabot keeps them current
 const OUR_PKG = JSON.parse(readFileSync(join(import.meta.dirname, "../../../package.json"), "utf-8"));
 const OUR_DEPS: Record<string, string> = { ...OUR_PKG.dependencies, ...OUR_PKG.devDependencies };
 
 const activeServers = new Map<string, { port: number; process: ReturnType<typeof Bun.spawn> }>();
-let nextPort = 3001;
+
+// --- Port pool ---
+
+const PORT_MIN = 3001;
+const PORT_MAX = 3020;
+const availablePorts: number[] = [];
+let nextPort = PORT_MIN;
+
+function allocatePort(): number {
+  if (availablePorts.length > 0) return availablePorts.shift()!;
+  if (nextPort > PORT_MAX) throw new Error(`Preview port range exhausted (${PORT_MIN}-${PORT_MAX})`);
+  return nextPort++;
+}
+
+function releasePort(port: number) {
+  if (port >= PORT_MIN && port <= PORT_MAX) availablePorts.push(port);
+}
 
 // Track which projects have had deps installed to avoid re-running
 const installedProjects = new Set<string>();
@@ -225,7 +242,7 @@ async function installProjectDependencies(projectPath: string): Promise<void> {
   if (pending) return pending;
 
   const installPromise = (async () => {
-    console.log(`[preview] Installing dependencies in ${projectPath}...`);
+    log("preview", `Installing dependencies in ${projectPath}`);
 
     const proc = Bun.spawn(["bun", "install"], {
       cwd: projectPath,
@@ -236,10 +253,10 @@ async function installProjectDependencies(projectPath: string): Promise<void> {
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
-      console.error(`[preview] bun install failed (exit ${exitCode}):`, stderr);
+      logError("preview", `bun install failed (exit ${exitCode})`, stderr);
       // Don't throw — preview might still partially work
     } else {
-      console.log(`[preview] Dependencies installed successfully`);
+      log("preview", "Dependencies installed successfully");
       installedProjects.add(projectPath);
     }
   })();
@@ -281,7 +298,8 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   if (existing) {
     if (existing.process.exitCode !== null) {
       // Process has exited — remove stale entry and start fresh
-      console.log(`[preview] Server for ${projectId} died (exit ${existing.process.exitCode}) — restarting`);
+      log("preview", `Server for ${projectId} died (exit ${existing.process.exitCode}) — restarting`);
+      releasePort(existing.port);
       activeServers.delete(projectId);
     } else {
       return { url: `http://localhost:${existing.port}`, port: existing.port };
@@ -293,10 +311,11 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   // Full preparation — scaffolds everything and installs deps
   await prepareProjectForPreview(projectPath);
 
-  const port = nextPort++;
+  const port = allocatePort();
+  const host = process.env.PREVIEW_HOST || "localhost";
 
   // Start Vite dev server for this project
-  const proc = Bun.spawn(["bunx", "vite", "--port", String(port), "--host", "localhost"], {
+  const proc = Bun.spawn(["bunx", "vite", "--port", String(port), "--host", host], {
     cwd: fullPath,
     stdout: "pipe",
     stderr: "pipe",
@@ -312,10 +331,11 @@ export async function startPreviewServer(projectId: string, projectPath: string)
         stderrText = await new Response(proc.stderr).text();
       } catch { /* already consumed */ }
       const reason = stderrText.trim().split("\n").slice(-5).join("\n") || "unknown";
-      console.log(`[preview] Vite server for ${projectId} exited (code ${code}) — removing from active servers`);
+      log("preview", `Vite server for ${projectId} exited (code ${code}) — removing from active servers`);
       if (code !== 0 && code !== null) {
-        console.log(`[preview] Death reason (last 5 lines):\n${reason}`);
+        logError("preview", `Vite server death reason`, reason);
       }
+      releasePort(port);
       activeServers.delete(projectId);
     }
   });
@@ -333,6 +353,7 @@ export async function startPreviewServer(projectId: string, projectPath: string)
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
+  // Always return localhost to the client (browser connects to Docker-mapped ports on localhost)
   return { url: `http://localhost:${port}`, port };
 }
 
@@ -340,6 +361,7 @@ export function stopPreviewServer(projectId: string) {
   const entry = activeServers.get(projectId);
   if (entry) {
     entry.process.kill();
+    releasePort(entry.port);
     activeServers.delete(projectId);
   }
 }

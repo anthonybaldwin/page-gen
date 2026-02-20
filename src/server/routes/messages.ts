@@ -4,6 +4,7 @@ import { eq, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { runOrchestration, resumeOrchestration, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
+import { logError } from "../services/logger.ts";
 
 export const messageRoutes = new Hono();
 
@@ -103,14 +104,14 @@ messageRoutes.post("/send", async (c) => {
     const interruptedId = findInterruptedPipelineRun(body.chatId);
     if (interruptedId) {
       resumeOrchestration({ ...orchestrationInput, pipelineRunId: interruptedId }).catch((err) => {
-        console.error("[messages/send] Resume orchestration error:", err);
+        logError("routes", "Resume orchestration error", err);
       });
       return c.json({ message, status: "resumed" });
     }
   }
 
   runOrchestration(orchestrationInput).catch((err) => {
-    console.error("[messages/send] Orchestration error:", err);
+    logError("routes", "Orchestration error", err);
   });
 
   return c.json({ message, status: "started" }, 201);

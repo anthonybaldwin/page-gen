@@ -1,0 +1,18 @@
+services:
+  pagegen:
+    build: .
+    ports:
+      - "3000:3000"
+      - "3001-3020:3001-3020"
+    volumes:
+      - pagegen-data:/app/data
+      - pagegen-logs:/app/logs
+      - pagegen-projects:/app/projects
+    environment:
+      - PREVIEW_HOST=0.0.0.0
+      - LOG_FORMAT=json
+
+volumes:
+  pagegen-data:
+  pagegen-logs:
+  pagegen-projects:

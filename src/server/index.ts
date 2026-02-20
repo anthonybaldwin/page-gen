@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { serveStatic } from "hono/bun";
+import { existsSync } from "fs";
 import { runMigrations } from "./db/migrate.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { chatRoutes } from "./routes/chats.ts";
@@ -57,6 +59,12 @@ app.route("/api/files", fileRoutes);
 app.route("/api/settings", settingsRoutes);
 app.route("/api/agents", agentRoutes);
 
+// Serve static frontend in production/Docker mode
+if (existsSync("./dist/client")) {
+  app.use("/*", serveStatic({ root: "./dist/client" }));
+  app.get("*", serveStatic({ root: "./dist/client", path: "index.html" }));
+}
+
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
 const server = Bun.serve({
@@ -78,7 +86,7 @@ const server = Bun.serve({
     },
     message(ws, message) {
       // Handle incoming WebSocket messages
-      console.log("[ws] received:", message);
+      log("ws", `received: ${message}`);
     },
     close(ws) {
       ws.unsubscribe("agents");

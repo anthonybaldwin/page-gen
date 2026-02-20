@@ -3,6 +3,7 @@ import { db, schema } from "../db/index.ts";
 import { eq, asc } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { runOrchestration, resumeOrchestration, abortOrchestration, isOrchestrationRunning, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
+import { logError } from "../services/logger.ts";
 
 export const agentRoutes = new Hono();
 
@@ -68,7 +69,7 @@ agentRoutes.post("/run", async (c) => {
     const interruptedId = findInterruptedPipelineRun(body.chatId);
     if (interruptedId) {
       resumeOrchestration({ ...orchestrationInput, pipelineRunId: interruptedId }).catch((err) => {
-        console.error("[agents] Resume orchestration error:", err);
+        logError("routes", "Resume orchestration error", err);
       });
       return c.json({ status: "resumed", chatId: body.chatId, pipelineRunId: interruptedId });
     }
@@ -77,7 +78,7 @@ agentRoutes.post("/run", async (c) => {
 
   // Run orchestration asynchronously
   runOrchestration(orchestrationInput).catch((err) => {
-    console.error("[agents] Orchestration error:", err);
+    logError("routes", "Orchestration error", err);
   });
 
   return c.json({ status: "started", chatId: body.chatId });

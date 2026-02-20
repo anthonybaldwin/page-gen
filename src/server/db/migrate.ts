@@ -1,5 +1,6 @@
 import { db, schema } from "./index.ts";
 import { sql } from "drizzle-orm";
+import { log } from "../services/logger.ts";
 
 export function runMigrations() {
   // Create tables if they don't exist using raw SQL
@@ -151,5 +152,5 @@ export function runMigrations() {
     db.run(sql`ALTER TABLE billing_ledger ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0`);
   } catch { /* already exists */ }
 
-  console.log("[db] Migrations complete");
+  log("db", "Migrations complete");
 }
