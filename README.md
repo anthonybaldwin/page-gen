@@ -116,3 +116,6 @@ See [Architecture docs](https://github.com/anthonybaldwin/just-build-it/wiki/Arc
 
 - [001 - Tech Stack](docs/adr/001-tech-stack.md)
 - [002 - Agent Architecture](docs/adr/002-agent-architecture.md)
+- [003 - Token Accounting & Cost Safety](docs/adr/003-token-accounting-cost-safety.md)
+- [004 - Client-Side Security](docs/adr/004-client-side-security.md)
+- [005 - Preview Isolation & Docker](docs/adr/005-preview-isolation-docker.md)
