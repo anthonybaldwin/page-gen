@@ -18,8 +18,9 @@ Need a multi-agent system where specialized AI agents collaborate to build web p
 
 The initial architecture used a strictly sequential pipeline:
 
-```
-User Message → Orchestrator → Research → Architect → Frontend Dev → Styling → QA → Security
+```mermaid
+graph LR
+  UM["User Message"] --> O["Orchestrator"] --> R["Research"] --> A["Architect"] --> FD["Frontend Dev"] --> S["Styling"] --> QA["QA"] --> Sec["Security"]
 ```
 
 This was simpler to implement but slower.
@@ -32,21 +33,46 @@ The architecture has evolved significantly since the original decision:
 The orchestrator classifies each message into `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
 
 ### Parallelized Pipeline (build mode)
-```
-User → Orchestrator → classifyIntent() → "build"
-  → Phase 1: Research + Architect (parallel)
-  → Phase 2: Parse file_plan → parallel frontend-dev instances (1-4)
-      → Frontend Dev (Setup) → Frontend Dev 1..N (parallel) → Frontend Dev (App)
-      → Backend Dev (conditional) → Styling
-  → Phase 3: Code Review + QA + Security (parallel)
-  → Remediation Loop (max 2 cycles, re-reviews in parallel)
-  → Summary
+```mermaid
+graph TD
+  User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
+  Classify -->|build| P1
+
+  subgraph P1["Phase 1 · Parallel"]
+    direction LR
+    Research
+    Architect
+  end
+
+  P1 --> P2
+
+  subgraph P2["Phase 2 · Dev Agents"]
+    Setup["Frontend Dev\n(Setup)"] --> FD["Frontend Dev 1…N\n(parallel)"] --> App["Frontend Dev\n(App)"]
+    App --> BD["Backend Dev\n(conditional)"] --> Styling
+  end
+
+  P2 --> P3
+
+  subgraph P3["Phase 3 · Parallel Reviews"]
+    direction LR
+    CR["Code Review"]
+    QA
+    Security
+  end
+
+  P3 --> Rem["Remediation Loop\n(max 2 cycles)"]
+  Rem --> Summary
 ```
 
 ### Fix Pipeline
-```
-User → Orchestrator → classifyIntent() → "fix"
-  → Test Planner → Route to dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary
+```mermaid
+graph LR
+  User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
+  Classify -->|fix| TP["Test Planner"]
+  TP --> Dev["Dev Agent(s)\nby scope"]
+  Dev --> Rev["Reviewers\n(parallel)"]
+  Rev --> Rem["Remediation"]
+  Rem --> Summary
 ```
 
 ### Architecture

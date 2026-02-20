@@ -2,33 +2,27 @@
 
 ## System Overview
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   React Frontend                     │
-│  ┌──────────┐ ┌────────┐ ┌──────────┐ ┌───────────┐ │
-│  │ Sidebar   │ │ Chat   │ │ Preview  │ │ File      │ │
-│  │ (collapse │ │(resize │ │ (flex-1) │ │ Explorer  │ │
-│  │  -ible)   │ │ -able) │ │          │ │           │ │
-│  └──────────┘ └────────┘ └──────────┘ └───────────┘ │
-│                     │ HTTP + WS                      │
-└─────────────────────┼───────────────────────────────┘
-                      │
-┌─────────────────────┼───────────────────────────────┐
-│                 Hono Backend                         │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ REST API  │  │ WebSocket    │  │ Agent System │  │
-│  │ Routes    │  │ Handler      │  │ + Orchestrator│  │
-│  └──────────┘  └──────────────┘  └──────────────┘  │
-│        │                                │            │
-│  ┌──────────┐              ┌──────────────────┐     │
-│  │ SQLite   │              │ AI Providers     │     │
-│  │ (Drizzle)│              │ (Anthropic/OAI/G)│     │
-│  └──────────┘              └──────────────────┘     │
-│                                                      │
-│  ┌──────────────────────────────────────────────┐   │
-│  │ Per-Project Vite Dev Server (HMR Preview)     │   │
-│  └──────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph FE["React Frontend"]
+    direction LR
+    SB["Sidebar\n(collapsible)"]
+    CH["Chat\n(resizable)"]
+    PV["Preview\n(flex-1)"]
+    FX["File Explorer"]
+  end
+
+  FE <-->|"HTTP + WebSocket"| BE
+
+  subgraph BE["Hono Backend"]
+    direction TB
+    REST["REST API\nRoutes"] ~~~ WSH["WebSocket\nHandler"] ~~~ AGT["Agent System\n+ Orchestrator"]
+    DB[("SQLite\nDrizzle ORM")] ~~~ AIP["AI Providers\nAnthropic · OpenAI · Google"]
+    VITE["Per-Project Vite Dev Server\nHMR Preview"]
+  end
+
+  REST --> DB
+  AGT --> AIP
 ```
 
 ## Data Flow

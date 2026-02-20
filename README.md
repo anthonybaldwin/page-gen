@@ -82,12 +82,11 @@ bun test
 
 ## Architecture
 
-```
-React Frontend ←→ Hono Backend ←→ AI Providers
-       ↕                ↕
-   WebSocket         SQLite
-       ↕                ↕
-  Live Preview    Agent System
+```mermaid
+graph TB
+  FE["React Frontend"] <-->|"HTTP + WS"| BE["Hono Backend"] <--> AI["AI Providers"]
+  FE --- WS["WebSocket"] --- LP["Live Preview"]
+  BE --- DB[("SQLite")] --- AS["Agent System"]
 ```
 
 - **4-column layout:** Collapsible sidebar (projects/chats) → Chat (fixed width) → Live Preview (flex) → File Explorer

@@ -6,15 +6,15 @@ Users see their page update live in the preview as agents write/modify files dur
 
 ## Flow
 
-```
-User sends message
-  → Orchestrator creates plan
-    → Agents write files to /projects/{id}/src/...
-      → File extraction writes to disk, broadcasts files_changed
-        → Preview preparation: scaffold package.json, vite.config, main.tsx, bun install
-          → Vite dev server detects file changes (fs watcher)
-            → HMR pushes update to iframe
-              → User sees live preview update instantly
+```mermaid
+graph TD
+  A["User sends message"] --> B["Orchestrator creates plan"]
+  B --> C["Agents write files\nto /projects/{id}/src/..."]
+  C --> D["File extraction writes to disk\nbroadcasts files_changed"]
+  D --> E["Preview preparation\nscaffold package.json, vite.config,\nmain.tsx, bun install"]
+  E --> F["Vite dev server detects changes\n(fs watcher)"]
+  F --> G["HMR pushes update to iframe"]
+  G --> H["User sees live preview\nupdate instantly"]
 ```
 
 ## Implementation

@@ -24,11 +24,13 @@ Every pipeline execution creates a row in the `pipeline_runs` table:
 
 ### Status Transitions
 
-```
-running → completed   (pipeline finished successfully)
-running → failed      (agent error, not cost-related)
-running → interrupted (server restart OR cost limit reached mid-pipeline)
-interrupted → running (user clicks Resume)
+```mermaid
+stateDiagram-v2
+  [*] --> running
+  running --> completed : Pipeline finished successfully
+  running --> failed : Agent error (not cost-related)
+  running --> interrupted : Server restart OR cost limit
+  interrupted --> running : User clicks Resume
 ```
 
 ### Server Restart Cleanup

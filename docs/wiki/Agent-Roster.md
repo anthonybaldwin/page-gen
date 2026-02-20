@@ -98,22 +98,36 @@ Quick-edit mode triggers when `scope: "styling"` and the project already has fil
 
 ### Build Pipeline (Parallelized)
 
-```
-User → Orchestrator → classifyIntent() → "build" (scope used for backend gating)
-  → Phase 1: Research + Architect (parallel — both receive user message + project source)
-  → Phase 3: Parse file_plan → parallel frontend-dev instances
-      → Frontend Dev (Setup)   ← shared hooks/utils/types (if any)
-      → Frontend Dev 1 ─┐
-      → Frontend Dev 2  ├─ component batches (parallel, depend on Setup)
-      → Frontend Dev 3 ─┘
-      → Frontend Dev (App)     ← writes App.tsx (depends on ALL above)
-      → Backend Dev → [write tests + code] → [run tests]  (only if scope + research require it)
-      → Styling (waits for all dev agents)
-      → Code Review ─┐
-      → Security     ├─ (parallel, all depend on Styling)
-      → QA           ─┘
-  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
-  → [Final Build Check] → Summary
+```mermaid
+graph TD
+  User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
+  Classify -->|"build\n(scope gates backend)"| P1
+
+  subgraph P1["Phase 1 · Parallel"]
+    direction LR
+    Res["Research"] ~~~ Arc["Architect"]
+  end
+
+  P1 -->|"parse file_plan"| P2
+
+  subgraph P2["Phase 2 · Dev Agents"]
+    Setup["Frontend Dev (Setup)\nshared hooks / utils / types"]
+    Setup --> FD1["Frontend Dev 1"] & FD2["Frontend Dev 2"] & FD3["Frontend Dev 3"]
+    FD1 & FD2 & FD3 --> AppDev["Frontend Dev (App)\nwrites App.tsx"]
+    AppDev --> BD["Backend Dev\n(only if scope + research require it)"]
+    BD --> Styling["Styling\n(waits for all dev agents)"]
+  end
+
+  P2 --> P3
+
+  subgraph P3["Phase 3 · Parallel Reviews"]
+    direction LR
+    CR["Code Review"] ~~~ Sec["Security"] ~~~ QA["QA"]
+  end
+
+  P3 --> Rem["Remediation Loop\n(max 2 cycles, re-reviews in parallel)"]
+  Rem --> Build["Final Build Check"]
+  Build --> Summary
 ```
 
 **Research + Architect parallelization:** Both agents run simultaneously via `Promise.all`. The architect is prompted to work with or without research results, inferring requirements directly from the user's request when research isn't available yet. This saves ~60-90 seconds per generation.
@@ -126,30 +140,41 @@ User → Orchestrator → classifyIntent() → "build" (scope used for backend g
 
 ### Fix Pipeline (Parallelized)
 
-```
-User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|styling|full)
-  → Read existing project source
-  → Test Planner (create test plan for the fix)
-  → Route to dev agent(s) by scope:
-      frontend → frontend-dev → [write tests + code] → [run tests]
-      backend  → backend-dev → [write tests + code] → [run tests]
-      styling  → styling → [run tests]
-      full     → frontend-dev + backend-dev → [write tests + code] → [run tests]
-  → Code Review ─┐
-  → Security     ├─ (parallel, all depend on last dev agent)
-  → QA           ─┘
-  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
-  → [Final Build Check] → Summary
+```mermaid
+graph TD
+  User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
+  Classify -->|fix| Read["Read existing\nproject source"]
+  Read --> TP["Test Planner"]
+  TP --> Route{"Route by scope"}
+
+  Route -->|frontend| FD["frontend-dev"]
+  Route -->|backend| BD["backend-dev"]
+  Route -->|styling| STY["styling"]
+  Route -->|full| FULL["frontend-dev +\nbackend-dev"]
+
+  FD & BD & STY & FULL --> Tests["Write tests + code\nRun tests"]
+  Tests --> P3
+
+  subgraph P3["Parallel Reviews"]
+    direction LR
+    CR["Code Review"] ~~~ Sec["Security"] ~~~ QA["QA"]
+  end
+
+  P3 --> Rem["Remediation Loop\n(max 2 cycles)"]
+  Rem --> Build["Final Build Check"]
+  Build --> Summary
 ```
 
 **Smart test re-runs:** When tests fail and a dev agent fixes the code, only the failed test files are re-run (specific file paths passed to vitest) instead of the full suite, saving 3-10s per fix cycle.
 
 ### Question Mode
 
-```
-User → Orchestrator → classifyIntent() → "question"
-  → Read project source for context
-  → Single Sonnet call → Direct answer (no agents, no pipeline bar)
+```mermaid
+graph LR
+  User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
+  Classify -->|question| Read["Read project\nsource"]
+  Read --> Sonnet["Single Sonnet call"]
+  Sonnet --> Answer["Direct answer\n(no agents, no pipeline bar)"]
 ```
 
 ### Parallelization Details
