@@ -96,22 +96,22 @@ React Frontend ←→ Hono Backend ←→ AI Providers
 - **File extraction:** Agents produce code in their output; the orchestrator parses code blocks and writes files to disk automatically
 - **HMR preview:** Files extracted from agent output → Vite detects changes → iframe updates live
 
-See [Architecture docs](docs/wiki/Architecture.md) for full details.
+See [Architecture docs](https://github.com/anthonybaldwin/just-build-it/wiki/Architecture) for full details.
 
 ## Documentation
 
-- [Wiki Home](docs/wiki/Home.md)
-- [Architecture](docs/wiki/Architecture.md)
-- [Agent Roster](docs/wiki/Agent-Roster.md)
-- [API Reference](docs/wiki/API-Reference.md)
-- [Data Model](docs/wiki/Data-Model.md)
-- [HMR Preview](docs/wiki/HMR-Preview.md)
-- [Token Billing](docs/wiki/Token-Billing.md)
-- [Snapshots](docs/wiki/Snapshots.md)
-- [Security](docs/wiki/Security.md)
-- [Docker](docs/wiki/Docker.md)
-- [Logging](docs/wiki/Logging.md)
-- [Pipeline Resume](docs/wiki/Pipeline-Resume.md)
+- [Wiki Home](https://github.com/anthonybaldwin/just-build-it/wiki)
+- [Architecture](https://github.com/anthonybaldwin/just-build-it/wiki/Architecture)
+- [Agent Roster](https://github.com/anthonybaldwin/just-build-it/wiki/Agent-Roster)
+- [API Reference](https://github.com/anthonybaldwin/just-build-it/wiki/API-Reference)
+- [Data Model](https://github.com/anthonybaldwin/just-build-it/wiki/Data-Model)
+- [HMR Preview](https://github.com/anthonybaldwin/just-build-it/wiki/HMR-Preview)
+- [Token Billing](https://github.com/anthonybaldwin/just-build-it/wiki/Token-Billing)
+- [Snapshots](https://github.com/anthonybaldwin/just-build-it/wiki/Snapshots)
+- [Security](https://github.com/anthonybaldwin/just-build-it/wiki/Security)
+- [Docker](https://github.com/anthonybaldwin/just-build-it/wiki/Docker)
+- [Logging](https://github.com/anthonybaldwin/just-build-it/wiki/Logging)
+- [Pipeline Resume](https://github.com/anthonybaldwin/just-build-it/wiki/Pipeline-Resume)
 
 ## ADRs
 
