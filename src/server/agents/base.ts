@@ -13,9 +13,9 @@ import { log, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts"
 const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "research": 3000,
   "architect": 12000,   // large JSON architecture doc — truncation breaks file_plan parsing
-  "frontend-dev": 16000, // multi-step tool use: code + reasoning across many rounds
-  "backend-dev": 12000,
-  "styling": 12000,
+  "frontend-dev": 64000, // large write_files calls with many components need ~40k tokens
+  "backend-dev": 32000,  // multi-file writes can exceed 12k easily
+  "styling": 32000,      // bulk style changes across many files
   "code-review": 2048,
   "security": 2048,
   "qa": 2048,
@@ -153,6 +153,9 @@ export async function runAgent(
           const output = part.output as Record<string, unknown>;
           if (part.toolName === "write_file" && output?.success) {
             filesWritten.push((part.input as { path: string }).path);
+          } else if (part.toolName === "write_files" && output?.success) {
+            const paths = (output as { paths?: string[] }).paths || [];
+            filesWritten.push(...paths);
           }
           break;
         }

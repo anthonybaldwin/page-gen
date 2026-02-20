@@ -582,6 +582,14 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
       result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId, step.instanceId);
 
+      // Fix: Detect silent API failures (0-token empty responses from rate limiting)
+      const emptyOutputTokens = result.tokenUsage?.outputTokens || 0;
+      const hasContent = result.content.length > 0 || (result.filesWritten && result.filesWritten.length > 0);
+      if (emptyOutputTokens === 0 && !hasContent) {
+        log("orchestrator", `Agent ${stepKey} returned empty response (0 tokens) — treating as retriable failure`);
+        throw new Error(`Agent returned empty response (possible API rate limit or timeout)`);
+      }
+
       if (result.tokenUsage && providerKey && provisionalIds) {
         // Finalize provisional record with actual token counts
         finalizeTokenUsage(provisionalIds, {
@@ -625,6 +633,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         logWarn("orchestrator", `${step.agentName} used text fallback for ${fallbackFiles.length} files`);
       }
       const filesWritten = [...nativeFiles, ...fallbackFiles];
+
+      // Diagnostic: warn when file-writing agent produces tokens but no files (possible truncation)
+      const diagOutputTokens = result.tokenUsage?.outputTokens || 0;
+      if (filesWritten.length === 0 && agentHasFileTools(step.agentName) && diagOutputTokens > 1000) {
+        logWarn("orchestrator", `${stepKey} produced ${diagOutputTokens} output tokens but wrote 0 files — possible tool call truncation`);
+      }
 
       if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted && !skipPostProcessing) {
         // All file-producing agents get build check (skipped for parallel batches — caller handles it)
@@ -1410,15 +1424,21 @@ async function executePipelineSteps(ctx: {
     const readyNames = ready.map((s) => s.instanceId ?? s.agentName);
     log("orchestrator", `Running batch of ${ready.length} step(s): ${readyNames.join(", ")}${isParallelBatch ? " [PARALLEL]" : ""}`);
 
-    // Run all ready steps concurrently
+    // Stagger parallel launches to avoid API rate-limit bursts
+    const STAGGER_MS = 1000;
     const results = await Promise.all(
-      ready.map((step) =>
-        runPipelineStep({
-          step, chatId, projectId, projectPath, projectName, chatTitle,
-          userMessage, chatHistory, agentResults, completedAgents, callCounter,
-          providers, apiKeys, signal,
-          skipPostProcessing: isParallelBatch,
-        }).then((result) => ({ stepKey: step.instanceId ?? step.agentName, result }))
+      ready.map((step, i) =>
+        new Promise<{ stepKey: string; result: string | null }>((resolve) =>
+          setTimeout(async () => {
+            const result = await runPipelineStep({
+              step, chatId, projectId, projectPath, projectName, chatTitle,
+              userMessage, chatHistory, agentResults, completedAgents, callCounter,
+              providers, apiKeys, signal,
+              skipPostProcessing: isParallelBatch,
+            });
+            resolve({ stepKey: step.instanceId ?? step.agentName, result });
+          }, i * STAGGER_MS)
+        )
       )
     );
 
