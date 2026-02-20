@@ -81,7 +81,8 @@ export async function runAgent(
   tools?: ToolSet,
   abortSignal?: AbortSignal,
   chatId?: string,
-  instanceId?: string
+  instanceId?: string,
+  overrides?: { maxOutputTokens?: number; maxToolSteps?: number }
 ): Promise<AgentOutput> {
   const systemPrompt = loadSystemPrompt(config.name);
   const provider = getProviderModel(config, providers);
@@ -102,8 +103,8 @@ export async function runAgent(
     log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars system=${systemPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
-    const maxOutputTokens = AGENT_MAX_OUTPUT_TOKENS[config.name] || DEFAULT_MAX_OUTPUT_TOKENS;
-    const maxToolSteps = AGENT_MAX_TOOL_STEPS[config.name] || DEFAULT_MAX_TOOL_STEPS;
+    const maxOutputTokens = overrides?.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS[config.name] ?? DEFAULT_MAX_OUTPUT_TOKENS;
+    const maxToolSteps = overrides?.maxToolSteps ?? AGENT_MAX_TOOL_STEPS[config.name] ?? DEFAULT_MAX_TOOL_STEPS;
     const result = streamText({
       model: provider,
       system: systemPrompt,

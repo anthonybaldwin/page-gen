@@ -23,6 +23,43 @@ const MAX_UNIQUE_ERRORS = 10;
 const MAX_TEST_FAILURES = 5;
 const MAX_OUTPUT_CHARS = 15_000;
 const MAX_PROJECT_SOURCE_CHARS = 40_000;
+const MAX_BUILD_FIX_ATTEMPTS = 3;
+
+/** Build-fix agents get reduced token/step caps to prevent runaway costs */
+const BUILD_FIX_MAX_OUTPUT_TOKENS = 16_000;
+const BUILD_FIX_MAX_TOOL_STEPS = 4;
+
+/**
+ * Detect non-retriable API errors that should immediately halt the pipeline
+ * instead of wasting retries. Covers credit exhaustion, auth failures,
+ * invalid API keys, and billing issues.
+ */
+export function isNonRetriableApiError(err: unknown): { nonRetriable: boolean; reason: string } {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+
+  // HTTP 402 Payment Required / credit exhaustion
+  if (/402|payment.?required|credit|insufficient.?funds|billing|out of credit/i.test(message)) {
+    return { nonRetriable: true, reason: "API credits exhausted (402). Pipeline halted to prevent further charges." };
+  }
+
+  // HTTP 401 Unauthorized / invalid key
+  if (/401|unauthorized|invalid.?api.?key|authentication.?failed|invalid.*x-api-key/i.test(message)) {
+    return { nonRetriable: true, reason: "API authentication failed (401). Check your API key." };
+  }
+
+  // HTTP 403 Forbidden / permission denied
+  if (/403|forbidden|access.?denied|permission.?denied/i.test(message)) {
+    return { nonRetriable: true, reason: "API access forbidden (403). Check your API key permissions." };
+  }
+
+  // Anthropic-specific: overloaded is retriable, but "invalid_request" is not
+  if (/invalid_request_error/i.test(message) && !/overloaded/i.test(message)) {
+    return { nonRetriable: true, reason: "Invalid API request — not retriable." };
+  }
+
+  return { nonRetriable: false, reason: "" };
+}
 
 /**
  * Deduplicate build error lines by stripping file paths and grouping by core error pattern.
@@ -449,8 +486,9 @@ export interface ExecutionPlan {
   }>;
 }
 
-// Shared mutable counter — passed by reference so all call sites share the same count
+// Shared mutable counters — passed by reference so all call sites share the same count
 interface CallCounter { value: number; }
+interface BuildFixCounter { value: number; }
 
 interface PipelineStepContext {
   step: { agentName: AgentName; input: string; instanceId?: string };
@@ -464,6 +502,7 @@ interface PipelineStepContext {
   agentResults: Map<string, string>;
   completedAgents: string[];
   callCounter: CallCounter;
+  buildFixCounter: BuildFixCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
@@ -477,7 +516,7 @@ interface PipelineStepContext {
  */
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal, skipPostProcessing } = ctx;
 
   // Use instanceId for keying/broadcasting, base agentName for config lookup
@@ -646,7 +685,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+            userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
           });
           if (fixResult) {
             agentResults.set(`${stepKey}-build-fix`, fixResult);
@@ -670,7 +709,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
               const testFixResult = await runBuildFix({
                 buildErrors: formatTestFailures(testResult.failures),
                 chatId, projectId, projectPath, projectName, chatTitle,
-                userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+                userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
               });
               if (testFixResult) {
                 agentResults.set(`${stepKey}-test-fix`, testFixResult);
@@ -694,6 +733,22 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       if (signal.aborted) break;
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} error: ${lastError.message}`, err);
+
+      // Check for non-retriable API errors (credit exhaustion, auth failure, etc.)
+      const apiCheck = isNonRetriableApiError(err);
+      if (apiCheck.nonRetriable) {
+        log("orchestrator", `Non-retriable API error for ${stepKey}: ${apiCheck.reason}`);
+        await db.update(schema.agentExecutions)
+          .set({ status: "failed", error: apiCheck.reason, completedAt: Date.now() })
+          .where(eq(schema.agentExecutions.id, executionId));
+        broadcastAgentError(chatId, stepKey, apiCheck.reason);
+        broadcast({
+          type: "agent_error",
+          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: "credit_exhaustion" },
+        });
+        return null; // Halt immediately — no retries
+      }
+
       if (attempt < MAX_RETRIES) {
         await db.update(schema.agentExecutions)
           .set({ status: "retrying", retryCount: attempt + 1 })
@@ -782,6 +837,32 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   broadcastAgentStatus(chatId, "orchestrator", "running");
 
+  // Clean up stale "running" agent executions from previous interrupted pipelines for this chat
+  // Prevents ghost "running" records when a user stopped a pipeline or it crashed
+  try {
+    const staleStatuses = ["running", "retrying"];
+    const staleExecs = db
+      .select({ id: schema.agentExecutions.id })
+      .from(schema.agentExecutions)
+      .where(and(
+        eq(schema.agentExecutions.chatId, chatId),
+        inArray(schema.agentExecutions.status, staleStatuses),
+      ))
+      .all();
+    if (staleExecs.length > 0) {
+      log("orchestrator", `Cleaning up ${staleExecs.length} stale "running" executions for chat ${chatId}`);
+      db.update(schema.agentExecutions)
+        .set({ status: "interrupted", error: "Cleaned up: new pipeline started", completedAt: Date.now() })
+        .where(and(
+          eq(schema.agentExecutions.chatId, chatId),
+          inArray(schema.agentExecutions.status, staleStatuses),
+        ))
+        .run();
+    }
+  } catch (cleanupErr) {
+    logWarn("orchestrator", `Stale execution cleanup failed (non-critical): ${cleanupErr}`);
+  }
+
   // Auto-title: if chat has a generic title and this is the first real message, generate a title
   if (chatTitle === "New Chat" || chatTitle === "Unknown") {
     const autoTitle = userMessage.length <= 60
@@ -811,6 +892,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
   const callCounter: CallCounter = { value: 0 };
+  const buildFixCounter: BuildFixCounter = { value: 0 };
 
   // --- Intent classification ---
   const hasFiles = projectHasFiles(projectPath);
@@ -900,7 +982,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     const pipelineOk = await executePipelineSteps({
       plan: quickPlan, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
     });
     if (!pipelineOk) {
@@ -919,7 +1001,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     await finishPipeline({
       chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
     });
 
@@ -960,7 +1042,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Execute fix pipeline
     const pipelineOk = await executePipelineSteps({
       plan, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
     });
     if (!pipelineOk) {
@@ -980,7 +1062,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Remediation + final build + summary (shared with build mode)
     await finishPipeline({
       chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
     });
 
@@ -999,7 +1081,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       input: `Analyze this request and produce structured requirements: ${userMessage}`,
     },
     chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
   });
 
@@ -1022,7 +1104,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       input: `Design the component architecture, design system, and test plan for this request. Use the research agent's structured requirements from Previous Agent Outputs. Original request: ${userMessage}`,
     },
     chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
   });
 
@@ -1136,7 +1218,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // Execute build pipeline (research + architect already completed)
   const pipelineOk = await executePipelineSteps({
     plan, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
   });
   if (!pipelineOk) {
@@ -1150,7 +1232,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // Remediation + final build + summary
   await finishPipeline({
     chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
   });
 
@@ -1208,6 +1290,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   const agentResults = new Map<string, string>();
   const completedAgents: string[] = [];
   const callCounter: CallCounter = { value: 0 };
+  const buildFixCounter: BuildFixCounter = { value: 0 };
 
   const completedExecs = await db.select()
     .from(schema.agentExecutions)
@@ -1317,7 +1400,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     const remainingPlan: ExecutionPlan = { steps: remainingSteps };
     const pipelineOk = await executePipelineSteps({
       plan: remainingPlan, chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter,
+      userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
     });
     if (!pipelineOk) {
@@ -1332,7 +1415,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   // Remediation + final build + summary
   await finishPipeline({
     chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
   });
 
@@ -1370,12 +1453,13 @@ async function executePipelineSteps(ctx: {
   agentResults: Map<string, string>;
   completedAgents: string[];
   callCounter: CallCounter;
+  buildFixCounter: BuildFixCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
 }): Promise<boolean> {
   const { plan, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal } = ctx;
 
   const completedSet = new Set<string>(
@@ -1432,7 +1516,7 @@ async function executePipelineSteps(ctx: {
           setTimeout(async () => {
             const result = await runPipelineStep({
               step, chatId, projectId, projectPath, projectName, chatTitle,
-              userMessage, chatHistory, agentResults, completedAgents, callCounter,
+              userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
               providers, apiKeys, signal,
               skipPostProcessing: isParallelBatch,
             });
@@ -1476,7 +1560,7 @@ async function executePipelineSteps(ctx: {
           broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Build errors found — attempting fix..." });
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+            userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
           });
           if (fixResult) {
             agentResults.set("parallel-batch-build-fix", fixResult);
@@ -1499,17 +1583,27 @@ async function executePipelineSteps(ctx: {
       }
     }
 
-    // Cost check after each batch
+    // Cost check after each batch — per-chat, daily, and project limits
     const midCheck = checkCostLimit(chatId);
-    if (!midCheck.allowed) {
-      log("orchestrator", `Pipeline interrupted: token limit (${midCheck.currentTokens}/${midCheck.limit}) after batch: ${readyNames.join(", ")}`);
+    const midDailyCheck = checkDailyCostLimit();
+    const midProjectCheck = checkProjectCostLimit(projectId);
+
+    const costExceeded = !midCheck.allowed || !midDailyCheck.allowed || !midProjectCheck.allowed;
+    if (costExceeded) {
+      const reason = !midCheck.allowed
+        ? `Token limit reached (${midCheck.currentTokens.toLocaleString()}/${midCheck.limit.toLocaleString()})`
+        : !midDailyCheck.allowed
+        ? `Daily cost limit reached ($${midDailyCheck.currentCost.toFixed(2)}/$${midDailyCheck.limit.toFixed(2)})`
+        : `Project cost limit reached ($${midProjectCheck.currentCost.toFixed(2)}/$${midProjectCheck.limit.toFixed(2)})`;
+
+      log("orchestrator", `Pipeline interrupted: ${reason} after batch: ${readyNames.join(", ")}`);
       broadcastAgentStatus(chatId, "orchestrator", "paused");
       broadcast({
         type: "agent_error",
         payload: {
           chatId,
           agentName: "orchestrator",
-          error: `Token limit reached mid-pipeline. Completed through batch: ${readyNames.join(", ")}.`,
+          error: `${reason}. Completed through batch: ${readyNames.join(", ")}.`,
           errorType: "cost_limit",
         },
       });
@@ -1549,12 +1643,13 @@ async function finishPipeline(ctx: {
   agentResults: Map<string, string>;
   completedAgents: string[];
   callCounter: CallCounter;
+  buildFixCounter: BuildFixCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
 }): Promise<void> {
   const { chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter,
+    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal } = ctx;
 
   // Remediation loop
@@ -1572,7 +1667,7 @@ async function finishPipeline(ctx: {
     if (finalBuildErrors && !signal.aborted) {
       const fixResult = await runBuildFix({
         buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-        userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+        userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
       });
       if (fixResult) {
         agentResults.set("final-build-fix", fixResult);
@@ -2919,12 +3014,21 @@ async function runBuildFix(params: {
   chatHistory: Array<{ role: string; content: string }>;
   agentResults: Map<string, string>;
   callCounter: CallCounter;
+  buildFixCounter: BuildFixCounter;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
 }): Promise<string | null> {
   const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal } = params;
+    userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal } = params;
+
+  // Enforce per-pipeline build-fix attempt limit
+  if (buildFixCounter.value >= MAX_BUILD_FIX_ATTEMPTS) {
+    log("orchestrator", `Build fix limit reached (${MAX_BUILD_FIX_ATTEMPTS}). Skipping to prevent runaway costs.`);
+    broadcastAgentError(chatId, "orchestrator", `Build fix attempt limit reached (${MAX_BUILD_FIX_ATTEMPTS}). Skipping further fixes.`);
+    return null;
+  }
+  buildFixCounter.value++;
 
   const maxCallsBuild = getMaxAgentCalls();
   if (callCounter.value >= maxCallsBuild) {
@@ -2993,7 +3097,10 @@ async function runBuildFix(params: {
       });
     }
 
-    const result = await runAgent(buildFixConfig, providers, fixInput, fixTools.tools, signal, chatId);
+    const result = await runAgent(buildFixConfig, providers, fixInput, fixTools.tools, signal, chatId, undefined, {
+      maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
+      maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
+    });
 
     if (result.tokenUsage && bfProviderKey && bfProvisionalIds) {
       finalizeTokenUsage(bfProvisionalIds, {
@@ -3028,14 +3135,26 @@ async function runBuildFix(params: {
     broadcastAgentStatus(chatId, fixAgent, "completed", { phase: "build-fix" });
     return result.content;
   } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const status = signal.aborted ? "interrupted" : "failed";
+    // Always update DB record to prevent stuck "running" executions
+    await db.update(schema.agentExecutions)
+      .set({ status, error: errorMsg, completedAt: Date.now() })
+      .where(eq(schema.agentExecutions.id, execId));
     if (!signal.aborted) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      await db.update(schema.agentExecutions)
-        .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
-        .where(eq(schema.agentExecutions.id, execId));
-      broadcastAgentError(chatId, fixAgent, `Build fix failed: ${errorMsg}`);
+      // Check for credit exhaustion — broadcast specific error type
+      const apiCheck = isNonRetriableApiError(err);
+      if (apiCheck.nonRetriable) {
+        broadcastAgentError(chatId, fixAgent, apiCheck.reason);
+        broadcast({
+          type: "agent_error",
+          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: "credit_exhaustion" },
+        });
+      } else {
+        broadcastAgentError(chatId, fixAgent, `Build fix failed: ${errorMsg}`);
+      }
     }
-    broadcastAgentStatus(chatId, fixAgent, "failed", { phase: "build-fix" });
+    broadcastAgentStatus(chatId, fixAgent, status, { phase: "build-fix" });
     return null;
   }
 }

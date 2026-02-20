@@ -18,6 +18,7 @@ import {
   filterUpstreamOutputs,
   extractAssignedFiles,
   truncateArchitectForAgent,
+  isNonRetriableApiError,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
@@ -1485,5 +1486,92 @@ describe("truncateArchitectForAgent", () => {
     const result = truncateArchitectForAgent(fullArchitect, ["src/nonexistent.tsx"]);
     const parsed = JSON.parse(result);
     expect(parsed.file_plan).toHaveLength(0);
+  });
+});
+
+// --- isNonRetriableApiError ---
+
+describe("isNonRetriableApiError", () => {
+  test("detects 402 Payment Required", () => {
+    const result = isNonRetriableApiError(new Error("API returned 402 Payment Required"));
+    expect(result.nonRetriable).toBe(true);
+    expect(result.reason).toContain("credits exhausted");
+  });
+
+  test("detects credit exhaustion message", () => {
+    const result = isNonRetriableApiError(new Error("Your account has insufficient credits"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("detects out of credit message", () => {
+    const result = isNonRetriableApiError(new Error("out of credit on this API key"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("detects billing error", () => {
+    const result = isNonRetriableApiError(new Error("billing issue detected on account"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("detects 401 Unauthorized", () => {
+    const result = isNonRetriableApiError(new Error("401 Unauthorized"));
+    expect(result.nonRetriable).toBe(true);
+    expect(result.reason).toContain("authentication failed");
+  });
+
+  test("detects invalid API key", () => {
+    const result = isNonRetriableApiError(new Error("invalid api key provided"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("detects invalid x-api-key header", () => {
+    const result = isNonRetriableApiError(new Error("invalid x-api-key"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("detects 403 Forbidden", () => {
+    const result = isNonRetriableApiError(new Error("403 Forbidden"));
+    expect(result.nonRetriable).toBe(true);
+    expect(result.reason).toContain("forbidden");
+  });
+
+  test("detects invalid_request_error", () => {
+    const result = isNonRetriableApiError(new Error("invalid_request_error: prompt too long"));
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("does NOT flag overloaded errors as non-retriable", () => {
+    const result = isNonRetriableApiError(new Error("overloaded_error: server is busy"));
+    expect(result.nonRetriable).toBe(false);
+  });
+
+  test("does NOT flag rate limit errors as non-retriable", () => {
+    const result = isNonRetriableApiError(new Error("429 rate_limit_error: too many requests"));
+    expect(result.nonRetriable).toBe(false);
+  });
+
+  test("does NOT flag timeout errors as non-retriable", () => {
+    const result = isNonRetriableApiError(new Error("Request timed out after 30s"));
+    expect(result.nonRetriable).toBe(false);
+  });
+
+  test("does NOT flag network errors as non-retriable", () => {
+    const result = isNonRetriableApiError(new Error("ECONNREFUSED"));
+    expect(result.nonRetriable).toBe(false);
+  });
+
+  test("does NOT flag generic errors as non-retriable", () => {
+    const result = isNonRetriableApiError(new Error("Something went wrong"));
+    expect(result.nonRetriable).toBe(false);
+  });
+
+  test("handles non-Error objects", () => {
+    const result = isNonRetriableApiError("402 Payment Required");
+    expect(result.nonRetriable).toBe(true);
+  });
+
+  test("handles null/undefined gracefully", () => {
+    const result = isNonRetriableApiError(null);
+    expect(result.nonRetriable).toBe(false);
   });
 });
