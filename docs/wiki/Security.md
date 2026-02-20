@@ -42,6 +42,15 @@ API keys are encrypted before being stored in localStorage using AES-GCM (256-bi
 - Shell commands run in sandboxed context
 - No access to parent app's database or config
 
+## Docker Isolation
+
+When running via `bun dev:docker`, all generated code executes inside a Docker container:
+
+- No access to host filesystem (only named volumes for data/logs/projects)
+- Preview servers bind to `0.0.0.0` inside the container but are only accessible via mapped ports on localhost
+- `node_modules` are built inside the container and not shared with the host
+- See [Docker](Docker) for full details
+
 ## Network Access
 
 - Backend listens only on localhost (127.0.0.1)

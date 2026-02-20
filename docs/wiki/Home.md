@@ -13,6 +13,8 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - [Snapshots](Snapshots) - Versioning and rollback
 - [Pipeline Resume](Pipeline-Resume) - Resume interrupted pipelines
 - [Security](Security) - Security model
+- [Docker](Docker) - Optional Docker deployment
+- [Logging](Logging) - Structured logging reference
 
 ## Getting Started
 
@@ -21,13 +23,16 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 bun install
 
 # Start development server (backend)
-bun run dev
+bun dev
 
 # Start frontend dev server
-bun run dev:client
+bun dev:client
 
 # Run tests
 bun test
+
+# Or run in Docker (optional — sandboxed code execution)
+bun dev:docker
 ```
 
 ## Tech Stack

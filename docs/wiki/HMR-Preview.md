@@ -69,8 +69,13 @@ This prevents the preview from flashing broken content when agents write files t
 - Servers are started on-demand via `POST /api/files/preview/{projectId}`
 - `startPreviewServer()` runs full scaffolding before spawning Vite
 - Servers are cleaned up when the project is closed or the app exits
-- Port range: 3001+ (incremented per project)
+- Port pool: 3001-3020 with automatic reuse — stopped servers release their port back to the pool
 - Port readiness is verified by polling before returning the URL
+
+### Docker Support
+- When `PREVIEW_HOST` env var is set (e.g., `0.0.0.0`), Vite binds to that address instead of `localhost`
+- URLs returned to the client always use `localhost` (browser connects through Docker port mapping)
+- See [Docker](Docker) for full containerization details
 
 ## Troubleshooting
 

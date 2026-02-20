@@ -11,13 +11,8 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Live HMR preview** — See changes side-by-side as agents write code
 - **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
 - **Token tracking** — Per-agent, per-provider, per-request usage dashboard with real-time cost updates in sidebar and permanent billing history that survives deletions
-- ~~**Snapshots** — Version your project, rollback to any point~~ **TODO**
 - **Local-first** — All data in SQLite, API keys encrypted at rest in localStorage, no cloud dependency
-
-## TODO
-
-- [ ] **Snapshots UI** — Snapshot API + DB schema exist, but no UI is wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` are orphaned components. Need to add snapshot panel to sidebar and connect create/rollback actions.
-- [ ] **Auto-snapshot after pipeline** — Wiki claims snapshots are created automatically after each orchestration run. `finishPipeline()` does not call `createSnapshot()`.
+- **Docker support** — Optional containerization for sandboxed code execution
 ## Tech Stack
 
 | Layer | Technology |
@@ -49,13 +44,23 @@ cd just-build-it
 bun install
 
 # Start the backend server
-bun run dev
+bun dev
 
 # In another terminal, start the frontend dev server
-bun run dev:client
+bun dev:client
 ```
 
 Open `http://localhost:5173` in your browser. You'll be prompted to enter API keys on first visit.
+
+### Docker (Optional)
+
+Run everything in a container for sandboxed code execution:
+
+```bash
+bun dev:docker
+```
+
+Open `http://localhost:3000`. Data, logs, and generated projects persist in Docker volumes.
 
 ### Running Tests
 
@@ -67,13 +72,13 @@ bun test
 
 | Script | Description |
 |--------|-------------|
-| `bun run dev` | Start backend (Hono) with watch mode |
-| `bun run dev:client` | Start frontend (Vite) dev server |
-| `bun run build` | Build for production |
+| `bun dev` | Start backend (Hono) with watch mode |
+| `bun dev:client` | Start frontend (Vite) dev server |
+| `bun build` | Build for production |
 | `bun test` | Run all tests |
-| `bun run billing:reconcile` | Recalculate `billing_ledger.cost_estimate` using current pricing |
-| `bun run typecheck` | TypeScript type checking |
-| `bun run db:generate` | Generate Drizzle migrations |
+| `bun typecheck` | TypeScript type checking |
+| `bun db:generate` | Generate Drizzle migrations |
+| `bun dev:docker` | Run in Docker (sandboxed) |
 
 ## Architecture
 
@@ -104,6 +109,8 @@ See [Architecture docs](docs/wiki/Architecture.md) for full details.
 - [Token Billing](docs/wiki/Token-Billing.md)
 - [Snapshots](docs/wiki/Snapshots.md)
 - [Security](docs/wiki/Security.md)
+- [Docker](docs/wiki/Docker.md)
+- [Logging](docs/wiki/Logging.md)
 - [Pipeline Resume](docs/wiki/Pipeline-Resume.md)
 
 ## ADRs
