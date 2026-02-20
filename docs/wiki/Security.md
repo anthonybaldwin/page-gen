@@ -47,7 +47,7 @@ API keys are encrypted before being stored in localStorage using AES-GCM (256-bi
 When running via `bun dev:docker`, all generated code executes inside a Docker container:
 
 - Source code is bind-mounted **read-only** — generated code cannot modify the Page Gen backend or source files
-- Named volumes (`data/`, `logs/`, `projects/`) are writable but scoped — generated projects can only write within their own project directory
+- Named volumes (`data/`, `logs/`) are writable but scoped; `projects/` is a bind mount so generated files are visible on the host
 - Preview servers bind to `0.0.0.0` inside the container but are only accessible via mapped ports on localhost
 - `node_modules` are built inside the container via anonymous volume, isolated from host
 - **Residual risk**: generated code can *read* the Page Gen source code (but not secrets — API keys are in browser localStorage, never on disk)
