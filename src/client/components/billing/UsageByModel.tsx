@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 
-interface ProviderUsage {
+interface ModelUsage {
   provider: string;
+  model: string;
   totalTokens: number;
   totalCost: number;
   requestCount: number;
@@ -12,11 +13,11 @@ interface Props {
   filterQuery: string;
 }
 
-export function UsageByProvider({ filterQuery }: Props) {
-  const [data, setData] = useState<ProviderUsage[]>([]);
+export function UsageByModel({ filterQuery }: Props) {
+  const [data, setData] = useState<ModelUsage[]>([]);
 
   useEffect(() => {
-    api.get<ProviderUsage[]>(`/usage/by-provider${filterQuery}`).then(setData).catch(console.error);
+    api.get<ModelUsage[]>(`/usage/by-model${filterQuery}`).then(setData).catch(console.error);
   }, [filterQuery]);
 
   if (data.length === 0) {
@@ -26,10 +27,10 @@ export function UsageByProvider({ filterQuery }: Props) {
   return (
     <div className="space-y-2">
       {data.map((row) => (
-        <div key={row.provider} className="flex items-center justify-between rounded-lg bg-zinc-800 px-3 py-2">
+        <div key={`${row.provider}-${row.model}`} className="flex items-center justify-between rounded-lg bg-zinc-800 px-3 py-2">
           <div>
-            <p className="text-sm text-zinc-200 font-medium">{row.provider}</p>
-            <p className="text-xs text-zinc-500">{row.requestCount} requests</p>
+            <p className="text-sm text-zinc-200 font-medium">{row.model}</p>
+            <p className="text-xs text-zinc-500">{row.provider} &middot; {row.requestCount} requests</p>
           </div>
           <div className="text-right">
             <p className="text-sm text-zinc-200">{row.totalTokens.toLocaleString()} tokens</p>

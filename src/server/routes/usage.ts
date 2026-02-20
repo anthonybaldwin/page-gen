@@ -66,12 +66,13 @@ usageRoutes.get("/summary", (c) => {
   });
 });
 
-// Usage grouped by agent (from billing_ledger — survives deletions)
+// Usage grouped by agent with models used (from billing_ledger — survives deletions)
 usageRoutes.get("/by-agent", (c) => {
   const where = buildFilters(c);
   const query = db
     .select({
       agentName: schema.billingLedger.agentName,
+      models: sql<string>`group_concat(distinct ${schema.billingLedger.model})`,
       totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
       totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
       requestCount: sql<number>`count(*)`,
@@ -84,8 +85,8 @@ usageRoutes.get("/by-agent", (c) => {
   return c.json(results);
 });
 
-// Usage grouped by provider (from billing_ledger — survives deletions)
-usageRoutes.get("/by-provider", (c) => {
+// Usage grouped by model (provider + model) (from billing_ledger — survives deletions)
+usageRoutes.get("/by-model", (c) => {
   const where = buildFilters(c);
   const query = db
     .select({
@@ -100,6 +101,24 @@ usageRoutes.get("/by-provider", (c) => {
   const results = where
     ? query.where(where).groupBy(schema.billingLedger.provider, schema.billingLedger.model).all()
     : query.groupBy(schema.billingLedger.provider, schema.billingLedger.model).all();
+  return c.json(results);
+});
+
+// Usage grouped by provider only (from billing_ledger — survives deletions)
+usageRoutes.get("/by-provider", (c) => {
+  const where = buildFilters(c);
+  const query = db
+    .select({
+      provider: schema.billingLedger.provider,
+      totalTokens: sql<number>`sum(${schema.billingLedger.totalTokens})`,
+      totalCost: sql<number>`sum(${schema.billingLedger.costEstimate})`,
+      requestCount: sql<number>`count(*)`,
+    })
+    .from(schema.billingLedger);
+
+  const results = where
+    ? query.where(where).groupBy(schema.billingLedger.provider).all()
+    : query.groupBy(schema.billingLedger.provider).all();
   return c.json(results);
 });
 

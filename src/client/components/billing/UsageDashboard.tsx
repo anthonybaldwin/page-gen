@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { UsageByAgent } from "./UsageByAgent.tsx";
+import { UsageByModel } from "./UsageByModel.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
 import { RequestLog } from "./RequestLog.tsx";
 
@@ -18,13 +19,14 @@ interface ChatOption {
   projectName: string | null;
 }
 
-type Tab = "overview" | "by-agent" | "by-provider" | "log";
+type Tab = "overview" | "by-model" | "by-provider" | "by-agent" | "log";
 type Timeframe = "all" | "today" | "7d" | "30d";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
-  "by-agent": "By Agent",
+  "by-model": "By Model",
   "by-provider": "By Provider",
+  "by-agent": "By Agent",
   log: "Request Log",
 };
 
@@ -192,8 +194,9 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
 
       {/* Scrollable tab content */}
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {activeTab === "by-agent" && <UsageByAgent filterQuery={filterQuery} />}
+        {activeTab === "by-model" && <UsageByModel filterQuery={filterQuery} />}
         {activeTab === "by-provider" && <UsageByProvider filterQuery={filterQuery} />}
+        {activeTab === "by-agent" && <UsageByAgent filterQuery={filterQuery} />}
         {activeTab === "log" && <RequestLog filterQuery={filterQuery} />}
         {activeTab === "overview" && summary && (
           <p className="text-sm text-zinc-400">
