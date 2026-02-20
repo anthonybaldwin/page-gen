@@ -16,7 +16,7 @@ function hasAppComponent(tree: FileNode[]): boolean {
 
 function EmptyProjectPlaceholder() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-background gap-6 px-8">
+    <div className="h-full flex flex-col items-center justify-center bg-background gap-6 px-8">
       <svg
         width="200"
         height="160"
@@ -213,7 +213,7 @@ export function LivePreview() {
 
   if (!activeProject) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
+      <div className="h-full flex items-center justify-center bg-background">
         <p className="text-muted-foreground text-sm">Select a project to preview</p>
       </div>
     );
@@ -225,7 +225,7 @@ export function LivePreview() {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
+      <div className="h-full flex items-center justify-center bg-background">
         <div className="text-center">
           <Loader2 className="h-6 w-6 text-primary animate-spin mx-auto mb-2" />
           <p className="text-muted-foreground text-sm">Starting preview server...</p>
@@ -236,7 +236,7 @@ export function LivePreview() {
 
   if (error) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
+      <div className="h-full flex items-center justify-center bg-background">
         <div className="text-center">
           <p className="text-destructive text-sm mb-2">{error}</p>
           <Button
@@ -258,7 +258,7 @@ export function LivePreview() {
   const showOverlay = !serverAlive || (pipelineRunning && !serverAlive);
 
   return (
-    <div className="flex-1 flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-background">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card">
         <div className={`w-2 h-2 rounded-full ${serverAlive ? "bg-emerald-500" : "bg-amber-400 animate-pulse"}`} />
         <span className="text-xs text-muted-foreground truncate">{previewUrl}</span>
