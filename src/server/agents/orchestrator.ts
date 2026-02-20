@@ -585,7 +585,8 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     );
 
     plan = { steps: [...devSteps, ...postDevSteps] };
-    console.log(`[orchestrator] Parallel dev pipeline: ${devSteps.length} frontend-dev instances (${groupedPlan.components.length} component files)`);
+    const totalFiles = groupedPlan.shared.length + groupedPlan.components.length + groupedPlan.app.length;
+    console.log(`[orchestrator] Parallel dev pipeline: ${devSteps.length} frontend-dev agents for ${totalFiles} files`);
   } else {
     // Fallback: single frontend-dev (current behavior)
     console.log(`[orchestrator] Using single frontend-dev (architect file_plan not parseable or empty)`);
@@ -1835,61 +1836,51 @@ export function parseArchitectFilePlan(architectOutput: string): GroupedFilePlan
 
 /**
  * Build parallel frontend-dev steps from a parsed file plan.
- * Uses a parallelism heuristic based on component count.
- * Returns steps with instanceIds and proper dependency chains.
+ * Orchestrator decides agent count based on total file count.
+ * All non-App files are distributed evenly across N agents.
+ * App.tsx agent runs last to compose everything.
  */
 export function buildParallelDevSteps(
   groupedPlan: GroupedFilePlan,
-  architectOutput: string,
+  _architectOutput: string,
   userMessage: string,
 ): ExecutionPlan["steps"] {
+  // Merge all files except App.tsx into one pool — no artificial shared/component split
+  const allFiles = [...groupedPlan.shared, ...groupedPlan.components];
+  if (allFiles.length === 0 && groupedPlan.app.length === 0) return [];
+
   const steps: ExecutionPlan["steps"] = [];
-  const componentDeps: string[] = [];
 
-  // Step 1: Shared files (hooks, utils, types) — if any
-  if (groupedPlan.shared.length > 0) {
-    const fileList = groupedPlan.shared.map((f) => f.path).join(", ");
-    steps.push({
-      agentName: "frontend-dev",
-      instanceId: "frontend-dev-shared",
-      input: `Implement ONLY these shared utility/hook files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create component files or App.tsx. Original request: ${userMessage}`,
-      dependsOn: ["architect"],
-    });
-    componentDeps.push("frontend-dev-shared");
-  }
-
-  // Step 2: Component files — split into parallel batches
-  const componentFiles = groupedPlan.components;
-  const batchCount = componentFiles.length <= 4 ? 1
-    : componentFiles.length <= 8 ? 2
-    : componentFiles.length <= 14 ? 3
+  // Decide agent count based on total files to write
+  const agentCount = allFiles.length <= 4 ? 1
+    : allFiles.length <= 8 ? 2
+    : allFiles.length <= 14 ? 3
     : 4;
 
-  if (componentFiles.length > 0) {
-    const batches: FilePlanEntry[][] = Array.from({ length: batchCount }, () => []);
-    for (let i = 0; i < componentFiles.length; i++) {
-      batches[i % batchCount]!.push(componentFiles[i]!);
+  if (allFiles.length > 0) {
+    // Distribute files round-robin across agents
+    const batches: FilePlanEntry[][] = Array.from({ length: agentCount }, () => []);
+    for (let i = 0; i < allFiles.length; i++) {
+      batches[i % agentCount]!.push(allFiles[i]!);
     }
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i]!;
       if (batch.length === 0) continue;
 
-      const instanceId = batchCount === 1 ? "frontend-dev-components" : `frontend-dev-${i + 1}`;
+      const instanceId = agentCount === 1 ? "frontend-dev-components" : `frontend-dev-${i + 1}`;
       const fileList = batch.map((f) => f.path).join(", ");
-      const deps: string[] = ["architect"];
 
       steps.push({
         agentName: "frontend-dev",
         instanceId,
-        input: `Implement ONLY these component files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create App.tsx or shared utility files. Each component should export its default component and any needed types. Original request: ${userMessage}`,
-        dependsOn: deps,
+        input: `Implement ONLY these files from the architect's plan (provided in Previous Agent Outputs): ${fileList}. Do NOT create any files outside this list — other agents handle the rest. Original request: ${userMessage}`,
+        dependsOn: ["architect"],
       });
-      componentDeps.push(instanceId);
     }
   }
 
-  // Step 3: App.tsx — depends on ALL above
+  // App.tsx — runs last, composes everything
   const allPriorIds = steps.map((s) => s.instanceId!);
   if (allPriorIds.length === 0) allPriorIds.push("architect");
 

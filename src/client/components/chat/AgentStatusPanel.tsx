@@ -27,7 +27,6 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   research: "Research",
   architect: "Architect",
   "frontend-dev": "Frontend Dev",
-  "frontend-dev-shared": "Frontend Dev (Setup)",
   "frontend-dev-components": "Frontend Dev",
   "frontend-dev-app": "Frontend Dev (App)",
   "backend-dev": "Backend Dev",

@@ -1008,52 +1008,46 @@ describe("buildParallelDevSteps", () => {
     return { components, shared, app };
   }
 
-  test("creates shared step when shared files exist", () => {
-    const plan = makePlan(3, 2);
+  test("shared and component files are pooled together for batching", () => {
+    const plan = makePlan(3, 2); // 5 total files → 2 agents
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
-    expect(sharedStep).toBeDefined();
-    expect(sharedStep!.agentName).toBe("frontend-dev");
-    expect(sharedStep!.input).toContain("useHook1");
-    expect(sharedStep!.dependsOn).toEqual(["architect"]);
+    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
+    expect(devSteps).toHaveLength(2);
+    // Shared files distributed across agents alongside components
+    const allInputs = devSteps.map((s) => s.input).join(" ");
+    expect(allInputs).toContain("useHook1");
+    expect(allInputs).toContain("Component1");
   });
 
-  test("no shared step when no shared files", () => {
-    const plan = makePlan(3, 0);
+  test("single agent for <= 4 total files", () => {
+    const plan = makePlan(3, 1); // 4 total
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const sharedStep = steps.find((s) => s.instanceId === "frontend-dev-shared");
-    expect(sharedStep).toBeUndefined();
+    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
+    expect(devSteps).toHaveLength(1);
+    expect(devSteps[0]!.instanceId).toBe("frontend-dev-components");
   });
 
-  test("single component batch for <= 4 components", () => {
-    const plan = makePlan(4, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.startsWith("frontend-dev-component"));
-    expect(componentSteps).toHaveLength(1);
-    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-components");
-  });
-
-  test("2 parallel batches for 5-8 components", () => {
+  test("2 agents for 5-8 total files", () => {
     const plan = makePlan(6, 0);
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(componentSteps).toHaveLength(2);
-    expect(componentSteps[0]!.instanceId).toBe("frontend-dev-1");
-    expect(componentSteps[1]!.instanceId).toBe("frontend-dev-2");
+    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(devSteps).toHaveLength(2);
+    expect(devSteps[0]!.instanceId).toBe("frontend-dev-1");
+    expect(devSteps[1]!.instanceId).toBe("frontend-dev-2");
   });
 
-  test("3 parallel batches for 9-14 components", () => {
-    const plan = makePlan(10, 0);
+  test("3 agents for 9-14 total files", () => {
+    const plan = makePlan(8, 2); // 10 total
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(componentSteps).toHaveLength(3);
+    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(devSteps).toHaveLength(3);
   });
 
-  test("4 parallel batches (cap) for 15+ components", () => {
-    const plan = makePlan(20, 0);
+  test("4 agents (cap) for 15+ total files", () => {
+    const plan = makePlan(12, 3); // 15 total
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    expect(componentSteps).toHaveLength(4);
+    const devSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
+    expect(devSteps).toHaveLength(4);
   });
 
   test("app step always comes last", () => {
@@ -1073,20 +1067,11 @@ describe("buildParallelDevSteps", () => {
     }
   });
 
-  test("component batches depend only on architect (not shared) for max parallelism", () => {
-    const plan = makePlan(6, 1);
+  test("all dev agents depend only on architect", () => {
+    const plan = makePlan(6, 3); // 9 total → 3 agents
     const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    for (const step of componentSteps) {
-      expect(step.dependsOn).toEqual(["architect"]);
-    }
-  });
-
-  test("component batches depend only on architect when no shared step", () => {
-    const plan = makePlan(6, 0);
-    const steps = buildParallelDevSteps(plan, "", "Build app");
-    const componentSteps = steps.filter((s) => s.instanceId?.match(/^frontend-dev-\d+$/));
-    for (const step of componentSteps) {
+    const devSteps = steps.filter((s) => s.instanceId !== "frontend-dev-app");
+    for (const step of devSteps) {
       expect(step.dependsOn).toEqual(["architect"]);
     }
   });
@@ -1113,5 +1098,11 @@ describe("buildParallelDevSteps", () => {
     for (const step of steps) {
       expect(step.input).toContain("Build a Wordle clone");
     }
+  });
+
+  test("returns empty for plan with no files", () => {
+    const plan: GroupedFilePlan = { shared: [], components: [], app: [] };
+    const steps = buildParallelDevSteps(plan, "", "Build app");
+    expect(steps).toHaveLength(0);
   });
 });

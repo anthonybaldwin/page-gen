@@ -30,7 +30,7 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
-- **Parallel instances (build mode):** The orchestrator parses the architect's `file_plan` and spawns multiple frontend-dev instances — each assigned a specific subset of files. Instances use `instanceId` (e.g., `frontend-dev-shared`, `frontend-dev-1`, `frontend-dev-app`) but share the same agent config and prompt.
+- **Parallel instances (build mode):** The orchestrator parses the architect's `file_plan`, pools all non-App files, and distributes them evenly across N agents (1-4 based on file count). Instances use `instanceId` (e.g., `frontend-dev-1`, `frontend-dev-2`, `frontend-dev-app`) and all run in parallel. A final `frontend-dev-app` agent composes App.tsx after all others complete.
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -146,13 +146,13 @@ The pipeline executor uses dependency-aware batch scheduling:
 - Cost limit checked after each batch completes
 
 **Parallel groups in build mode:**
-- `frontend-dev-shared` depends on `architect` — writes shared hooks/utils/types
-- `frontend-dev-{1,2,3,4}` depend on `architect` + `frontend-dev-shared` (if present) — write component batches in parallel
-- `frontend-dev-app` depends on ALL other frontend-dev instances — writes `App.tsx` last, gets the real build check
+- `frontend-dev-{1,2,3,4}` all depend only on `architect` — all non-App files are pooled and distributed evenly across N agents (1-4 based on total file count), running in parallel
+- `frontend-dev-app` depends on ALL other frontend-dev instances — writes `App.tsx` last, gets the consolidated build check
 - `backend-dev` depends on `frontend-dev-app`
 - `styling` depends on all dev agents → waits for all to complete
 - `code-review`, `security`, and `qa` all depend on `styling` → run in parallel
 - Steps use `instanceId` for keying/dependency resolution; base `agentName` is used for config lookup
+- Per-agent build checks are skipped for parallel batches — a single consolidated check runs after the batch
 
 **Remediation re-reviews** also run in parallel (`Promise.all` for code-review, security, qa).
 
@@ -163,7 +163,7 @@ The orchestrator broadcasts a `pipeline_plan` WebSocket message at the start of 
 - Fix mode: shows only the dev agent(s) + reviewers
 - Question mode: hides the pipeline bar entirely, shows a "Thinking..." indicator
 
-The `AgentStatusPanel` resolves display names for parallel instances: `frontend-dev-shared` → "Frontend Dev (Setup)", `frontend-dev-{N}` → "Frontend Dev {N}", `frontend-dev-app` → "Frontend Dev (App)".
+The `AgentStatusPanel` resolves display names for parallel instances: `frontend-dev-{N}` → "Frontend Dev {N}", `frontend-dev-app` → "Frontend Dev (App)".
 
 ### General Pipeline Behavior
 

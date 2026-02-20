@@ -10,7 +10,6 @@ import { extractSummary } from "../../shared/summary.ts";
 
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
-  if (instanceId === "frontend-dev-shared") return "Frontend Dev (Setup)";
   if (instanceId === "frontend-dev-components") return "Frontend Dev";
   if (instanceId === "frontend-dev-app") return "Frontend Dev (App)";
   const match = instanceId.match(/^frontend-dev-(\d+)$/);
