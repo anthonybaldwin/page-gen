@@ -11,11 +11,11 @@ import { log, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts"
 
 /** Per-agent output token caps to reduce chattiness and speed up generation. */
 const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
-  "research": 2048,
-  "architect": 4096,
-  "frontend-dev": 8192,
-  "backend-dev": 8192,
-  "styling": 8192,
+  "research": 3000,
+  "architect": 12000,   // large JSON architecture doc — truncation breaks file_plan parsing
+  "frontend-dev": 16000, // multi-step tool use: code + reasoning across many rounds
+  "backend-dev": 12000,
+  "styling": 12000,
   "code-review": 2048,
   "security": 2048,
   "qa": 2048,
