@@ -49,6 +49,8 @@ const HTML = `<!DOCTYPE html>
   .toolbar select, .toolbar input { background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 12px; }
   .toolbar select:focus, .toolbar input:focus { outline: none; border-color: #89b4fa; }
   .toolbar input[type="search"] { width: 220px; }
+  .toolbar input[type="datetime-local"] { width: 185px; }
+  .toolbar input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
   .toolbar .count { margin-left: auto; color: #6c7086; font-size: 11px; }
   .toolbar button { background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; font-size: 12px; }
   .toolbar button:hover { background: #45475a; }
@@ -84,6 +86,10 @@ const HTML = `<!DOCTYPE html>
   </select>
   <label>Tag</label>
   <select id="tag-filter"><option value="">All</option></select>
+  <label>From</label>
+  <input type="datetime-local" id="date-from" step="1">
+  <label>To</label>
+  <input type="datetime-local" id="date-to" step="1">
   <label>Search</label>
   <input type="search" id="search" placeholder="Filter messages...">
   <button id="btn-tail" title="Auto-scroll to newest">Tail</button>
@@ -104,6 +110,8 @@ const levelFilter = document.getElementById('level-filter');
 const tagFilter = document.getElementById('tag-filter');
 const search = document.getElementById('search');
 const countEl = document.getElementById('count');
+const dateFrom = document.getElementById('date-from');
+const dateTo = document.getElementById('date-to');
 const btnTail = document.getElementById('btn-tail');
 const btnRefresh = document.getElementById('btn-refresh');
 
@@ -139,9 +147,18 @@ function render() {
   const tg = tagFilter.value;
   const q = search.value.toLowerCase();
 
+  const fromVal = dateFrom.value;
+  const toVal = dateTo.value;
+  const fromMs = fromVal ? new Date(fromVal).getTime() : 0;
+  const toMs = toVal ? new Date(toVal).getTime() : Infinity;
+
   const filtered = allLogs.filter(e => {
     if (lv && e.level !== lv) return false;
     if (tg && e.tag !== tg) return false;
+    if (fromVal || toVal) {
+      const t = new Date(e.ts).getTime();
+      if (t < fromMs || t > toMs) return false;
+    }
     if (q && !e.msg.toLowerCase().includes(q) && !e.tag.toLowerCase().includes(q) && !JSON.stringify(e).toLowerCase().includes(q)) return false;
     return true;
   });
@@ -200,6 +217,8 @@ body.addEventListener('click', e => {
 
 levelFilter.addEventListener('change', render);
 tagFilter.addEventListener('change', render);
+dateFrom.addEventListener('change', render);
+dateTo.addEventListener('change', render);
 search.addEventListener('input', render);
 
 btnTail.addEventListener('click', () => {
