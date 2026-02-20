@@ -4,6 +4,10 @@ import { UsageByAgent } from "./UsageByAgent.tsx";
 import { UsageByModel } from "./UsageByModel.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
 import { RequestLog } from "./RequestLog.tsx";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
+import { Card, CardContent } from "../ui/card.tsx";
+import { Button } from "../ui/button.tsx";
+import { X } from "lucide-react";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -19,16 +23,7 @@ interface ChatOption {
   projectName: string | null;
 }
 
-type Tab = "overview" | "by-model" | "by-provider" | "by-agent" | "log";
 type Timeframe = "all" | "today" | "7d" | "30d";
-
-const TAB_LABELS: Record<Tab, string> = {
-  overview: "Overview",
-  "by-model": "By Model",
-  "by-provider": "By Provider",
-  "by-agent": "By Agent",
-  log: "Request Log",
-};
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   all: "All time",
@@ -72,7 +67,6 @@ interface UsageDashboardProps {
 
 export function UsageDashboard({ onClose }: UsageDashboardProps) {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [chatOptions, setChatOptions] = useState<ChatOption[]>([]);
   const [selectedChat, setSelectedChat] = useState<string>("");
   const [timeframe, setTimeframe] = useState<Timeframe>("all");
@@ -83,127 +77,141 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
   };
   const filterQuery = buildFilterQuery(filters);
 
-  // Load chat options for dropdown
   useEffect(() => {
     api.get<ChatOption[]>("/usage/chats").then(setChatOptions).catch(console.error);
   }, []);
 
-  // Reload summary when filters change
   useEffect(() => {
     api.get<UsageSummary>(`/usage/summary${filterQuery}`).then(setSummary).catch(console.error);
   }, [filterQuery]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* Pinned header */}
-      <div className="shrink-0 border-b border-zinc-800">
-        <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-sm font-medium text-white">Usage Dashboard</h2>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {/* Summary cards */}
-        {summary && (
-          <div className="grid grid-cols-4 gap-3 px-4 pb-3">
-            <div className="rounded-lg bg-zinc-800 p-3">
-              <p className="text-xs text-zinc-500">Total Tokens</p>
-              <p className="text-lg font-bold text-white">{summary.totalTokens.toLocaleString()}</p>
-            </div>
-            <div className="rounded-lg bg-zinc-800 p-3">
-              <p className="text-xs text-zinc-500">Input Tokens</p>
-              <p className="text-lg font-bold text-white">{summary.totalInputTokens.toLocaleString()}</p>
-            </div>
-            <div className="rounded-lg bg-zinc-800 p-3">
-              <p className="text-xs text-zinc-500">Output Tokens</p>
-              <p className="text-lg font-bold text-white">{summary.totalOutputTokens.toLocaleString()}</p>
-            </div>
-            <div className="rounded-lg bg-zinc-800 p-3">
-              <p className="text-xs text-zinc-500">Est. Cost</p>
-              <p className="text-lg font-bold text-green-400">${summary.totalCost.toFixed(4)}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Filter bar */}
-        <div className="flex items-center gap-3 px-4 pb-3">
-          <select
-            value={selectedChat}
-            onChange={(e) => setSelectedChat(e.target.value)}
-            className="rounded bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 max-w-[200px]"
-          >
-            <option value="">All chats</option>
-            {chatOptions.map((opt) => (
-              <option key={opt.chatId} value={opt.chatId || ""}>
-                {opt.chatTitle || "Unknown"} ({opt.projectName || "?"})
-              </option>
-            ))}
-          </select>
-
-          <div className="flex rounded border border-zinc-700 overflow-hidden">
-            {(Object.keys(TIMEFRAME_LABELS) as Timeframe[]).map((tf) => (
-              <button
-                key={tf}
-                onClick={() => setTimeframe(tf)}
-                className={`px-2 py-1 text-xs transition-colors ${
-                  timeframe === tf
-                    ? "bg-zinc-700 text-white"
-                    : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
-                }`}
+      <Tabs defaultValue="overview" className="flex flex-col flex-1 min-h-0">
+        {/* Pinned header */}
+        <div className="shrink-0 border-b border-border">
+          <div className="flex items-center justify-between px-4 py-3">
+            <h2 className="text-sm font-medium text-foreground">Usage Dashboard</h2>
+            {onClose && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                aria-label="Close usage dashboard"
               >
-                {TIMEFRAME_LABELS[tf]}
-              </button>
-            ))}
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
-          {(selectedChat || timeframe !== "all") && (
-            <button
-              onClick={() => { setSelectedChat(""); setTimeframe("all"); }}
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              Clear
-            </button>
+          {/* Summary cards */}
+          {summary && (
+            <div className="grid grid-cols-4 gap-3 px-4 pb-3">
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Total Tokens</p>
+                  <p className="text-lg font-bold text-foreground">{summary.totalTokens.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Input Tokens</p>
+                  <p className="text-lg font-bold text-foreground">{summary.totalInputTokens.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Output Tokens</p>
+                  <p className="text-lg font-bold text-foreground">{summary.totalOutputTokens.toLocaleString()}</p>
+                </CardContent>
+              </Card>
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Est. Cost</p>
+                  <p className="text-lg font-bold text-emerald-500 dark:text-emerald-400">${summary.totalCost.toFixed(4)}</p>
+                </CardContent>
+              </Card>
+            </div>
           )}
-        </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 px-4 border-t border-zinc-800">
-          {(Object.keys(TAB_LABELS) as Tab[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === tab
-                  ? "text-white border-b-2 border-blue-500"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
+          {/* Filter bar */}
+          <div className="flex items-center gap-3 px-4 pb-3">
+            <select
+              value={selectedChat}
+              onChange={(e) => setSelectedChat(e.target.value)}
+              className="rounded-md bg-transparent border border-input px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring max-w-[200px]"
             >
-              {TAB_LABELS[tab]}
-            </button>
-          ))}
-        </div>
-      </div>
+              <option value="">All chats</option>
+              {chatOptions.map((opt) => (
+                <option key={opt.chatId} value={opt.chatId || ""}>
+                  {opt.chatTitle || "Unknown"} ({opt.projectName || "?"})
+                </option>
+              ))}
+            </select>
 
-      {/* Scrollable tab content */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {activeTab === "by-model" && <UsageByModel filterQuery={filterQuery} />}
-        {activeTab === "by-provider" && <UsageByProvider filterQuery={filterQuery} />}
-        {activeTab === "by-agent" && <UsageByAgent filterQuery={filterQuery} />}
-        {activeTab === "log" && <RequestLog filterQuery={filterQuery} />}
-        {activeTab === "overview" && summary && (
-          <p className="text-sm text-zinc-400">
-            {summary.requestCount} API requests{selectedChat ? " for this chat" : " across all sessions"}.
-          </p>
-        )}
-      </div>
+            <div className="flex rounded-md border border-input overflow-hidden">
+              {(Object.keys(TIMEFRAME_LABELS) as Timeframe[]).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setTimeframe(tf)}
+                  className={`px-2 py-1 text-xs transition-colors ${
+                    timeframe === tf
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {TIMEFRAME_LABELS[tf]}
+                </button>
+              ))}
+            </div>
+
+            {(selectedChat || timeframe !== "all") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => { setSelectedChat(""); setTimeframe("all"); }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+
+          <TabsList className="w-full justify-start rounded-none bg-transparent px-4 h-auto pb-0 gap-1 border-t border-border">
+            <TabsTrigger value="overview" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="by-model" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              By Model
+            </TabsTrigger>
+            <TabsTrigger value="by-provider" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              By Provider
+            </TabsTrigger>
+            <TabsTrigger value="by-agent" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              By Agent
+            </TabsTrigger>
+            <TabsTrigger value="log" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Request Log
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Scrollable tab content */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <TabsContent value="overview" className="mt-0">
+            {summary && (
+              <p className="text-sm text-muted-foreground">
+                {summary.requestCount} API requests{selectedChat ? " for this chat" : " across all sessions"}.
+              </p>
+            )}
+          </TabsContent>
+          <TabsContent value="by-model" className="mt-0"><UsageByModel filterQuery={filterQuery} /></TabsContent>
+          <TabsContent value="by-provider" className="mt-0"><UsageByProvider filterQuery={filterQuery} /></TabsContent>
+          <TabsContent value="by-agent" className="mt-0"><UsageByAgent filterQuery={filterQuery} /></TabsContent>
+          <TabsContent value="log" className="mt-0"><RequestLog filterQuery={filterQuery} /></TabsContent>
+        </div>
+      </Tabs>
     </div>
   );
 }
