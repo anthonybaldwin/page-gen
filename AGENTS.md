@@ -225,11 +225,11 @@ When `docs/wiki/` changes, sync the GitHub wiki clone immediately after commit:
 ```bash
 git clone <repo>.wiki.git /tmp/wiki-sync
 cp docs/wiki/*.md /tmp/wiki-sync/
-cd /tmp/wiki-sync && git add -A && git commit -m "docs: sync wiki from docs/wiki" && git push
+cd /tmp/wiki-sync && git add -A && git commit -m "sync: update wiki from docs/wiki" && git push
 rm -rf /tmp/wiki-sync
 ```
 
-**Wiki sync commit message must always be:** `docs: sync wiki from docs/wiki`
+**Wiki sync commit message must always be:** `sync: update wiki from docs/wiki`
 
 No bullet lists, no details — keep it clean. The main repo commit already has the context.
 
