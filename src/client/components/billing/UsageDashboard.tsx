@@ -125,12 +125,6 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
               </Card>
               <Card className="shadow-none">
                 <CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">Output Tokens</p>
-                  <p className="text-lg font-bold text-foreground">{summary.totalOutputTokens.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-              <Card className="shadow-none">
-                <CardContent className="p-3">
                   <p className="text-xs text-muted-foreground">Cached Tokens</p>
                   <p className="text-lg font-bold text-foreground">{(summary.totalCacheCreationTokens + summary.totalCacheReadTokens).toLocaleString()}</p>
                   {(summary.totalCacheCreationTokens > 0 || summary.totalCacheReadTokens > 0) && (
@@ -138,6 +132,12 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
                       {summary.totalCacheCreationTokens.toLocaleString()} write &middot; {summary.totalCacheReadTokens.toLocaleString()} read
                     </p>
                   )}
+                </CardContent>
+              </Card>
+              <Card className="shadow-none">
+                <CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Output Tokens</p>
+                  <p className="text-lg font-bold text-foreground">{summary.totalOutputTokens.toLocaleString()}</p>
                 </CardContent>
               </Card>
               <Card className="shadow-none">
