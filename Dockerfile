@@ -9,13 +9,18 @@ FROM base AS dev
 EXPOSE 3000 3001-3020 5173
 CMD ["sh", "-c", "bun --watch src/server/index.ts & bunx vite --host 0.0.0.0 & wait"]
 
-# Production build
+# Production build — compile frontend
 FROM base AS build
 COPY . .
 RUN bunx vite build --outDir dist/client
 
+# Production runtime — only what's needed to run
 FROM oven/bun:1 AS production
 WORKDIR /app
-COPY --from=build /app /app
+COPY package.json bun.lock bunfig.toml ./
+RUN bun install --production
+COPY --from=build /app/dist/client dist/client
+COPY src/server src/server
+COPY src/shared src/shared
 EXPOSE 3000 3001-3020
-CMD ["bun", "run", "src/server/index.ts"]
+CMD ["bun", "src/server/index.ts"]
