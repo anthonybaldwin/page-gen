@@ -7,7 +7,8 @@ import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope }
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
-import { trackTokenUsage } from "../services/token-tracker.ts";
+import { trackTokenUsage, trackProvisionalUsage, finalizeTokenUsage, countProvisionalRecords } from "../services/token-tracker.ts";
+import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults, broadcastTestResultIncremental } from "../ws.ts";
 import { broadcast } from "../ws.ts";
@@ -20,6 +21,8 @@ import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../
 const MAX_RETRIES = 3;
 const MAX_UNIQUE_ERRORS = 10;
 const MAX_TEST_FAILURES = 5;
+const MAX_OUTPUT_CHARS = 15_000;
+const MAX_PROJECT_SOURCE_CHARS = 40_000;
 
 /**
  * Deduplicate build error lines by stripping file paths and grouping by core error pattern.
@@ -106,22 +109,114 @@ function injectDesignSystem(result: Record<string, string>): void {
 }
 
 /**
+ * Smart truncation: keeps start and end, elides middle.
+ * Used to cap upstream outputs without losing critical content at boundaries.
+ */
+export function truncateOutput(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  const keepEach = Math.floor(maxChars / 2) - 30;
+  const start = content.slice(0, keepEach);
+  const end = content.slice(-keepEach);
+  const elided = content.length - keepEach * 2;
+  return `${start}\n\n... [${elided.toLocaleString()} chars elided] ...\n\n${end}`;
+}
+
+/**
+ * Build a compact file manifest from a tool-using agent's output.
+ * Extracts just file paths from write_file tool calls and lists them.
+ * Tool-using agents wrote code to disk — downstream agents can read_file if needed.
+ */
+export function buildFileManifest(agentOutput: string): string {
+  const files: string[] = [];
+
+  // Extract file paths from native tool calls in output text
+  const toolCallRegex = /<tool_call>\s*\n?([\s\S]*?)\n?\s*<\/tool_call>/g;
+  let match: RegExpExecArray | null;
+  while ((match = toolCallRegex.exec(agentOutput)) !== null) {
+    try {
+      const json = JSON.parse(match[1]!.trim());
+      if (json.name === "write_file" && json.parameters?.path) {
+        files.push(json.parameters.path);
+      }
+    } catch {
+      const pathMatch = match[1]!.match(/"path"\s*:\s*"([^"]+)"/);
+      if (pathMatch?.[1]) files.push(pathMatch[1]);
+    }
+  }
+
+  // Also detect files from write_file tool results (logged by AI SDK)
+  const writeFileResultRegex = /write_file.*?"path"\s*:\s*"([^"]+)"/g;
+  while ((match = writeFileResultRegex.exec(agentOutput)) !== null) {
+    if (!files.includes(match[1]!)) files.push(match[1]!);
+  }
+
+  if (files.length === 0) {
+    // Fallback: extract from markdown code blocks with file paths
+    const codeBlockRegex = /(?:###\s+|\/\/\s*)((?:src\/|\.\/)?[\w./-]+\.\w+)/g;
+    while ((match = codeBlockRegex.exec(agentOutput)) !== null) {
+      if (!files.includes(match[1]!)) files.push(match[1]!);
+    }
+  }
+
+  if (files.length === 0) return truncateOutput(agentOutput, MAX_OUTPUT_CHARS);
+
+  return `Files written (${files.length}):\n${files.map(f => `- ${f}`).join("\n")}\n\n(Agent has tools — use read_file to inspect any file above)`;
+}
+
+/**
+ * For review/re-review phases, read fresh project source from disk.
+ * Returns truncated source capped at MAX_PROJECT_SOURCE_CHARS.
+ */
+function getFreshProjectSource(projectPath: string): string {
+  const source = readProjectSource(projectPath);
+  return truncateOutput(source, MAX_PROJECT_SOURCE_CHARS);
+}
+
+/**
+ * Apply truncation to all values in a result object.
+ * project-source gets a higher cap; all others get the default.
+ */
+function truncateAllOutputs(result: Record<string, string>): Record<string, string> {
+  const truncated: Record<string, string> = {};
+  for (const [k, v] of Object.entries(result)) {
+    const cap = k === "project-source" ? MAX_PROJECT_SOURCE_CHARS : MAX_OUTPUT_CHARS;
+    truncated[k] = truncateOutput(v, cap);
+  }
+  return truncated;
+}
+
+/** Check if an agent is a tool-using dev agent (writes files to disk). */
+function isToolUsingAgent(name: string): boolean {
+  return name.startsWith("frontend-dev") || name === "backend-dev" || name === "styling";
+}
+
+/**
+ * Convert tool-using agent outputs to file manifests.
+ * Review agents and non-tool agents keep their output as-is.
+ */
+function manifestifyDevOutputs(result: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(result)) {
+    out[k] = isToolUsingAgent(k) ? buildFileManifest(v) : v;
+  }
+  return out;
+}
+
+/**
  * Filter upstream outputs so each agent only receives relevant data.
  * Reduces prompt size significantly — agents don't need outputs from unrelated agents.
+ * Tool-using agents' outputs are replaced with file manifests (they wrote to disk).
+ * Review agents get fresh project source from disk instead of dev outputs.
  */
 export function filterUpstreamOutputs(
   agentName: string,
   instanceId: string | undefined,
   agentResults: Map<string, string>,
   phase?: string,
+  projectPath?: string,
 ): Record<string, string> {
   const all = Object.fromEntries(agentResults);
   const key = instanceId ?? agentName;
-
-  // During remediation/build-fix, send everything — the agent needs full context
-  if (phase === "remediation" || phase === "build-fix" || phase === "re-review") {
-    return all;
-  }
 
   const pick = (keys: string[]) => {
     const result: Record<string, string> = {};
@@ -133,56 +228,83 @@ export function filterUpstreamOutputs(
     return result;
   };
 
+  // --- Remediation phase: targeted filtering instead of sending everything ---
+  if (phase === "remediation" || phase === "build-fix") {
+    // Remediation dev agents have tools — they only need review findings + architect
+    const reviewKeys = Object.keys(all).filter(k =>
+      k === "code-review" || k === "security" || k === "qa"
+    );
+    const result = pick(["architect", ...reviewKeys]);
+    return truncateAllOutputs(result);
+  }
+
+  if (phase === "re-review") {
+    // Re-review agents need fresh source from disk + architect
+    const result: Record<string, string> = {};
+    if (all["architect"]) result["architect"] = all["architect"];
+    if (projectPath) {
+      result["project-source"] = getFreshProjectSource(projectPath);
+    } else if (all["project-source"]) {
+      result["project-source"] = all["project-source"];
+    }
+    return truncateAllOutputs(result);
+  }
+
   // frontend-dev-N (parallel instances) → architect + design system
   if (key.startsWith("frontend-dev-") && key !== "frontend-dev-app") {
     const result = pick(["architect"]);
     injectDesignSystem(result);
-    return result;
+    return truncateAllOutputs(result);
   }
 
-  // frontend-dev-app → architect + all frontend-dev-* outputs + design system
+  // frontend-dev-app → architect + file manifests from other frontend-dev-* agents + design system
   if (key === "frontend-dev-app") {
-    const keys = ["architect", ...Object.keys(all).filter(k => k.startsWith("frontend-dev-") && k !== "frontend-dev-app")];
-    const result = pick(keys);
-    injectDesignSystem(result);
-    return result;
+    const devKeys = Object.keys(all).filter(k => k.startsWith("frontend-dev-") && k !== "frontend-dev-app");
+    const result = pick(["architect", ...devKeys]);
+    // Convert dev outputs to file manifests — app agent has tools to read_file
+    const manifested = manifestifyDevOutputs(result);
+    injectDesignSystem(manifested);
+    return truncateAllOutputs(manifested);
   }
 
   // frontend-dev (single instance, non-parallel) → architect + research
   if (agentName === "frontend-dev") {
     const result = pick(["architect", "research"]);
     injectDesignSystem(result);
-    return result;
+    return truncateAllOutputs(result);
   }
 
   // backend-dev → architect + research
   if (agentName === "backend-dev") {
-    return pick(["architect", "research"]);
+    return truncateAllOutputs(pick(["architect", "research"]));
   }
 
   // styling → architect only (design system injected for easy consumption)
   if (agentName === "styling") {
     const result = pick(["architect"]);
     injectDesignSystem(result);
-    return result;
+    return truncateAllOutputs(result);
   }
 
-  // Review agents (code-review, security, qa) → only dev agent outputs (they need to see the code)
+  // Review agents (code-review, security, qa) → fresh project source from disk + architect
   if (agentName === "code-review" || agentName === "security" || agentName === "qa") {
-    const devKeys = Object.keys(all).filter(k =>
-      k.startsWith("frontend-dev") || k === "backend-dev" || k === "styling" ||
-      k.includes("-remediation") || k.includes("-build-fix") || k.includes("-test-fix")
-    );
-    return pick(devKeys);
+    const result: Record<string, string> = {};
+    if (all["architect"]) result["architect"] = all["architect"];
+    if (projectPath) {
+      result["project-source"] = getFreshProjectSource(projectPath);
+    } else if (all["project-source"]) {
+      result["project-source"] = all["project-source"];
+    }
+    return truncateAllOutputs(result);
   }
 
   // testing → architect + project-source
   if (agentName === "testing") {
-    return pick(["architect"]);
+    return truncateAllOutputs(pick(["architect"]));
   }
 
-  // Default: return everything (research, architect, etc.)
-  return all;
+  // Default: return everything, truncated
+  return truncateAllOutputs(all);
 }
 
 // Abort registry — keyed by chatId
@@ -251,6 +373,12 @@ export async function cleanupStaleExecutions(): Promise<number> {
       completedAt: now,
     })
     .where(eq(schema.pipelineRuns.status, "running"));
+
+  // Log any provisional billing records from interrupted pipelines
+  const provisionalCount = countProvisionalRecords();
+  if (provisionalCount > 0) {
+    log("orchestrator", `Found ${provisionalCount} provisional (estimated) billing records from interrupted pipelines`);
+  }
 
   log("orchestrator", `Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
   return stale.length;
@@ -338,6 +466,23 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     completedAt: null,
   });
 
+  // Pre-flight cost estimate: estimate input tokens before calling agent
+  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath);
+  const estimatedPromptChars = step.input.length
+    + Object.values(preflightUpstream).reduce((sum, v) => sum + v.length, 0)
+    + chatHistory.reduce((sum, m) => sum + m.content.length, 0);
+  const estimatedInputTokens = Math.ceil(estimatedPromptChars / 4);
+
+  const preflightCheck = checkCostLimit(chatId);
+  if (preflightCheck.allowed && preflightCheck.limit > 0) {
+    const currentTokens = preflightCheck.currentTokens || 0;
+    if (currentTokens + estimatedInputTokens > preflightCheck.limit * 0.95) {
+      log("orchestrator", `Pre-flight skip: ${stepKey} estimated ${estimatedInputTokens.toLocaleString()} tokens would exceed 95% of limit (${currentTokens.toLocaleString()}/${preflightCheck.limit.toLocaleString()})`);
+      broadcastAgentError(chatId, "orchestrator", `Skipping ${stepKey}: estimated token usage would exceed limit`);
+      return null;
+    }
+  }
+
   let result: AgentOutput | null = null;
   let lastError: Error | null = null;
 
@@ -352,7 +497,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         context: {
           projectId,
           originalRequest: userMessage,
-          upstreamOutputs: filterUpstreamOutputs(step.agentName, step.instanceId, agentResults),
+          upstreamOutputs: preflightUpstream,
         },
       };
 
@@ -370,34 +515,48 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           )
         : undefined;
 
+      // Write-ahead: track provisional usage before the LLM call
+      const providerKey = apiKeys[config.provider];
+      let provisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+      if (providerKey) {
+        provisionalIds = trackProvisionalUsage({
+          executionId, chatId,
+          agentName: stepKey,
+          provider: config.provider,
+          model: config.model,
+          apiKey: providerKey,
+          estimatedInputTokens: estimatedInputTokens,
+          projectId, projectName, chatTitle,
+        });
+      }
+
       result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId, step.instanceId);
 
-      if (result.tokenUsage) {
-        const providerKey = apiKeys[config.provider];
-        if (providerKey) {
-          const record = trackTokenUsage({
-            executionId, chatId,
-            agentName: stepKey,
-            provider: config.provider,
-            model: config.model,
-            apiKey: providerKey,
-            inputTokens: result.tokenUsage.inputTokens,
-            outputTokens: result.tokenUsage.outputTokens,
-            cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
-            cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
-            projectId, projectName, chatTitle,
-          });
-          broadcastTokenUsage({
-            chatId,
-            agentName: stepKey,
-            provider: config.provider,
-            model: config.model,
-            inputTokens: result.tokenUsage.inputTokens,
-            outputTokens: result.tokenUsage.outputTokens,
-            totalTokens: result.tokenUsage.totalTokens,
-            costEstimate: record.costEstimate,
-          });
-        }
+      if (result.tokenUsage && providerKey && provisionalIds) {
+        // Finalize provisional record with actual token counts
+        finalizeTokenUsage(provisionalIds, {
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
+        }, config.provider, config.model);
+
+        const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+        const costEst = estimateCost(
+          config.provider, config.model,
+          result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
+          result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
+        );
+        broadcastTokenUsage({
+          chatId,
+          agentName: stepKey,
+          provider: config.provider,
+          model: config.model,
+          inputTokens: result.tokenUsage.inputTokens,
+          outputTokens: result.tokenUsage.outputTokens,
+          totalTokens,
+          costEstimate: costEst,
+        });
       }
 
       await db.update(schema.agentExecutions)
@@ -1651,7 +1810,7 @@ interface RemediationContext {
   signal: AbortSignal;
 }
 
-const MAX_REMEDIATION_CYCLES = 2;
+const MAX_REMEDIATION_CYCLES = 1;
 
 /**
  * Iterative remediation loop: detects code-review/QA/security issues,
@@ -1773,44 +1932,50 @@ async function runFixAgent(
       context: {
         projectId: ctx.projectId,
         originalRequest: ctx.userMessage,
-        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "remediation"),
+        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "remediation", ctx.projectPath),
         phase: "remediation",
         cycle,
       },
     };
 
     const remediationTools = createAgentTools(ctx.projectPath, ctx.projectId);
+
+    // Write-ahead: provisional tracking before LLM call
+    const remProviderKey = ctx.apiKeys[config.provider];
+    let remProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+    if (remProviderKey) {
+      const upstreamSize = Object.values(agentInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
+      remProvisionalIds = trackProvisionalUsage({
+        executionId, chatId: ctx.chatId, agentName,
+        provider: config.provider, model: config.model, apiKey: remProviderKey,
+        estimatedInputTokens: Math.ceil((agentInput.userMessage.length + upstreamSize) / 4),
+        projectId: ctx.projectId, projectName: ctx.projectName, chatTitle: ctx.chatTitle,
+      });
+    }
+
     const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationTools.tools, ctx.signal, ctx.chatId);
 
-    if (result.tokenUsage) {
-      const providerKey = ctx.apiKeys[config.provider];
-      if (providerKey) {
-        const record = trackTokenUsage({
-          executionId,
-          chatId: ctx.chatId,
-          agentName,
-          provider: config.provider,
-          model: config.model,
-          apiKey: providerKey,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
-          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
-          projectId: ctx.projectId,
-          projectName: ctx.projectName,
-          chatTitle: ctx.chatTitle,
-        });
-        broadcastTokenUsage({
-          chatId: ctx.chatId,
-          agentName,
-          provider: config.provider,
-          model: config.model,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          totalTokens: result.tokenUsage.totalTokens,
-          costEstimate: record.costEstimate,
-        });
-      }
+    if (result.tokenUsage && remProviderKey && remProvisionalIds) {
+      finalizeTokenUsage(remProvisionalIds, {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
+      }, config.provider, config.model);
+
+      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+      const costEst = estimateCost(
+        config.provider, config.model,
+        result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
+        result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
+      );
+      broadcastTokenUsage({
+        chatId: ctx.chatId, agentName,
+        provider: config.provider, model: config.model,
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        totalTokens, costEstimate: costEst,
+      });
     }
 
     await db.update(schema.agentExecutions)
@@ -1891,43 +2056,48 @@ async function runReviewAgent(
       context: {
         projectId: ctx.projectId,
         originalRequest: ctx.userMessage,
-        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "re-review"),
+        upstreamOutputs: filterUpstreamOutputs(agentName, undefined, ctx.agentResults, "re-review", ctx.projectPath),
         phase: "re-review",
         cycle,
       },
     };
 
+    // Write-ahead: provisional tracking before LLM call
+    const revProviderKey = ctx.apiKeys[config.provider];
+    let revProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+    if (revProviderKey) {
+      const upstreamSize = Object.values(agentInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
+      revProvisionalIds = trackProvisionalUsage({
+        executionId, chatId: ctx.chatId, agentName,
+        provider: config.provider, model: config.model, apiKey: revProviderKey,
+        estimatedInputTokens: Math.ceil((agentInput.userMessage.length + upstreamSize) / 4),
+        projectId: ctx.projectId, projectName: ctx.projectName, chatTitle: ctx.chatTitle,
+      });
+    }
+
     const result = await runAgent(displayConfig, ctx.providers, agentInput, undefined, ctx.signal, ctx.chatId);
 
-    if (result.tokenUsage) {
-      const providerKey = ctx.apiKeys[config.provider];
-      if (providerKey) {
-        const record = trackTokenUsage({
-          executionId,
-          chatId: ctx.chatId,
-          agentName,
-          provider: config.provider,
-          model: config.model,
-          apiKey: providerKey,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
-          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
-          projectId: ctx.projectId,
-          projectName: ctx.projectName,
-          chatTitle: ctx.chatTitle,
-        });
-        broadcastTokenUsage({
-          chatId: ctx.chatId,
-          agentName,
-          provider: config.provider,
-          model: config.model,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          totalTokens: result.tokenUsage.totalTokens,
-          costEstimate: record.costEstimate,
-        });
-      }
+    if (result.tokenUsage && revProviderKey && revProvisionalIds) {
+      finalizeTokenUsage(revProvisionalIds, {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
+      }, config.provider, config.model);
+
+      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+      const costEst = estimateCost(
+        config.provider, config.model,
+        result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
+        result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
+      );
+      broadcastTokenUsage({
+        chatId: ctx.chatId, agentName,
+        provider: config.provider, model: config.model,
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        totalTokens, costEstimate: costEst,
+      });
     }
 
     await db.update(schema.agentExecutions)
@@ -2649,43 +2819,49 @@ async function runBuildFix(params: {
       context: {
         projectId,
         originalRequest: userMessage,
-        upstreamOutputs: filterUpstreamOutputs(fixAgent, undefined, agentResults, "build-fix"),
+        upstreamOutputs: filterUpstreamOutputs(fixAgent, undefined, agentResults, "build-fix", projectPath),
         phase: "build-fix",
       },
     };
 
     const fixTools = createAgentTools(projectPath, projectId);
+
+    // Write-ahead: provisional tracking before LLM call
+    const bfProviderKey = apiKeys[config.provider];
+    let bfProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+    if (bfProviderKey) {
+      const upstreamSize = Object.values(fixInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
+      bfProvisionalIds = trackProvisionalUsage({
+        executionId: execId, chatId, agentName: fixAgent,
+        provider: config.provider, model: config.model, apiKey: bfProviderKey,
+        estimatedInputTokens: Math.ceil((fixPrompt.length + upstreamSize) / 4),
+        projectId, projectName, chatTitle,
+      });
+    }
+
     const result = await runAgent(config, providers, fixInput, fixTools.tools, signal, chatId);
 
-    if (result.tokenUsage) {
-      const providerKey = apiKeys[config.provider];
-      if (providerKey) {
-        const record = trackTokenUsage({
-          executionId: execId,
-          chatId,
-          agentName: fixAgent,
-          provider: config.provider,
-          model: config.model,
-          apiKey: providerKey,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
-          cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
-          projectId,
-          projectName,
-          chatTitle,
-        });
-        broadcastTokenUsage({
-          chatId,
-          agentName: fixAgent,
-          provider: config.provider,
-          model: config.model,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          totalTokens: result.tokenUsage.totalTokens,
-          costEstimate: record.costEstimate,
-        });
-      }
+    if (result.tokenUsage && bfProviderKey && bfProvisionalIds) {
+      finalizeTokenUsage(bfProvisionalIds, {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
+        cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
+      }, config.provider, config.model);
+
+      const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
+      const costEst = estimateCost(
+        config.provider, config.model,
+        result.tokenUsage.inputTokens, result.tokenUsage.outputTokens,
+        result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
+      );
+      broadcastTokenUsage({
+        chatId, agentName: fixAgent,
+        provider: config.provider, model: config.model,
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        totalTokens, costEstimate: costEst,
+      });
     }
 
     await db.update(schema.agentExecutions)

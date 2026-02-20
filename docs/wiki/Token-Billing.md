@@ -23,6 +23,8 @@ Token usage is written to **two tables**:
 1. **`token_usage`** (operational) — Has FK references to `chats` and `agent_executions`. Deleted when a chat or project is deleted. Used for active session views.
 2. **`billing_ledger`** (permanent) — No foreign keys. Never deleted. Includes denormalized `project_name` and `chat_title` snapshots so records are self-contained even after parent entities are removed.
 
+Both tables include an `estimated` column (0 = finalized, 1 = provisional).
+
 A third function, **`trackBillingOnly()`**, writes only to `billing_ledger` for system calls (e.g., API key validation) that have no matching `agentExecutions` or `chats` record and would violate FK constraints on `token_usage`.
 
 This ensures:
@@ -30,6 +32,15 @@ This ensures:
 - Lifetime cost tracking is never lost, even after cleanup
 - The "Total spent" badge always reflects true lifetime spend
 - System calls are tracked for billing without FK violations
+
+## Write-Ahead Token Tracking
+
+To prevent lost billing data when the server crashes mid-pipeline, all LLM call sites use a **two-phase tracking** pattern:
+
+1. **Before the call:** `trackProvisionalUsage()` inserts records with `estimated=1` and estimated input tokens (prompt chars / 4).
+2. **After completion:** `finalizeTokenUsage()` updates the records with actual token counts and sets `estimated=0`.
+
+If the server crashes between steps 1 and 2, the provisional records survive as best-effort billing. On startup, `cleanupStaleExecutions()` logs the count of provisional records. The `/api/usage/summary` endpoint includes `estimatedTokens` showing the total from unfinalized records.
 
 ## Cost Estimation
 

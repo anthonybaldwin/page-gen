@@ -58,3 +58,15 @@
 - Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)
 - WebSocket messages are coalesced in 50ms batches to reduce client re-renders
 - Chat titles are auto-generated from the first user message via LLM
+
+## Token Consumption Reduction
+
+The orchestrator minimizes token usage through several strategies:
+
+- **File manifests for tool-using agents:** Dev agent outputs (frontend-dev, backend-dev, styling) are converted to compact file manifests listing files written. Downstream agents have tools to `read_file` if needed.
+- **Disk-based review:** Review agents (code-review, security, QA) receive fresh project source read from disk via `readProjectSource()` instead of upstream dev outputs, ensuring they see final state.
+- **Targeted remediation filtering:** Remediation dev agents only receive review findings + architect output. Re-review agents get fresh source from disk.
+- **Output truncation:** All upstream outputs are capped (15K chars default, 40K for project-source) with smart truncation (keep first + last, elide middle).
+- **Chat history capping:** `buildPrompt()` keeps only the last 6 messages, capped at 3K chars total.
+- **Pre-flight cost estimate:** Before each agent call, estimated input tokens are checked against 95% of the session limit. If exceeded, the agent is skipped.
+- **Single remediation cycle:** `MAX_REMEDIATION_CYCLES = 1` — with better filtering, one focused cycle is more effective than noisy repeats.

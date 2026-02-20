@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
+import { getEstimatedTokenTotal } from "../services/token-tracker.ts";
 
 export const usageRoutes = new Hono();
 
@@ -61,6 +62,7 @@ usageRoutes.get("/summary", (c) => {
     totalTokens: result?.totalTokens || 0,
     totalCost: result?.totalCost || 0,
     requestCount: result?.requestCount || 0,
+    estimatedTokens: getEstimatedTokenTotal(),
   });
 });
 

@@ -121,5 +121,19 @@ export function runMigrations() {
     )
   `);
 
+  // Add estimated column to token_usage (for existing DBs)
+  try {
+    db.run(sql`ALTER TABLE token_usage ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Add estimated column to billing_ledger (for existing DBs)
+  try {
+    db.run(sql`ALTER TABLE billing_ledger ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   console.log("[db] Migrations complete");
 }

@@ -219,6 +219,9 @@ function getProviderModel(config: AgentConfig, providers: ProviderInstance) {
   }
 }
 
+const MAX_HISTORY_MESSAGES = 6;
+const MAX_HISTORY_CHARS = 3_000;
+
 export function buildPrompt(input: AgentInput): string {
   const parts: string[] = [];
   const sizeBreakdown: Record<string, number> = {};
@@ -226,8 +229,24 @@ export function buildPrompt(input: AgentInput): string {
   if (input.chatHistory.length > 0) {
     parts.push("## Chat History");
     const historyStart = parts.join("\n").length;
-    for (const msg of input.chatHistory) {
-      parts.push(`**${msg.role}:** ${msg.content}`);
+
+    // Cap chat history: keep only last N messages, truncate to char limit
+    let history = input.chatHistory;
+    if (history.length > MAX_HISTORY_MESSAGES) {
+      const omitted = history.length - MAX_HISTORY_MESSAGES;
+      history = history.slice(-MAX_HISTORY_MESSAGES);
+      parts.push(`_(${omitted} earlier messages omitted)_`);
+    }
+
+    let historyChars = 0;
+    for (const msg of history) {
+      const line = `**${msg.role}:** ${msg.content}`;
+      if (historyChars + line.length > MAX_HISTORY_CHARS) {
+        parts.push(`_(remaining history truncated — ${MAX_HISTORY_CHARS} char cap)_`);
+        break;
+      }
+      parts.push(line);
+      historyChars += line.length;
     }
     parts.push("");
     sizeBreakdown.chatHistory = parts.join("\n").length - historyStart;

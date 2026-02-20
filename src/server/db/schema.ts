@@ -61,6 +61,7 @@ export const tokenUsage = sqliteTable("token_usage", {
   outputTokens: integer("output_tokens").notNull(),
   totalTokens: integer("total_tokens").notNull(),
   costEstimate: real("cost_estimate").notNull(),
+  estimated: integer("estimated").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -80,6 +81,7 @@ export const billingLedger = sqliteTable("billing_ledger", {
   outputTokens: integer("output_tokens").notNull(),
   totalTokens: integer("total_tokens").notNull(),
   costEstimate: real("cost_estimate").notNull(),
+  estimated: integer("estimated").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 });
 

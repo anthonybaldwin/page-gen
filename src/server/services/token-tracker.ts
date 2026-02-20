@@ -42,6 +42,7 @@ export function trackTokenUsage(params: TrackTokensParams) {
     outputTokens: params.outputTokens,
     totalTokens,
     costEstimate,
+    estimated: 0,
     createdAt: now,
   };
 
@@ -64,6 +65,7 @@ export function trackTokenUsage(params: TrackTokensParams) {
     outputTokens: params.outputTokens,
     totalTokens,
     costEstimate,
+    estimated: 0,
     createdAt: now,
   }).run();
 
@@ -100,10 +102,149 @@ export function trackBillingOnly(params: Omit<TrackTokensParams, "executionId" |
     outputTokens: params.outputTokens,
     totalTokens,
     costEstimate,
+    estimated: 0,
     createdAt: now,
   }).run();
 
   return { costEstimate, totalTokens };
+}
+
+/**
+ * Insert provisional (estimated) token usage records BEFORE an LLM call.
+ * If the call completes, these are finalized with actual values.
+ * If the server crashes, provisional records remain as best-effort billing.
+ */
+export function trackProvisionalUsage(params: {
+  executionId: string;
+  chatId: string;
+  agentName: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  estimatedInputTokens: number;
+  projectId?: string;
+  projectName?: string;
+  chatTitle?: string;
+}): { tokenUsageId: string; billingLedgerId: string } {
+  const estimatedOutput = Math.ceil(params.estimatedInputTokens * 0.3);
+  const totalTokens = params.estimatedInputTokens + estimatedOutput;
+  const costEstimate = estimateCost(
+    params.provider, params.model,
+    params.estimatedInputTokens, estimatedOutput,
+    0, 0,
+  );
+  const now = Date.now();
+  const apiKeyHash = hashApiKey(params.apiKey);
+
+  const tokenUsageId = nanoid();
+  const billingLedgerId = nanoid();
+
+  db.insert(schema.tokenUsage).values({
+    id: tokenUsageId,
+    executionId: params.executionId,
+    chatId: params.chatId,
+    agentName: params.agentName,
+    provider: params.provider,
+    model: params.model,
+    apiKeyHash,
+    inputTokens: params.estimatedInputTokens,
+    outputTokens: estimatedOutput,
+    totalTokens,
+    costEstimate,
+    estimated: 1,
+    createdAt: now,
+  }).run();
+
+  db.insert(schema.billingLedger).values({
+    id: billingLedgerId,
+    projectId: params.projectId || null,
+    projectName: params.projectName || null,
+    chatId: params.chatId,
+    chatTitle: params.chatTitle || null,
+    executionId: params.executionId,
+    agentName: params.agentName,
+    provider: params.provider,
+    model: params.model,
+    apiKeyHash,
+    inputTokens: params.estimatedInputTokens,
+    outputTokens: estimatedOutput,
+    totalTokens,
+    costEstimate,
+    estimated: 1,
+    createdAt: now,
+  }).run();
+
+  return { tokenUsageId, billingLedgerId };
+}
+
+/**
+ * Finalize provisional token records with actual values from the LLM response.
+ * Sets estimated=0 and updates all token/cost fields.
+ */
+export function finalizeTokenUsage(
+  ids: { tokenUsageId: string; billingLedgerId: string },
+  actual: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+  },
+  provider: string,
+  model: string,
+): void {
+  const totalTokens = actual.inputTokens + actual.outputTokens;
+  const costEstimate = estimateCost(
+    provider, model,
+    actual.inputTokens, actual.outputTokens,
+    actual.cacheCreationInputTokens || 0, actual.cacheReadInputTokens || 0,
+  );
+
+  db.update(schema.tokenUsage)
+    .set({
+      inputTokens: actual.inputTokens,
+      outputTokens: actual.outputTokens,
+      totalTokens,
+      costEstimate,
+      estimated: 0,
+    })
+    .where(eq(schema.tokenUsage.id, ids.tokenUsageId))
+    .run();
+
+  db.update(schema.billingLedger)
+    .set({
+      inputTokens: actual.inputTokens,
+      outputTokens: actual.outputTokens,
+      totalTokens,
+      costEstimate,
+      estimated: 0,
+    })
+    .where(eq(schema.billingLedger.id, ids.billingLedgerId))
+    .run();
+}
+
+/**
+ * Count provisional (estimated=1) records. Used on startup to log
+ * how many records survived from interrupted pipelines.
+ */
+export function countProvisionalRecords(): number {
+  const result = db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.billingLedger)
+    .where(eq(schema.billingLedger.estimated, 1))
+    .get();
+  return result?.count || 0;
+}
+
+/**
+ * Get estimated token total (provisional records only) for usage summary.
+ */
+export function getEstimatedTokenTotal(): number {
+  const result = db
+    .select({ total: sql<number>`sum(${schema.billingLedger.totalTokens})` })
+    .from(schema.billingLedger)
+    .where(eq(schema.billingLedger.estimated, 1))
+    .get();
+  return result?.total || 0;
 }
 
 export function getSessionTokenTotal(chatId: string): number {

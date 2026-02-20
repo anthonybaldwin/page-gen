@@ -1,8 +1,9 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { trackTokenUsage, getSessionTokenTotal, getUsageByAgent } from "../../src/server/services/token-tracker.ts";
+import { trackTokenUsage, getSessionTokenTotal, getUsageByAgent, trackProvisionalUsage, finalizeTokenUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
 
 describe("Token Tracker", () => {
   let projectId: string;
@@ -136,5 +137,128 @@ describe("Token Tracker", () => {
     // cacheReadCost = 2000 * 3 * 0.1 = 600
     // total = (1500 + 3000 + 3750 + 600) / 1_000_000 = 0.00885
     expect(record.costEstimate).toBeCloseTo(0.00885, 5);
+  });
+});
+
+describe("Provisional Token Tracking", () => {
+  let projectId: string;
+  let chatId: string;
+  let executionId: string;
+
+  beforeAll(() => {
+    runMigrations();
+
+    projectId = nanoid();
+    chatId = nanoid();
+    executionId = nanoid();
+
+    db.insert(schema.projects).values({
+      id: projectId,
+      name: "Provisional Test",
+      path: `./projects/${projectId}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).run();
+
+    db.insert(schema.chats).values({
+      id: chatId,
+      projectId,
+      title: "Provisional Chat",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).run();
+
+    db.insert(schema.agentExecutions).values({
+      id: executionId,
+      chatId,
+      agentName: "test-agent",
+      status: "running",
+      input: JSON.stringify({}),
+      startedAt: Date.now(),
+    }).run();
+  });
+
+  test("trackProvisionalUsage inserts estimated records", () => {
+    const ids = trackProvisionalUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      estimatedInputTokens: 5000,
+      projectId,
+    });
+
+    expect(ids.tokenUsageId).toBeTruthy();
+    expect(ids.billingLedgerId).toBeTruthy();
+
+    // Verify the record is marked as estimated
+    const record = db.select().from(schema.tokenUsage)
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId)).get();
+    expect(record).toBeTruthy();
+    expect(record!.estimated).toBe(1);
+    expect(record!.inputTokens).toBe(5000);
+  });
+
+  test("finalizeTokenUsage updates records with actual values", () => {
+    const ids = trackProvisionalUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      estimatedInputTokens: 5000,
+      projectId,
+    });
+
+    finalizeTokenUsage(ids, {
+      inputTokens: 4200,
+      outputTokens: 800,
+    }, "anthropic", "claude-sonnet-4-6");
+
+    // Check token_usage record is finalized
+    const record = db.select().from(schema.tokenUsage)
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId)).get();
+    expect(record!.estimated).toBe(0);
+    expect(record!.inputTokens).toBe(4200);
+    expect(record!.outputTokens).toBe(800);
+    expect(record!.totalTokens).toBe(5000);
+
+    // Check billing_ledger record is finalized
+    const ledger = db.select().from(schema.billingLedger)
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
+    expect(ledger!.estimated).toBe(0);
+    expect(ledger!.inputTokens).toBe(4200);
+  });
+
+  test("countProvisionalRecords returns count of estimated=1 records", () => {
+    const beforeCount = countProvisionalRecords();
+
+    // Add a provisional record
+    trackProvisionalUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      estimatedInputTokens: 1000,
+      projectId,
+    });
+
+    const afterCount = countProvisionalRecords();
+    expect(afterCount).toBe(beforeCount + 1);
+  });
+
+  test("getEstimatedTokenTotal sums only provisional records", () => {
+    const total = getEstimatedTokenTotal();
+    expect(total).toBeGreaterThan(0);
+  });
+
+  test("provisional records count toward session token total", () => {
+    const total = getSessionTokenTotal(chatId);
+    expect(total).toBeGreaterThan(0);
   });
 });

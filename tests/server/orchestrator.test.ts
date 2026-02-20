@@ -13,7 +13,11 @@ import {
   agentHasFileTools,
   parseArchitectFilePlan,
   buildParallelDevSteps,
+  truncateOutput,
+  buildFileManifest,
+  filterUpstreamOutputs,
 } from "../../src/server/agents/orchestrator.ts";
+import { buildPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
 
 // --- sanitizeFilePath ---
@@ -1177,5 +1181,231 @@ describe("buildParallelDevSteps", () => {
     const plan: GroupedFilePlan = { shared: [], components: [], app: [] };
     const steps = buildParallelDevSteps(plan, "", "Build app");
     expect(steps).toHaveLength(0);
+  });
+});
+
+// --- truncateOutput ---
+
+describe("truncateOutput", () => {
+  test("returns short content unchanged", () => {
+    expect(truncateOutput("hello", 100)).toBe("hello");
+  });
+
+  test("returns content at exact limit unchanged", () => {
+    const text = "a".repeat(100);
+    expect(truncateOutput(text, 100)).toBe(text);
+  });
+
+  test("truncates content exceeding limit", () => {
+    const text = "a".repeat(200);
+    const result = truncateOutput(text, 100);
+    expect(result.length).toBeLessThan(200);
+    expect(result).toContain("chars elided");
+  });
+
+  test("preserves start and end of content", () => {
+    const text = "START" + "x".repeat(1000) + "END";
+    const result = truncateOutput(text, 100);
+    expect(result).toContain("START");
+    expect(result).toContain("END");
+  });
+
+  test("includes elided char count", () => {
+    const text = "a".repeat(500);
+    const result = truncateOutput(text, 100);
+    expect(result).toMatch(/\d+ chars elided/);
+  });
+});
+
+// --- buildFileManifest ---
+
+describe("buildFileManifest", () => {
+  test("extracts file paths from tool_call output", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() {}"}}
+</tool_call>
+<tool_call>
+{"name": "write_file", "parameters": {"path": "src/Button.tsx", "content": "export function Button() {}"}}
+</tool_call>`;
+    const manifest = buildFileManifest(output);
+    expect(manifest).toContain("Files written (2)");
+    expect(manifest).toContain("src/App.tsx");
+    expect(manifest).toContain("src/Button.tsx");
+    expect(manifest).toContain("read_file");
+  });
+
+  test("does not include full file content", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() { return <div>Very long content here</div>; }"}}
+</tool_call>`;
+    const manifest = buildFileManifest(output);
+    expect(manifest).not.toContain("Very long content here");
+  });
+
+  test("falls back to truncated output when no files detected", () => {
+    const output = "Just some reasoning text with no file writes at all. ".repeat(100);
+    const manifest = buildFileManifest(output);
+    // Should be truncated since it's longer than MAX_OUTPUT_CHARS
+    expect(manifest.length).toBeLessThanOrEqual(output.length);
+  });
+
+  test("handles empty output", () => {
+    const manifest = buildFileManifest("");
+    expect(manifest).toBe("");
+  });
+});
+
+// --- filterUpstreamOutputs ---
+
+describe("filterUpstreamOutputs", () => {
+  function makeResults(entries: Record<string, string>): Map<string, string> {
+    return new Map(Object.entries(entries));
+  }
+
+  test("review agents get architect + project-source, not dev outputs", () => {
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-1": "dev output 1",
+      "frontend-dev-2": "dev output 2",
+      styling: "styling output",
+    });
+    const filtered = filterUpstreamOutputs("code-review", undefined, results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("frontend-dev-2");
+    expect(filtered).not.toHaveProperty("styling");
+  });
+
+  test("remediation phase gets architect + review findings only", () => {
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-1": "dev output 1",
+      "code-review": "review findings",
+      security: "security findings",
+      qa: "qa findings",
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", undefined, results, "remediation");
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("code-review");
+    expect(filtered).toHaveProperty("security");
+    expect(filtered).toHaveProperty("qa");
+    expect(filtered).not.toHaveProperty("frontend-dev-1");
+  });
+
+  test("re-review phase gets architect only (no dev outputs)", () => {
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-1": "dev output 1",
+      "code-review": "old review",
+    });
+    const filtered = filterUpstreamOutputs("code-review", undefined, results, "re-review");
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("code-review");
+  });
+
+  test("frontend-dev-app gets manifested dev outputs", () => {
+    const devOutput = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/Hero.tsx", "content": "component code"}}
+</tool_call>`;
+    const results = makeResults({
+      architect: "architect output",
+      "frontend-dev-1": devOutput,
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", "frontend-dev-app", results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("frontend-dev-1");
+    // Should be manifested, not the full tool call output
+    expect(filtered["frontend-dev-1"]).toContain("Files written");
+    expect(filtered["frontend-dev-1"]).toContain("src/Hero.tsx");
+    expect(filtered["frontend-dev-1"]).not.toContain("component code");
+  });
+
+  test("all outputs are truncated", () => {
+    const longOutput = "x".repeat(20_000);
+    const results = makeResults({
+      architect: longOutput,
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", undefined, results);
+    expect(filtered["architect"]!.length).toBeLessThan(20_000);
+    expect(filtered["architect"]).toContain("chars elided");
+  });
+
+  test("build-fix phase gets architect + review findings only", () => {
+    const results = makeResults({
+      architect: "arch",
+      "frontend-dev-1": "dev",
+      "code-review": "review",
+      research: "research",
+    });
+    const filtered = filterUpstreamOutputs("frontend-dev", undefined, results, "build-fix");
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("code-review");
+    expect(filtered).not.toHaveProperty("frontend-dev-1");
+    expect(filtered).not.toHaveProperty("research");
+  });
+});
+
+// --- buildPrompt (chat history capping) ---
+
+describe("buildPrompt", () => {
+  test("caps chat history at 6 messages", () => {
+    const history = Array.from({ length: 10 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `Message ${i + 1}`,
+    }));
+    const prompt = buildPrompt({
+      userMessage: "test",
+      chatHistory: history,
+      projectPath: "/tmp/test",
+    });
+    // Should mention omitted messages
+    expect(prompt).toContain("earlier messages omitted");
+    // Should NOT contain the earliest messages
+    expect(prompt).not.toContain("Message 1:");
+    expect(prompt).not.toContain("Message 2:");
+  });
+
+  test("does not cap when history is within limit", () => {
+    const history = Array.from({ length: 4 }, (_, i) => ({
+      role: "user",
+      content: `Msg ${i}`,
+    }));
+    const prompt = buildPrompt({
+      userMessage: "test",
+      chatHistory: history,
+      projectPath: "/tmp/test",
+    });
+    expect(prompt).not.toContain("omitted");
+    expect(prompt).toContain("Msg 0");
+    expect(prompt).toContain("Msg 3");
+  });
+
+  test("truncates individual messages when history exceeds char cap", () => {
+    const history = [
+      { role: "user", content: "a".repeat(4000) },
+      { role: "assistant", content: "b".repeat(4000) },
+    ];
+    const prompt = buildPrompt({
+      userMessage: "test",
+      chatHistory: history,
+      projectPath: "/tmp/test",
+    });
+    expect(prompt).toContain("char cap");
+  });
+
+  test("includes upstream outputs in prompt", () => {
+    const prompt = buildPrompt({
+      userMessage: "build something",
+      chatHistory: [],
+      projectPath: "/tmp/test",
+      context: {
+        upstreamOutputs: {
+          architect: "architecture plan here",
+        },
+      },
+    });
+    expect(prompt).toContain("architecture plan here");
+    expect(prompt).toContain("build something");
   });
 });
