@@ -66,6 +66,8 @@ export function LivePreview() {
   const prevProjectRef = useRef<string | null>(null);
   // Monotonic counter to detect stale async responses after project switches
   const switchGenRef = useRef(0);
+  // Consecutive health-check failures before marking server dead
+  const healthFailsRef = useRef(0);
 
   const startPreview = useCallback(async (projectId: string, gen: number) => {
     setLoading(true);
@@ -113,6 +115,7 @@ export function LivePreview() {
     setError(null);
     setReady(false);
     setServerAlive(true);
+    healthFailsRef.current = 0;
 
     if (!activeProject) return;
 
@@ -138,12 +141,20 @@ export function LivePreview() {
     const check = async () => {
       try {
         await fetch(previewUrl, { mode: "no-cors", signal: AbortSignal.timeout(2000) });
-        if (!cancelled) setServerAlive(true);
+        if (!cancelled) {
+          healthFailsRef.current = 0;
+          setServerAlive(true);
+        }
       } catch {
         if (!cancelled) {
-          setServerAlive(false);
-          if (!loading) {
-            checkAndMaybeStartPreview(projectId, switchGenRef.current);
+          healthFailsRef.current += 1;
+          // Require 3 consecutive failures before marking dead — a single
+          // miss during a Vite rebuild is normal and shouldn't flash the overlay.
+          if (healthFailsRef.current >= 3) {
+            setServerAlive(false);
+            if (!loading) {
+              checkAndMaybeStartPreview(projectId, switchGenRef.current);
+            }
           }
         }
       }
@@ -190,10 +201,21 @@ export function LivePreview() {
       if (msg.type === "files_changed") {
         if (msgProjectId && msgProjectId !== projectId) return;
         if (!pipelineRunning && previewUrl && iframeRef.current) {
-          const url = previewUrl;
+          // Give Vite HMR a moment to push the update, then force a full
+          // reload as a fallback.  Using contentWindow.location.reload()
+          // instead of re-assigning src — browsers may skip a reload when
+          // the src value hasn't changed.
           setTimeout(() => {
-            if (iframeRef.current) iframeRef.current.src = url;
-          }, 300);
+            try {
+              iframeRef.current?.contentWindow?.location.reload();
+            } catch {
+              // cross-origin — fall back to src reassignment with cache-bust
+              if (iframeRef.current) {
+                const bust = previewUrl + (previewUrl.includes("?") ? "&" : "?") + "_t=" + Date.now();
+                iframeRef.current.src = bust;
+              }
+            }
+          }, 500);
         }
       }
     });
