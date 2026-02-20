@@ -36,8 +36,9 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 Thumbs.db
 
 # project data (local)
+*.db
 data/
 projects/
 
-# plan file
-plan.md
+# plans
+plans/*
