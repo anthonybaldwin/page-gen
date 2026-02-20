@@ -191,6 +191,13 @@ export async function runAgent(
       log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} streamParts=${streamPartCount} (response metadata unavailable)`);
     }
 
+    // Treat non-successful finish reasons as failures — the agent didn't complete its work
+    if (finishReason === "other" || finishReason === "error") {
+      broadcastAgentStatus(cid, broadcastName, "failed");
+      broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed");
+      throw new Error(`Agent stream ended with finishReason=${finishReason} (tool-use step likely failed)`);
+    }
+
     // Use totalUsage to aggregate tokens across ALL steps (not just the last one).
     // Multi-step tool-use agents re-send full context each step, so result.usage
     // (last step only) dramatically undercounts actual token consumption.

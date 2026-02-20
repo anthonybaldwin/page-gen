@@ -38,17 +38,16 @@ describe("agentThinkingStore", () => {
       expect(blocks[0]!.id).not.toBe(blocks[1]!.id);
     });
 
-    test("remediation: appends new block when existing is failed", () => {
+    test("retry: replaces block when existing is failed", () => {
       const store = getStore();
       store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "started" });
       store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "failed" });
 
-      store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev (remediation)", status: "started" });
+      store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "started" });
 
       const blocks = getStore().blocks;
-      expect(blocks).toHaveLength(2);
-      expect(blocks[0]!.status).toBe("failed");
-      expect(blocks[1]!.status).toBe("started");
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]!.status).toBe("started");
     });
 
     test("retry: replaces block when existing is in-progress (started)", () => {

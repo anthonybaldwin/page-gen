@@ -49,6 +49,30 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
 
     log("llm-http", `→ ${method} ${url}${bodySummary}`);
 
+    // Fix malformed tool_use.input (AI SDK bug — stringifies instead of object)
+    if (init?.body && typeof init.body === "string") {
+      try {
+        const parsed = JSON.parse(init.body);
+        if (parsed.messages) {
+          let modified = false;
+          for (const msg of parsed.messages) {
+            if (Array.isArray(msg.content)) {
+              for (const block of msg.content) {
+                if (block.type === "tool_use" && typeof block.input === "string") {
+                  block.input = JSON.parse(block.input);
+                  modified = true;
+                }
+              }
+            }
+          }
+          if (modified) {
+            log("llm-http", `Fixed ${provider} request: parsed stringified tool_use.input back to object`);
+            init = { ...init, body: JSON.stringify(parsed) };
+          }
+        }
+      } catch { /* not fixable — send as-is */ }
+    }
+
     const response = await globalThis.fetch(input, init);
     const elapsed = Date.now() - start;
 

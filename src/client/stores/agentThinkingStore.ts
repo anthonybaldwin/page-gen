@@ -188,8 +188,8 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         const lastIdx = blocks.findLastIndex((b) => b.agentName === agentName);
         if (lastIdx !== -1) {
           const existing = blocks[lastIdx]!;
-          if (existing.status === "completed" || existing.status === "failed") {
-            // Remediation/build-fix case — existing block is done, append a new one
+          if (existing.status === "completed") {
+            // Remediation/build-fix case — successful block exists, append a new one
             const updated = blocks.map((b) =>
               b.expanded && b.status !== "started" && b.status !== "streaming"
                 ? { ...b, expanded: false }
@@ -198,7 +198,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
             updated.push(newBlock);
             return { blocks: updated };
           }
-          // Retry case — existing block is still in-progress, replace it
+          // Retry/recovery case — existing block is failed or in-progress, replace it
           blocks[lastIdx] = newBlock;
           return { blocks };
         }
