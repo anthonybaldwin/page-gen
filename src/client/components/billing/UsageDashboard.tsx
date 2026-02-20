@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
+import { UsageOverview } from "./UsageOverview.tsx";
 import { UsageByAgent } from "./UsageByAgent.tsx";
 import { UsageByModel } from "./UsageByModel.tsx";
 import { UsageByProvider } from "./UsageByProvider.tsx";
@@ -216,11 +217,7 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
         {/* Scrollable tab content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <TabsContent value="overview" className="mt-0">
-            {summary && (
-              <p className="text-sm text-muted-foreground">
-                {summary.requestCount} API requests{selectedChat ? " for this chat" : " across all sessions"}.
-              </p>
-            )}
+            <UsageOverview filterQuery={filterQuery} summary={summary} />
           </TabsContent>
           <TabsContent value="by-model" className="mt-0"><UsageByModel filterQuery={filterQuery} /></TabsContent>
           <TabsContent value="by-provider" className="mt-0"><UsageByProvider filterQuery={filterQuery} /></TabsContent>
