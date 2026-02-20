@@ -9,6 +9,7 @@ services:
       - "5173:5173"
     volumes:
       - .:/app:ro
+      - /app/node_modules
       - ./data:/app/data
       - ./logs:/app/logs
       - ./projects:/app/projects

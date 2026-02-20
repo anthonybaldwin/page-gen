@@ -50,6 +50,13 @@ After each file-producing agent completes (`frontend-dev`, `backend-dev`, `styli
 - Vite sends HMR updates over WebSocket to the iframe
 - The iframe re-renders with updated code — no full page reload needed
 
+### Editor Save → Preview Reload
+- User edits a file in the CodeMirror editor (Editor tab) and saves via Ctrl+S or the Save button
+- `POST /api/files/write/{projectId}` writes the file to disk and broadcasts `files_changed`
+- The `files_changed` event triggers a preview iframe reload (same path as agent writes)
+- The file store clears the dirty flag and resets `originalContent` to the saved content
+- If the pipeline is running, `files_changed` reloads are gated (same as agent writes)
+
 ### Pipeline-Aware Preview Gating
 
 The preview component tracks whether the pipeline is running via `agent_status` WS events:
@@ -76,6 +83,15 @@ This prevents the preview from flashing broken content when agents write files t
 - When `PREVIEW_HOST` env var is set (e.g., `0.0.0.0`), Vite binds to that address instead of `localhost`
 - URLs returned to the client always use `localhost` (browser connects through Docker port mapping)
 - See [Docker](Docker) for full containerization details
+
+### Editor ↔ Agent Conflict Handling
+
+When a file is open in the editor and an agent writes to the same file:
+
+- **Editor is clean (not dirty):** The file store silently re-fetches the new content. The user sees the updated file seamlessly.
+- **Editor has unsaved changes:** A conflict banner appears: "File changed externally. [Reload] [Keep mine]". The user decides whether to accept the agent's version or keep their edits.
+
+The editor closes automatically when switching projects, resetting the tab back to Preview.
 
 ## Troubleshooting
 

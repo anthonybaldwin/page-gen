@@ -8,7 +8,7 @@ graph TB
     direction LR
     SB["Sidebar<br>(collapsible)"]
     CH["Chat<br>(resizable)"]
-    PV["Preview<br>(flex-1)"]
+    PV["Preview / Editor<br>(tabbed, flex-1)"]
     FX["File Explorer"]
   end
 
@@ -50,6 +50,8 @@ graph TB
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
 - Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)
+- Content area has tabbed Preview/Editor — both stay mounted (`forceMount`) so neither iframe nor CodeMirror instance is destroyed on tab switch
+- File editor uses CodeMirror 6 with Nord color scheme, code-split into a separate vendor chunk (~220KB gzipped)
 - WebSocket messages are coalesced in 50ms batches to reduce client re-renders
 - Chat titles are auto-generated from the first user message via LLM
 

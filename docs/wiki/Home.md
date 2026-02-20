@@ -43,4 +43,5 @@ bun dev:docker
 - **Database:** Drizzle ORM + SQLite
 - **AI:** Vercel AI SDK 6.x
 - **UI:** Tailwind CSS + shadcn/ui
+- **Editor:** CodeMirror 6 (Nord theme)
 - **State:** Zustand

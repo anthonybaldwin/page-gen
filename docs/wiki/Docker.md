@@ -23,7 +23,7 @@ Your source code edits on the host are immediately visible inside the container.
 
 The source bind mount is **read-only** (`:ro`). Generated project code running inside the container cannot modify your Page Gen source files or tamper with the backend. Named volumes for `data/`, `logs/`, and `projects/` override the read-only flag at those paths, so the backend can still write where it needs to.
 
-An anonymous volume (`/app/node_modules`) keeps the container's dependencies separate from any host `node_modules/`, avoiding platform mismatches.
+An anonymous volume (`/app/node_modules`) keeps the container's dependencies separate from any host `node_modules/`, avoiding platform mismatches. When `package.json` changes, run `docker compose down -v && docker compose up --build` to rebuild with fresh dependencies (the `-v` flag removes the stale anonymous volume).
 
 ### Production build
 
@@ -39,7 +39,7 @@ docker run -p 3000:3000 -p 3001-3020:3001-3020 pagegen
 | Volume | Container path | Purpose |
 |--------|---------------|---------|
 | Bind mount (`.`, read-only) | `/app` | Your project source — live-synced for HMR, not writable by container |
-| Anonymous | `/app/node_modules` | Container's deps — isolated from host |
+| Anonymous | `/app/node_modules` | Container's deps — isolated from host. Requires empty `node_modules/` dir on host as mountpoint. Run `docker compose down -v` when deps change. |
 | Bind mount (`./data`) | `/app/data` | SQLite DB — project records, chat history, billing, settings |
 | Bind mount (`./logs`) | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |
 | Bind mount (`./projects`) | `/app/projects` | Generated project files — visible on host |
