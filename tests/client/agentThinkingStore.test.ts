@@ -38,7 +38,7 @@ describe("agentThinkingStore", () => {
       expect(blocks[0]!.id).not.toBe(blocks[1]!.id);
     });
 
-    test("retry: replaces block when existing is failed", () => {
+    test("always appends when existing is failed (retry)", () => {
       const store = getStore();
       store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "started" });
       store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "failed" });
@@ -46,35 +46,35 @@ describe("agentThinkingStore", () => {
       store.handleThinking({ agentName: "frontend-dev", displayName: "Frontend Dev", status: "started" });
 
       const blocks = getStore().blocks;
-      expect(blocks).toHaveLength(1);
-      expect(blocks[0]!.status).toBe("started");
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]!.status).toBe("failed");
+      expect(blocks[1]!.status).toBe("started");
     });
 
-    test("retry: replaces block when existing is in-progress (started)", () => {
+    test("always appends when existing is in-progress (started)", () => {
       const store = getStore();
       store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
-      const originalId = getStore().blocks[0]!.id;
 
-      // Retry — agent restarts while still in started state
       store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
 
       const blocks = getStore().blocks;
-      expect(blocks).toHaveLength(1);
-      expect(blocks[0]!.id).not.toBe(originalId);
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]!.status).toBe("started");
+      expect(blocks[1]!.status).toBe("started");
     });
 
-    test("retry: replaces block when existing is streaming", () => {
+    test("always appends when existing is streaming", () => {
       const store = getStore();
       store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
       store.handleThinking({ agentName: "research", displayName: "Research", status: "streaming", chunk: "data" });
 
-      // Retry
       store.handleThinking({ agentName: "research", displayName: "Research", status: "started" });
 
       const blocks = getStore().blocks;
-      expect(blocks).toHaveLength(1);
-      expect(blocks[0]!.status).toBe("started");
-      expect(blocks[0]!.content).toBe("");
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]!.content).toBe("data");
+      expect(blocks[1]!.status).toBe("started");
+      expect(blocks[1]!.content).toBe("");
     });
   });
 

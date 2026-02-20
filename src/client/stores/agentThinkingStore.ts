@@ -182,28 +182,8 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
           startedAt: Date.now(),
         };
 
-        // Use findLastIndex to check the MOST RECENT block for this agent,
-        // not the first — avoids ghost entries when build-fix/remediation
-        // creates multiple blocks for the same agent name.
-        const lastIdx = blocks.findLastIndex((b) => b.agentName === agentName);
-        if (lastIdx !== -1) {
-          const existing = blocks[lastIdx]!;
-          if (existing.status === "completed") {
-            // Remediation/build-fix case — successful block exists, append a new one
-            const updated = blocks.map((b) =>
-              b.expanded && b.status !== "started" && b.status !== "streaming"
-                ? { ...b, expanded: false }
-                : b
-            );
-            updated.push(newBlock);
-            return { blocks: updated };
-          }
-          // Retry/recovery case — existing block is failed or in-progress, replace it
-          blocks[lastIdx] = newBlock;
-          return { blocks };
-        }
-
-        // Collapse any previously expanded completed/failed blocks
+        // Always append — every action is a linear entry in the timeline.
+        // Collapse any previously expanded completed/failed blocks.
         const updated = blocks.map((b) =>
           b.expanded && b.status !== "started" && b.status !== "streaming"
             ? { ...b, expanded: false }
