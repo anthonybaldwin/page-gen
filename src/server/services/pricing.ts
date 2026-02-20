@@ -1,6 +1,14 @@
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 
+/** Provider-specific cache token multipliers relative to input price. */
+export const PROVIDER_CACHE_MULTIPLIERS: Record<string, { create: number; read: number }> = {
+  anthropic: { create: 1.25, read: 0.1 },
+  openai:    { create: 0,    read: 0.5 },
+  google:    { create: 0,    read: 0.25 },
+};
+const DEFAULT_CACHE_MULTIPLIERS = { create: 1.0, read: 0.5 };
+
 /** Per-million-token pricing (USD) — verified Feb 2026, Anthropic Tier 2 */
 export const DEFAULT_PRICING: Record<string, { input: number; output: number }> = {
   "claude-opus-4-6": { input: 5, output: 25 },
@@ -48,6 +56,35 @@ function getOverride(model: string, field: "input" | "output"): number | null {
   return Number.isFinite(val) ? val : null;
 }
 
+/** DB key for cache multiplier overrides: cache.{provider}.{create|read} */
+function cacheKey(provider: string, field: "create" | "read"): string {
+  return `cache.${provider}.${field}`;
+}
+
+/** Read a cache multiplier override from app_settings, or null if not set. */
+function getCacheOverride(provider: string, field: "create" | "read"): number | null {
+  const key = cacheKey(provider, field);
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (!row) return null;
+  const val = Number(row.value);
+  return Number.isFinite(val) ? val : null;
+}
+
+/**
+ * Get effective cache multipliers for a provider.
+ * Priority: DB override > PROVIDER_CACHE_MULTIPLIERS > DEFAULT_CACHE_MULTIPLIERS.
+ */
+export function getCacheMultipliers(provider: string): { create: number; read: number } {
+  const dbCreate = getCacheOverride(provider, "create");
+  const dbRead = getCacheOverride(provider, "read");
+  if (dbCreate !== null && dbRead !== null) {
+    return { create: dbCreate, read: dbRead };
+  }
+  const known = PROVIDER_CACHE_MULTIPLIERS[provider];
+  if (known) return known;
+  return DEFAULT_CACHE_MULTIPLIERS;
+}
+
 export interface ModelPricingInfo {
   model: string;
   input: number;
@@ -74,15 +111,12 @@ export function getModelPricing(model: string): { input: number; output: number 
 
 /**
  * Estimate cost in USD. Returns 0 for unknown models without pricing configured.
- * Cache tokens are charged at different rates:
- *   - cache_creation: 1.25x input price
- *   - cache_read: 0.1x input price
- *   - regular input: 1x input price
+ * Cache tokens are charged at provider-specific rates (see PROVIDER_CACHE_MULTIPLIERS).
  * When cacheCreation/cacheRead are provided, inputTokens should be the NON-cached count.
  * When they're absent, inputTokens is treated as total input (backward compat).
  */
 export function estimateCost(
-  _provider: string,
+  provider: string,
   model: string,
   inputTokens: number,
   outputTokens: number,
@@ -91,10 +125,11 @@ export function estimateCost(
 ): number {
   const pricing = getModelPricing(model);
   if (!pricing) return 0;
+  const cache = getCacheMultipliers(provider);
   const inputCost = inputTokens * pricing.input;
   const outputCost = outputTokens * pricing.output;
-  const cacheCreateCost = cacheCreationInputTokens * pricing.input * 1.25;
-  const cacheReadCost = cacheReadInputTokens * pricing.input * 0.1;
+  const cacheCreateCost = cacheCreationInputTokens * pricing.input * cache.create;
+  const cacheReadCost = cacheReadInputTokens * pricing.input * cache.read;
   return (inputCost + outputCost + cacheCreateCost + cacheReadCost) / 1_000_000;
 }
 
@@ -166,4 +201,83 @@ export function getAllPricing(): ModelPricingInfo[] {
   }
 
   return Array.from(result.values());
+}
+
+export interface CacheMultiplierInfo {
+  provider: string;
+  create: number;
+  read: number;
+  isOverridden: boolean;
+  isKnown: boolean;
+}
+
+/** Get all providers with effective cache multipliers, merging defaults + DB overrides. */
+export function getAllCacheMultipliers(): CacheMultiplierInfo[] {
+  const result = new Map<string, CacheMultiplierInfo>();
+
+  for (const [provider, multipliers] of Object.entries(PROVIDER_CACHE_MULTIPLIERS)) {
+    result.set(provider, {
+      provider,
+      create: multipliers.create,
+      read: multipliers.read,
+      isOverridden: false,
+      isKnown: true,
+    });
+  }
+
+  const rows = db.select().from(schema.appSettings).where(like(schema.appSettings.key, "cache.%")).all();
+  const overrides = new Map<string, { create?: number; read?: number }>();
+  for (const row of rows) {
+    if (!row.key.startsWith("cache.")) continue;
+    const rest = row.key.slice("cache.".length);
+    const lastDot = rest.lastIndexOf(".");
+    if (lastDot === -1) continue;
+    const field = rest.slice(lastDot + 1);
+    if (field !== "create" && field !== "read") continue;
+    const provider = rest.slice(0, lastDot);
+    const existing = overrides.get(provider) || {};
+    existing[field] = Number(row.value);
+    overrides.set(provider, existing);
+  }
+
+  for (const [provider, override] of overrides) {
+    const known = result.get(provider);
+    if (known && override.create !== undefined && override.read !== undefined) {
+      known.create = override.create;
+      known.read = override.read;
+      known.isOverridden = true;
+    } else if (!known && override.create !== undefined && override.read !== undefined) {
+      result.set(provider, {
+        provider,
+        create: override.create,
+        read: override.read,
+        isOverridden: true,
+        isKnown: false,
+      });
+    }
+  }
+
+  return Array.from(result.values());
+}
+
+/** Upsert cache multiplier overrides for a provider. */
+export function upsertCacheMultipliers(provider: string, create: number, read: number): void {
+  for (const [field, value] of [["create", create], ["read", read]] as const) {
+    const key = cacheKey(provider, field);
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    const strVal = String(value);
+    if (existing) {
+      db.update(schema.appSettings).set({ value: strVal }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value: strVal }).run();
+    }
+  }
+}
+
+/** Remove cache multiplier overrides for a provider (reverts to default if known). */
+export function deleteCacheMultiplierOverride(provider: string): void {
+  for (const field of ["create", "read"] as const) {
+    const key = cacheKey(provider, field);
+    db.delete(schema.appSettings).where(eq(schema.appSettings.key, key)).run();
+  }
 }
