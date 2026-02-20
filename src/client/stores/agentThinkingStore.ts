@@ -42,6 +42,9 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   research: "Research Agent",
   architect: "Architect Agent",
   "frontend-dev": "Frontend Developer",
+  "frontend-dev-shared": "Frontend Dev (Setup)",
+  "frontend-dev-components": "Frontend Developer",
+  "frontend-dev-app": "Frontend Dev (App)",
   "backend-dev": "Backend Developer",
   styling: "Styling Agent",
   testing: "Test Planner",
@@ -50,6 +53,13 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   security: "Security Reviewer",
   orchestrator: "Orchestrator",
 };
+
+function resolveAgentDisplayName(agentName: string): string {
+  if (AGENT_DISPLAY_NAMES[agentName]) return AGENT_DISPLAY_NAMES[agentName];
+  const match = agentName.match(/^frontend-dev-(\d+)$/);
+  if (match) return `Frontend Dev ${match[1]}`;
+  return agentName;
+}
 
 interface AgentThinkingState {
   blocks: ThinkingBlock[];
@@ -121,7 +131,7 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
         return {
           id: generateId(),
           agentName: exec.agentName,
-          displayName: AGENT_DISPLAY_NAMES[exec.agentName] || exec.agentName,
+          displayName: resolveAgentDisplayName(exec.agentName),
           status: status as ThinkingBlock["status"],
           content,
           summary,

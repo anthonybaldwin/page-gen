@@ -135,6 +135,8 @@ interface PipelineStepContext {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
+  /** When true, skip build checks and tests — caller will handle them after the batch completes */
+  skipPostProcessing?: boolean;
 }
 
 /**
@@ -144,7 +146,7 @@ interface PipelineStepContext {
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter,
-    providers, apiKeys, signal } = ctx;
+    providers, apiKeys, signal, skipPostProcessing } = ctx;
 
   // Use instanceId for keying/broadcasting, base agentName for config lookup
   const stepKey = step.instanceId ?? step.agentName;
@@ -256,8 +258,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       }
       const filesWritten = [...nativeFiles, ...fallbackFiles];
 
-      if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted) {
-        // All file-producing agents get build check
+      if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted && !skipPostProcessing) {
+        // All file-producing agents get build check (skipped for parallel batches — caller handles it)
         const buildErrors = await checkProjectBuild(projectPath);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
@@ -865,6 +867,12 @@ async function executePipelineSteps(ctx: {
   );
   const remaining = [...plan.steps];
 
+  // Log plan structure for parallel execution diagnosis
+  console.log(`[orchestrator] executePipelineSteps: ${remaining.length} steps, completedSet: [${[...completedSet].join(", ")}]`);
+  for (const s of remaining) {
+    console.log(`  step: ${s.instanceId ?? s.agentName} (agent=${s.agentName}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
+  }
+
   while (remaining.length > 0) {
     if (signal.aborted) {
       await db.insert(schema.messages).values({
@@ -894,6 +902,11 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
+    // For parallel batches (size > 1), skip per-agent build checks — run one after the batch
+    const isParallelBatch = ready.length > 1;
+    const readyNames = ready.map((s) => s.instanceId ?? s.agentName);
+    console.log(`[orchestrator] Running batch of ${ready.length} step(s): ${readyNames.join(", ")}${isParallelBatch ? " [PARALLEL]" : ""}`);
+
     // Run all ready steps concurrently
     const results = await Promise.all(
       ready.map((step) =>
@@ -901,6 +914,7 @@ async function executePipelineSteps(ctx: {
           step, chatId, projectId, projectPath, projectName, chatTitle,
           userMessage, chatHistory, agentResults, completedAgents, callCounter,
           providers, apiKeys, signal,
+          skipPostProcessing: isParallelBatch,
         }).then((result) => ({ stepKey: step.instanceId ?? step.agentName, result }))
       )
     );
@@ -926,6 +940,31 @@ async function executePipelineSteps(ctx: {
       completedSet.add(r.stepKey);
     }
 
+    // Consolidated build check after parallel batch — all agents have written their files
+    if (isParallelBatch && !signal.aborted) {
+      const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
+      if (hasFileAgents) {
+        console.log(`[orchestrator] Running consolidated build check after parallel batch`);
+        const buildErrors = await checkProjectBuild(projectPath);
+        if (buildErrors && !signal.aborted) {
+          const fixResult = await runBuildFix({
+            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+            userMessage, chatHistory, agentResults, callCounter, providers, apiKeys, signal,
+          });
+          if (fixResult) {
+            agentResults.set("parallel-batch-build-fix", fixResult);
+            completedAgents.push("parallel batch (build fix)");
+          }
+          const recheckErrors = await checkProjectBuild(projectPath);
+          if (!recheckErrors) {
+            broadcast({ type: "preview_ready", payload: { projectId } });
+          }
+        } else {
+          broadcast({ type: "preview_ready", payload: { projectId } });
+        }
+      }
+    }
+
     // Cost check after each batch
     const midCheck = checkCostLimit(chatId);
     if (!midCheck.allowed) {
@@ -935,7 +974,7 @@ async function executePipelineSteps(ctx: {
         payload: {
           chatId,
           agentName: "orchestrator",
-          error: `Token limit reached mid-pipeline. Completed through batch: ${ready.map((s) => s.instanceId ?? s.agentName).join(", ")}.`,
+          error: `Token limit reached mid-pipeline. Completed through batch: ${readyNames.join(", ")}.`,
           errorType: "cost_limit",
         },
       });

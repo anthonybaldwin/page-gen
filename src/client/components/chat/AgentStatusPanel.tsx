@@ -229,7 +229,7 @@ export function AgentStatusPanel({ chatId }: Props) {
     ) : null;
   }
 
-  const currentAgent = Object.values(agents).find((a) => a.status === "running");
+  const runningAgents = Object.values(agents).filter((a) => a.status === "running");
 
   return (
     <div className="border-b border-zinc-800 bg-zinc-900/50 px-4 py-3">
@@ -279,13 +279,24 @@ export function AgentStatusPanel({ chatId }: Props) {
         })}
       </div>
 
-      {/* Current activity label */}
-      {currentAgent && (
+      {/* Current activity label — show all running agents */}
+      {runningAgents.length > 0 && (
         <div className="flex items-center gap-2 text-xs text-zinc-400">
           <div className="w-3 h-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
           <span>
-            <span className="text-zinc-200 font-medium">{currentAgent.displayName}</span>
-            {currentAgent.phase === "remediation" ? " is fixing issues..." : " is working..."}
+            {runningAgents.length === 1 ? (
+              <>
+                <span className="text-zinc-200 font-medium">{runningAgents[0].displayName}</span>
+                {runningAgents[0].phase === "remediation" ? " is fixing issues..." : " is working..."}
+              </>
+            ) : (
+              <>
+                <span className="text-zinc-200 font-medium">
+                  {runningAgents.map((a) => a.displayName).join(", ")}
+                </span>
+                {" are working in parallel..."}
+              </>
+            )}
           </span>
         </div>
       )}
