@@ -34,7 +34,7 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
-- **Parallel instances (build mode):** The orchestrator parses the architect's `file_plan`, pools all non-App files, and distributes them evenly across N agents (1-4 based on file count). Instances use `instanceId` (e.g., `frontend-dev-1`, `frontend-dev-2`, `frontend-dev-app`) and all run in parallel. A final `frontend-dev-app` agent composes App.tsx after all others complete.
+- **Single instance (build mode):** A single frontend-dev agent handles all component files defined in the architect's plan. The orchestrator infrastructure supports `instanceId`-based parallelism for future use, but currently dispatches one instance per pipeline.
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -96,31 +96,22 @@ Classification uses a ~50-token Haiku call (cheap, fast) with 5 few-shot example
 
 Quick-edit mode triggers when `scope: "styling"` and the project already has files, saving 4-6 agents' worth of time.
 
-### Build Pipeline (Parallelized)
+### Build Pipeline
 
 ```mermaid
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|"build\n(scope gates backend)"| P1
+  Classify -->|"build\n(scope gates backend)"| Research
 
-  subgraph P1["Phase 1 · Parallel"]
-    direction LR
-    Res["Research"] ~~~ Arc["Architect"]
-  end
+  Research --> Architect
 
-  P1 -->|"parse file_plan"| P2
+  Architect --> FD["Frontend Dev"]
+  FD --> BD["Backend Dev\n(only if scope + research require it)"]
+  BD --> Styling
 
-  subgraph P2["Phase 2 · Dev Agents"]
-    Setup["Frontend Dev (Setup)\nshared hooks / utils / types"]
-    Setup --> FD1["Frontend Dev 1"] & FD2["Frontend Dev 2"] & FD3["Frontend Dev 3"]
-    FD1 & FD2 & FD3 --> AppDev["Frontend Dev (App)\nwrites App.tsx"]
-    AppDev --> BD["Backend Dev\n(only if scope + research require it)"]
-    BD --> Styling["Styling\n(waits for all dev agents)"]
-  end
+  Styling --> P3
 
-  P2 --> P3
-
-  subgraph P3["Phase 3 · Parallel Reviews"]
+  subgraph P3["Parallel Reviews"]
     direction LR
     CR["Code Review"] ~~~ Sec["Security"] ~~~ QA["QA"]
   end
@@ -130,13 +121,9 @@ graph TD
   Build --> Summary
 ```
 
-**Research + Architect parallelization:** Both agents run simultaneously via `Promise.all`. The architect is prompted to work with or without research results, inferring requirements directly from the user's request when research isn't available yet. This saves ~60-90 seconds per generation.
+**Sequential Research → Architect:** Research runs first so the architect receives structured requirements. The architect then produces the component architecture, design system, and test plan.
 
 **Design system passthrough:** The architect's output includes a `design_system` JSON field (colors, typography, spacing, radius, shadows). The orchestrator's `injectDesignSystem()` extracts this and injects it into the upstream outputs for frontend-dev and styling agents, ensuring consistent design language across all generated code.
-
-**Parallelism heuristic:** The number of parallel frontend-dev instances scales with component count: 1 for ≤4 files, 2 for 5–8, 3 for 9–14, 4 max for 15+. Small projects get a single instance (no overhead).
-
-**Fallback:** If the architect's `file_plan` can't be parsed, the orchestrator falls back to a single frontend-dev instance (previous behavior).
 
 ### Fix Pipeline (Parallelized)
 
@@ -185,14 +172,12 @@ The pipeline executor uses dependency-aware batch scheduling:
 - Halts on first failure within any batch
 - Cost limit checked after each batch completes
 
-**Parallel groups in build mode:**
-- `frontend-dev-{1,2,3,4}` all depend only on `architect` — all non-App files are pooled and distributed evenly across N agents (1-4 based on total file count), running in parallel
-- `frontend-dev-app` depends on ALL other frontend-dev instances — writes `App.tsx` last, gets the consolidated build check
-- `backend-dev` depends on `frontend-dev-app`
-- `styling` depends on all dev agents → waits for all to complete
-- `code-review`, `security`, and `qa` all depend on `styling` → run in parallel
-- Steps use `instanceId` for keying/dependency resolution; base `agentName` is used for config lookup
-- Per-agent build checks are skipped for parallel batches — a single consolidated check runs after the batch
+**Dependency chain in build mode:**
+- `frontend-dev` depends on `architect`
+- `backend-dev` depends on `frontend-dev` (only included if scope + research require it)
+- `styling` depends on all dev agents — waits for all to complete
+- `code-review`, `security`, and `qa` all depend on `styling` — run in parallel as a batch
+- The infrastructure supports `instanceId` for future parallel frontend-dev instances, but currently a single instance is used
 
 **Remediation re-reviews** also run in parallel (`Promise.all` for code-review, security, qa).
 

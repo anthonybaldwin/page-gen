@@ -60,6 +60,8 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | input_tokens | INTEGER | Input token count |
 | output_tokens | INTEGER | Output token count |
 | total_tokens | INTEGER | Total tokens |
+| cache_creation_input_tokens | INTEGER | Cache creation tokens (default 0) |
+| cache_read_input_tokens | INTEGER | Cache read tokens (default 0) |
 | cost_estimate | REAL | Estimated cost in USD |
 | estimated | INTEGER | 0 = finalized, 1 = provisional (write-ahead tracking) |
 | created_at | INTEGER | Unix timestamp (ms) |
@@ -82,6 +84,8 @@ Permanent, append-only table with **no foreign keys**. Records survive chat/proj
 | input_tokens | INTEGER | Input token count |
 | output_tokens | INTEGER | Output token count |
 | total_tokens | INTEGER | Total tokens |
+| cache_creation_input_tokens | INTEGER | Cache creation tokens (default 0) |
+| cache_read_input_tokens | INTEGER | Cache read tokens (default 0) |
 | cost_estimate | REAL | Estimated cost in USD |
 | estimated | INTEGER | 0 = finalized, 1 = provisional (write-ahead tracking) |
 | created_at | INTEGER | Unix timestamp (ms) |

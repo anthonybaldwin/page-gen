@@ -101,9 +101,11 @@ All limits are stored in the `app_settings` table and configurable from Settings
 
 ## API Endpoints
 
-### Operational (active chats only)
-- `GET /api/usage` — List all records (filterable by chatId)
+### Operational (from billing_ledger)
+- `GET /api/usage` — List all records (filterable by chatId, projectId, from, to)
+- `GET /api/usage/chats` — Distinct chats with usage data (for filter dropdowns)
 - `GET /api/usage/by-agent` — Grouped by agent
+- `GET /api/usage/by-model` — Grouped by provider + model (with optional filters)
 - `GET /api/usage/by-provider` — Grouped by provider + model
 
 ### Lifetime (from billing_ledger, includes deleted)

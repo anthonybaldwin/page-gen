@@ -25,35 +25,24 @@ graph LR
 
 This was simpler to implement but slower.
 
-## Current Implementation (v2 — parallelized)
+## Current Implementation (v2 — dependency-aware batching)
 
 The architecture has evolved significantly since the original decision:
 
 ### Intent-Based Routing
 The orchestrator classifies each message into `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
 
-### Parallelized Pipeline (build mode)
+### Build Pipeline
 ```mermaid
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|build| P1
+  Classify -->|build| Research --> Architect
 
-  subgraph P1["Phase 1 · Parallel"]
-    direction LR
-    Research
-    Architect
-  end
+  Architect --> FD["Frontend Dev"] --> BD["Backend Dev\n(conditional)"] --> Styling
 
-  P1 --> P2
+  Styling --> P3
 
-  subgraph P2["Phase 2 · Dev Agents"]
-    Setup["Frontend Dev\n(Setup)"] --> FD["Frontend Dev 1…N\n(parallel)"] --> App["Frontend Dev\n(App)"]
-    App --> BD["Backend Dev\n(conditional)"] --> Styling
-  end
-
-  P2 --> P3
-
-  subgraph P3["Phase 3 · Parallel Reviews"]
+  subgraph P3["Parallel Reviews"]
     direction LR
     CR["Code Review"]
     QA
@@ -109,12 +98,12 @@ graph LR
 - Remediation loop exits early if issues aren't improving between cycles
 
 ## Alternatives Considered
-- **~~Parallel agent execution:~~ Now implemented.** Dependency-aware batching with parallel frontend-dev instances solves the merge conflict risk via the App-last pattern.
+- **Parallel frontend-dev instances:** Infrastructure (`instanceId`) exists for future use, but currently a single frontend-dev instance handles all files
 - **Single monolithic agent:** Less specialized, harder to debug/iterate
 - **LangChain:** Heavier abstraction, less control than AI SDK 6
 
 ## Consequences
-- Parallelized execution is faster (Research + Architect run simultaneously, reviewers run simultaneously)
+- Review agents (code-review, security, qa) run in parallel, saving time
 - Each agent can be tested/iterated independently
 - Token tracking gives full visibility into costs
 - Error halting prevents cascading failures

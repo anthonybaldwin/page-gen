@@ -63,4 +63,4 @@ The orchestrator minimizes token usage through several strategies:
 - **Output truncation:** All upstream outputs are capped (15K chars default, 40K for project-source) with smart truncation (keep first + last, elide middle).
 - **Chat history capping:** `buildPrompt()` keeps only the last 6 messages, capped at 3K chars total.
 - **Pre-flight cost estimate:** Before each agent call, estimated input tokens are checked against 95% of the session limit. If exceeded, the agent is skipped.
-- **Single remediation cycle:** `MAX_REMEDIATION_CYCLES = 1` — with better filtering, one focused cycle is more effective than noisy repeats.
+- **Capped remediation:** `MAX_REMEDIATION_CYCLES = 2` — with better filtering, focused cycles are more effective than noisy repeats.

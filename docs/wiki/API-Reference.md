@@ -81,10 +81,25 @@ Write file content.
 
 **Body:** `{ path: string, content: string }`
 
+### DELETE /files/delete/:projectId
+Delete a file from a project.
+
+**Body:** `{ path: string }`
+
 ### POST /files/preview/:projectId
 Start (or return existing) preview dev server for a project.
 
 **Response:** `{ url: string }` — the localhost URL of the running Vite dev server.
+
+### DELETE /files/preview/:projectId
+Stop the preview dev server for a project.
+
+**Response:** `{ ok: true }`
+
+### GET /files/zip/:projectId
+Download a project's files as a ZIP archive.
+
+**Response:** Binary ZIP file (`Content-Type: application/zip`)
 
 ## Snapshots
 
@@ -106,14 +121,22 @@ Rollback project files to a snapshot's state.
 
 ## Usage
 
+### GET /usage/chats
+Get distinct chats with usage data (for filter dropdowns).
+
+**Response:** `Array<{ chatId: string, chatTitle: string, projectName: string }>`
+
 ### GET /usage?chatId={id}
-Get token usage records (operational, from `token_usage` table).
+Get token usage records (from `billing_ledger` table).
 
 ### GET /usage/summary
 Get aggregate usage summary. Reads from `billing_ledger` for lifetime totals (includes deleted chats/projects).
 
 ### GET /usage/by-agent?chatId={id}
 Get usage grouped by agent. Optional chatId filter.
+
+### GET /usage/by-model
+Get usage grouped by provider and model. Supports optional filters: `projectId`, `chatId`, `from`, `to`.
 
 ### GET /usage/by-provider
 Get usage grouped by provider and model.
@@ -211,6 +234,19 @@ Get known models grouped by provider with their default pricing.
 
 **Response:** `Array<{ provider: string, models: Array<{ id: string, pricing: { input: number, output: number } | null }> }>`
 
+### GET /settings/cache-multipliers
+Get cache token pricing multipliers for all providers (default + overrides).
+
+**Response:** `Array<{ provider: string, create: number, read: number, isOverridden: boolean }>`
+
+### PUT /settings/cache-multipliers/:provider
+Override cache multipliers for a provider.
+
+**Body:** `{ create: number, read: number }`
+
+### DELETE /settings/cache-multipliers/:provider
+Remove cache multiplier override for a provider, reverting to defaults.
+
 ## Agents
 
 ### GET /agents/executions?chatId={id}
@@ -243,9 +279,9 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 **Message types:**
 - `agent_status` — Agent status change (pending, running, completed, failed, stopped)
 - `agent_stream` — Agent output stream (full text after completion)
-- `agent_complete` — Agent finished execution
-- `agent_error` — Agent encountered an error. Payload includes optional `errorType` field:
+- `agent_error` — Agent encountered an error. The orchestrator may include an optional `errorType` field via direct broadcast:
   - `errorType: "cost_limit"` — Token limit reached mid-pipeline. Client shows amber banner with inline settings instead of red error.
+  - `errorType: "credit_exhaustion"` — Provider credit/balance exhausted.
 - `chat_message` — New chat message
 - `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
 - `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)

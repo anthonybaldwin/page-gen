@@ -90,7 +90,7 @@ graph TB
 ```
 
 - **4-column layout:** Collapsible sidebar (projects/chats) → Chat (fixed width) → Live Preview (flex) → File Explorer
-- **Agent pipeline:** Research → Architect → Frontend Dev (parallel instances) → Backend Dev → Styling → Code Review + QA + Security (parallel) → Remediation
+- **Agent pipeline:** Research → Architect → Frontend Dev → Backend Dev → Styling → Code Review + QA + Security (parallel) → Remediation
 - **Orchestrator summary:** Agent outputs are persisted per-agent and the orchestrator synthesizes a single markdown response shown in chat
 - **File extraction:** Agents produce code in their output; the orchestrator parses code blocks and writes files to disk automatically
 - **HMR preview:** Files extracted from agent output → Vite detects changes → iframe updates live
