@@ -285,3 +285,69 @@ describe("Pricing Module", () => {
     deleteCacheMultiplierOverride("openai");
   });
 });
+
+// --- Billing dedup: verify non-cached inputTokens produces correct cost ---
+
+describe("Billing dedup: SDK inputTokens includes cache tokens", () => {
+  test("Anthropic: deduped cost is lower than double-counted cost", () => {
+    // Simulated SDK response: inputTokens=5000 (includes 1000 cache_create + 2000 cache_read)
+    // Non-cached input = 5000 - 1000 - 2000 = 2000
+    const rawSdkInputTokens = 5000;
+    const cacheCreate = 1000;
+    const cacheRead = 2000;
+    const outputTokens = 500;
+
+    // Double-counted cost (old bug): charges rawSdkInputTokens as non-cached + cache separately
+    const buggedCost = estimateCost("anthropic", "claude-opus-4-6", rawSdkInputTokens, outputTokens, cacheCreate, cacheRead);
+    // Correct cost: subtract cache from SDK value first
+    const nonCachedInput = rawSdkInputTokens - cacheCreate - cacheRead;
+    const correctCost = estimateCost("anthropic", "claude-opus-4-6", nonCachedInput, outputTokens, cacheCreate, cacheRead);
+
+    // Correct should be less than bugged
+    expect(correctCost).toBeLessThan(buggedCost);
+
+    // Verify exact values:
+    // Opus: $5/M input, $25/M output, Anthropic cache: 1.25x create, 0.1x read
+    // Correct: (2000*5 + 500*25 + 1000*5*1.25 + 2000*5*0.1) / 1M
+    //        = (10000 + 12500 + 6250 + 1000) / 1M = 0.02975
+    expect(correctCost).toBeCloseTo(0.02975, 5);
+
+    // Bugged: (5000*5 + 500*25 + 1000*5*1.25 + 2000*5*0.1) / 1M
+    //       = (25000 + 12500 + 6250 + 1000) / 1M = 0.04475
+    expect(buggedCost).toBeCloseTo(0.04475, 5);
+  });
+
+  test("OpenAI: deduped cost is lower than double-counted cost", () => {
+    // OpenAI cache: 0x create, 0.5x read
+    const rawSdkInputTokens = 5000;
+    const cacheCreate = 1000;
+    const cacheRead = 2000;
+    const outputTokens = 500;
+
+    const buggedCost = estimateCost("openai", "gpt-5.2", rawSdkInputTokens, outputTokens, cacheCreate, cacheRead);
+    const nonCachedInput = rawSdkInputTokens - cacheCreate - cacheRead;
+    const correctCost = estimateCost("openai", "gpt-5.2", nonCachedInput, outputTokens, cacheCreate, cacheRead);
+
+    expect(correctCost).toBeLessThan(buggedCost);
+  });
+
+  test("Google: deduped cost is lower than double-counted cost", () => {
+    // Google cache: 0x create, 0.25x read
+    const rawSdkInputTokens = 5000;
+    const cacheCreate = 1000;
+    const cacheRead = 2000;
+    const outputTokens = 500;
+
+    const buggedCost = estimateCost("google", "gemini-2.5-flash", rawSdkInputTokens, outputTokens, cacheCreate, cacheRead);
+    const nonCachedInput = rawSdkInputTokens - cacheCreate - cacheRead;
+    const correctCost = estimateCost("google", "gemini-2.5-flash", nonCachedInput, outputTokens, cacheCreate, cacheRead);
+
+    expect(correctCost).toBeLessThan(buggedCost);
+  });
+
+  test("no cache tokens: deduped and non-deduped are identical", () => {
+    const cost1 = estimateCost("anthropic", "claude-opus-4-6", 1000, 500, 0, 0);
+    const cost2 = estimateCost("anthropic", "claude-opus-4-6", 1000, 500);
+    expect(cost1).toBeCloseTo(cost2, 10);
+  });
+});

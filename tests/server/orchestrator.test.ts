@@ -16,6 +16,9 @@ import {
   filterUpstreamOutputs,
   isNonRetriableApiError,
   deduplicateErrors,
+  getPlannedAgents,
+  buildFixPlan,
+  isDataFile,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
@@ -567,14 +570,14 @@ describe("extractFilesFromOutput", () => {
     expect(files).toHaveLength(0);
   });
 
-  test("repairs JSON with literal newlines in content", () => {
+  test("repairs JSON with literal newlines in content (non-strict)", () => {
     // Simulate AI output with unescaped newlines inside JSON content value
     const output = `<tool_call>
 {"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "line1
 line2
 line3"}}
 </tool_call>`;
-    const files = extractFilesFromOutput(output);
+    const files = extractFilesFromOutput(output, false);
     expect(files).toHaveLength(1);
     expect(files[0]!.path).toBe("src/App.tsx");
     expect(files[0]!.content).toContain("line1");
@@ -601,12 +604,12 @@ line3"}}
     expect(files[0]!.content).toBe("line1\nline2\nline3");
   });
 
-  test("falls back to regex when JSON repair also fails", () => {
+  test("falls back to regex when JSON repair also fails (non-strict)", () => {
     // Completely mangled JSON that even repair can't fix, but regex can extract
     const output = `<tool_call>
 {"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div>; }"  INVALID}}
 </tool_call>`;
-    const files = extractFilesFromOutput(output);
+    const files = extractFilesFromOutput(output, false);
     // Regex fallback should find the path and content
     expect(files).toHaveLength(1);
     expect(files[0]!.path).toBe("src/App.tsx");
@@ -615,7 +618,7 @@ line3"}}
 
 // --- buildExecutionPlan (fix mode) ---
 
-describe("buildExecutionPlan (fix mode)", () => {
+describe("buildExecutionPlan (fix mode — tiered)", () => {
   test("fix mode skips research and architect", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
@@ -623,64 +626,46 @@ describe("buildExecutionPlan (fix mode)", () => {
     expect(names).not.toContain("architect");
   });
 
-  test("fix mode: testing (test planner) comes first", () => {
+  test("fix + frontend = quick-edit: only frontend-dev (no testing, no reviewers)", () => {
     const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names[0]).toBe("testing");
+    expect(names).toEqual(["frontend-dev"]);
   });
 
-  test("fix mode: testing step input mentions test plan", () => {
-    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const testStep = plan.steps.find((s) => s.agentName === "testing");
-    expect(testStep?.input).toContain("test plan");
-  });
-
-  test("fix mode with frontend scope routes to frontend-dev after testing", () => {
-    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const names = plan.steps.map((s) => s.agentName);
-    expect(names).toContain("frontend-dev");
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
-    expect(names).not.toContain("backend-dev");
-    expect(names).not.toContain("styling");
-  });
-
-  test("fix mode with backend scope routes to backend-dev after testing", () => {
-    const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
-    const names = plan.steps.map((s) => s.agentName);
-    expect(names).toContain("backend-dev");
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("backend-dev"));
-    expect(names).not.toContain("frontend-dev");
-  });
-
-  test("fix mode with styling scope routes to styling after testing", () => {
+  test("fix + styling = quick-edit: only styling (no testing, no reviewers)", () => {
     const plan = buildExecutionPlan("fix the colors", undefined, "fix", "styling");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toContain("styling");
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("styling"));
-    expect(names).not.toContain("frontend-dev");
-    expect(names).not.toContain("backend-dev");
+    expect(names).toEqual(["styling"]);
   });
 
-  test("fix mode with full scope routes to frontend-dev + backend-dev after testing", () => {
+  test("fix + backend = dev + reviewers (no testing)", () => {
+    const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["backend-dev", "code-review", "security", "qa"]);
+    expect(names).not.toContain("testing");
+  });
+
+  test("fix + full = frontend-dev + backend-dev + reviewers (no testing)", () => {
     const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
     const names = plan.steps.map((s) => s.agentName);
-    expect(names).toContain("frontend-dev");
-    expect(names).toContain("backend-dev");
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("frontend-dev"));
-    expect(names.indexOf("testing")).toBeLessThan(names.indexOf("backend-dev"));
+    expect(names).toEqual(["frontend-dev", "backend-dev", "code-review", "security", "qa"]);
+    expect(names).not.toContain("testing");
   });
 
-  test("fix mode always ends with code-review, security, qa", () => {
-    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const names = plan.steps.map((s) => s.agentName);
-    const lastThree = names.slice(-3);
-    expect(lastThree).toEqual(["code-review", "security", "qa"]);
+  test("fix + backend: reviewers depend on backend-dev", () => {
+    const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
+    const cr = plan.steps.find((s) => s.agentName === "code-review");
+    const sec = plan.steps.find((s) => s.agentName === "security");
+    const qa = plan.steps.find((s) => s.agentName === "qa");
+    expect(cr?.dependsOn).toEqual(["backend-dev"]);
+    expect(sec?.dependsOn).toEqual(["backend-dev"]);
+    expect(qa?.dependsOn).toEqual(["backend-dev"]);
   });
 
-  test("fix mode: frontend-dev depends on testing", () => {
-    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const feStep = plan.steps.find((s) => s.agentName === "frontend-dev");
-    expect(feStep?.dependsOn).toContain("testing");
+  test("fix + full: backend-dev depends on frontend-dev", () => {
+    const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
+    const be = plan.steps.find((s) => s.agentName === "backend-dev");
+    expect(be?.dependsOn).toEqual(["frontend-dev"]);
   });
 
   test("fix mode includes user message in step inputs", () => {
@@ -779,17 +764,6 @@ describe("buildExecutionPlan (fix mode)", () => {
     const plan = buildExecutionPlan("Build app", research, "build", "backend");
     const names = plan.steps.map((s) => s.agentName);
     expect(names).toContain("backend-dev");
-  });
-
-  test("fix mode: review agents all depend on last dev agent (parallel with each other)", () => {
-    const plan = buildExecutionPlan("fix the button", undefined, "fix", "frontend");
-    const cr = plan.steps.find((s) => s.agentName === "code-review");
-    const sec = plan.steps.find((s) => s.agentName === "security");
-    const qa = plan.steps.find((s) => s.agentName === "qa");
-    // All should depend on frontend-dev (the last dev agent for frontend scope)
-    expect(cr?.dependsOn).toEqual(["frontend-dev"]);
-    expect(sec?.dependsOn).toEqual(["frontend-dev"]);
-    expect(qa?.dependsOn).toEqual(["frontend-dev"]);
   });
 });
 
@@ -1419,5 +1393,256 @@ describe("isNonRetriableApiError", () => {
   test("handles null/undefined gracefully", () => {
     const result = isNonRetriableApiError(null);
     expect(result.nonRetriable).toBe(false);
+  });
+});
+
+// --- Quick-edit tier safety tests ---
+
+describe("buildExecutionPlan (quick-edit tiers)", () => {
+  test("fix + styling => [styling] only", () => {
+    const plan = buildExecutionPlan("fix the colors", undefined, "fix", "styling");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["styling"]);
+  });
+
+  test("fix + frontend => [frontend-dev] only", () => {
+    const plan = buildExecutionPlan("change the title", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["frontend-dev"]);
+  });
+
+  test("fix + backend => [backend-dev, code-review, security, qa]", () => {
+    const plan = buildExecutionPlan("fix the API", undefined, "fix", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["backend-dev", "code-review", "security", "qa"]);
+  });
+
+  test("fix + full => [frontend-dev, backend-dev, code-review, security, qa]", () => {
+    const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toEqual(["frontend-dev", "backend-dev", "code-review", "security", "qa"]);
+  });
+
+  test("fix + styling has no testing agent", () => {
+    const plan = buildExecutionPlan("fix colors", undefined, "fix", "styling");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("testing");
+  });
+
+  test("fix + frontend has no testing agent", () => {
+    const plan = buildExecutionPlan("change title", undefined, "fix", "frontend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("testing");
+  });
+
+  test("fix + backend has no testing agent", () => {
+    const plan = buildExecutionPlan("fix API", undefined, "fix", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("testing");
+  });
+
+  test("fix + full has no testing agent", () => {
+    const plan = buildExecutionPlan("fix everything", undefined, "fix", "full");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).not.toContain("testing");
+  });
+});
+
+// --- buildFixPlan ---
+
+describe("buildFixPlan", () => {
+  test("backend scope starts with backend-dev", () => {
+    const plan = buildFixPlan("fix the API", "backend");
+    expect(plan.steps[0]!.agentName).toBe("backend-dev");
+  });
+
+  test("backend scope includes reviewers", () => {
+    const plan = buildFixPlan("fix the API", "backend");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("code-review");
+    expect(names).toContain("security");
+    expect(names).toContain("qa");
+  });
+
+  test("full scope includes frontend-dev + backend-dev + reviewers", () => {
+    const plan = buildFixPlan("fix everything", "full");
+    const names = plan.steps.map((s) => s.agentName);
+    expect(names).toContain("frontend-dev");
+    expect(names).toContain("backend-dev");
+    expect(names).toContain("code-review");
+    expect(names).toContain("security");
+    expect(names).toContain("qa");
+  });
+
+  test("full scope: backend-dev depends on frontend-dev", () => {
+    const plan = buildFixPlan("fix everything", "full");
+    const be = plan.steps.find((s) => s.agentName === "backend-dev");
+    expect(be?.dependsOn).toEqual(["frontend-dev"]);
+  });
+
+  test("reviewers depend on last dev agent", () => {
+    const plan = buildFixPlan("fix the API", "backend");
+    const cr = plan.steps.find((s) => s.agentName === "code-review");
+    expect(cr?.dependsOn).toEqual(["backend-dev"]);
+  });
+
+  test("includes user message in step inputs", () => {
+    const plan = buildFixPlan("fix the broken endpoint", "backend");
+    for (const step of plan.steps) {
+      expect(step.input).toContain("fix the broken endpoint");
+    }
+  });
+});
+
+// --- getPlannedAgents (preflight scoping) ---
+
+describe("getPlannedAgents", () => {
+  test("question intent returns empty list", () => {
+    expect(getPlannedAgents("question", "full", true)).toEqual([]);
+  });
+
+  test("fix + styling returns [styling]", () => {
+    expect(getPlannedAgents("fix", "styling", true)).toEqual(["styling"]);
+  });
+
+  test("fix + frontend returns [frontend-dev]", () => {
+    expect(getPlannedAgents("fix", "frontend", true)).toEqual(["frontend-dev"]);
+  });
+
+  test("fix + backend returns dev + reviewers", () => {
+    const agents = getPlannedAgents("fix", "backend", true);
+    expect(agents).toEqual(["backend-dev", "code-review", "security", "qa"]);
+  });
+
+  test("fix + full returns all fix agents", () => {
+    const agents = getPlannedAgents("fix", "full", true);
+    expect(agents).toEqual(["frontend-dev", "backend-dev", "code-review", "security", "qa"]);
+  });
+
+  test("fix with no files returns empty (falls through to build)", () => {
+    expect(getPlannedAgents("fix", "frontend", false)).toEqual([]);
+  });
+
+  test("build mode returns full pipeline agents", () => {
+    const agents = getPlannedAgents("build", "full", false);
+    expect(agents).toContain("research");
+    expect(agents).toContain("architect");
+    expect(agents).toContain("frontend-dev");
+    expect(agents).toContain("styling");
+    expect(agents).toContain("code-review");
+    expect(agents).toContain("security");
+    expect(agents).toContain("qa");
+  });
+});
+
+// --- extractFilesFromOutput (strict mode) ---
+
+describe("extractFilesFromOutput (strict mode)", () => {
+  test("strict mode rejects malformed JSON in tool_call", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div>; }"  INVALID}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output, true);
+    expect(files).toHaveLength(0);
+  });
+
+  test("strict mode accepts valid JSON", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() {}"}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output, true);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("src/App.tsx");
+  });
+
+  test("non-strict mode repairs malformed JSON", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "line1
+line2"}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output, false);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("src/App.tsx");
+  });
+
+  test("non-strict mode uses regex fallback for completely mangled JSON", () => {
+    const output = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() { return <div>Hello</div>; }"  INVALID}}
+</tool_call>`;
+    const files = extractFilesFromOutput(output, false);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe("src/App.tsx");
+  });
+});
+
+// --- isDataFile ---
+
+describe("isDataFile", () => {
+  test("returns false for short content", () => {
+    expect(isDataFile("const x = 1;\nconst y = 2;\n")).toBe(false);
+  });
+
+  test("returns true for large array-like content", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `  "${String.fromCharCode(65 + (i % 26))}word${i}",`);
+    const content = `export const words = [\n${lines.join("\n")}\n];\n`;
+    expect(isDataFile(content)).toBe(true);
+  });
+
+  test("returns false for code-heavy content", () => {
+    const lines = [
+      "export function App() {",
+      "  const [state, setState] = useState(0);",
+      "  const handleClick = () => setState(s => s + 1);",
+      "  return (",
+      "    <div className='flex flex-col'>",
+      "      <h1>Hello</h1>",
+      "      <button onClick={handleClick}>Click</button>",
+      "      <p>{state}</p>",
+      "    </div>",
+      "  );",
+      "}",
+    ];
+    expect(isDataFile(lines.join("\n"))).toBe(false);
+  });
+
+  test("returns true for JSON-like data dumps", () => {
+    const lines = Array.from({ length: 30 }, (_, i) =>
+      `  { "id": ${i}, "name": "item${i}", "value": ${i * 10} },`
+    );
+    const content = `[\n${lines.join("\n")}\n]\n`;
+    expect(isDataFile(content)).toBe(true);
+  });
+});
+
+// --- filterUpstreamOutputs (reviewer changed-file manifest) ---
+
+describe("filterUpstreamOutputs (reviewer manifest)", () => {
+  function makeResults(entries: Record<string, string>): Map<string, string> {
+    return new Map(Object.entries(entries));
+  }
+
+  test("reviewer gets changed-files from dev agents when available", () => {
+    const devOutput = `<tool_call>
+{"name": "write_file", "parameters": {"path": "src/App.tsx", "content": "export default function App() {}"}}
+</tool_call>`;
+    const results = makeResults({
+      architect: "architecture plan",
+      "frontend-dev": devOutput,
+    });
+    const filtered = filterUpstreamOutputs("code-review", undefined, results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("changed-files");
+    expect(filtered["changed-files"]).toContain("src/App.tsx");
+  });
+
+  test("reviewer gets project-source as fallback when no dev outputs", () => {
+    const results = makeResults({
+      architect: "architecture plan",
+      "project-source": "full source code",
+    });
+    const filtered = filterUpstreamOutputs("code-review", undefined, results);
+    expect(filtered).toHaveProperty("architect");
+    expect(filtered).toHaveProperty("project-source");
+    expect(filtered).not.toHaveProperty("changed-files");
   });
 });
