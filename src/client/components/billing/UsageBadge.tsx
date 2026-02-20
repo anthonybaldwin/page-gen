@@ -29,16 +29,16 @@ export function UsageBadge({ onClick }: Props) {
   return (
     <button
       onClick={onClick}
-      className="w-full px-4 py-3 text-left hover:bg-zinc-800/50 transition-colors"
+      className="w-full px-4 py-3 text-left hover:bg-accent/50 transition-colors"
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-500">Total spent</span>
-        <span className="text-xs font-medium text-green-400">{formatCost(totalCost)}</span>
+        <span className="text-xs text-muted-foreground">Total spent</span>
+        <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">{formatCost(totalCost)}</span>
       </div>
       {activeChatId && chatCost > 0 && (
         <div className="flex items-center justify-between mt-0.5">
-          <span className="text-xs text-zinc-600">This chat</span>
-          <span className="text-xs text-zinc-400">{formatCost(chatCost)}</span>
+          <span className="text-xs text-muted-foreground/60">This chat</span>
+          <span className="text-xs text-muted-foreground">{formatCost(chatCost)}</span>
         </div>
       )}
     </button>

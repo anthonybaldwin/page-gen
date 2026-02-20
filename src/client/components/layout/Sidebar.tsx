@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
+import { useThemeStore } from "../../stores/themeStore.ts";
 import { api } from "../../lib/api.ts";
 import type { Project, Chat } from "../../../shared/types.ts";
 import { UsageBadge } from "../billing/UsageBadge.tsx";
@@ -9,6 +10,18 @@ import { UsageDashboard } from "../billing/UsageDashboard.tsx";
 import { SettingsButton } from "../settings/SettingsButton.tsx";
 import { SettingsModal } from "../settings/SettingsModal.tsx";
 import { SnapshotList } from "../snapshots/SnapshotList.tsx";
+import { Button } from "../ui/button.tsx";
+import { Input } from "../ui/input.tsx";
+import { ScrollArea } from "../ui/scroll-area.tsx";
+import { Separator } from "../ui/separator.tsx";
+import {
+  PanelLeft,
+  Plus,
+  Trash2,
+  Sun,
+  Moon,
+  Monitor,
+} from "lucide-react";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -25,6 +38,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const { theme, setTheme } = useThemeStore();
 
   // Sync active chat id to usage store
   const setActiveChatId = useUsageStore((s) => s.setActiveChatId);
@@ -103,67 +117,79 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     setEditingId(null);
   }
 
+  function cycleTheme() {
+    const order: Array<"light" | "dark" | "system"> = ["light", "dark", "system"];
+    const idx = order.indexOf(theme);
+    setTheme(order[(idx + 1) % order.length]!);
+  }
+
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+
   if (collapsed) {
     return (
-      <aside className="w-12 border-r border-zinc-800 bg-zinc-900 flex flex-col items-center py-3 transition-all duration-200">
-        <button
+      <aside className="w-12 border-r border-sidebar-border bg-sidebar flex flex-col items-center py-3 transition-all duration-200">
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onToggle}
-          className="text-zinc-400 hover:text-white p-1.5 rounded hover:bg-zinc-800 transition-colors"
-          title="Expand sidebar"
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Expand sidebar"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-            <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10zm0 5.25a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clipRule="evenodd" />
-          </svg>
-        </button>
+          <PanelLeft className="h-5 w-5" />
+        </Button>
       </aside>
     );
   }
 
   return (
-    <aside className="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col transition-all duration-200">
-      <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white">Page Gen.</h1>
-        <button
+    <aside className="w-64 border-r border-sidebar-border bg-sidebar flex flex-col transition-all duration-200">
+      <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
+        <h1 className="text-lg font-bold text-foreground">Page Gen.</h1>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onToggle}
-          className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-colors"
-          title="Collapse sidebar"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          aria-label="Collapse sidebar"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 010 1.06L8.06 10l3.72 3.72a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" clipRule="evenodd" />
-          </svg>
-        </button>
+          <PanelLeft className="h-4 w-4" />
+        </Button>
       </div>
+
       {error && (
-        <div className="px-3 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-xs">
+        <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive text-xs">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-1 underline">
+          <button onClick={() => setError(null)} className="text-destructive hover:text-destructive/80 ml-1 underline">
             dismiss
           </button>
         </div>
       )}
 
       {/* Projects */}
-      <div className="p-2 border-b border-zinc-800">
+      <div className="p-2 border-b border-sidebar-border">
         <div className="flex items-center justify-between px-2 mb-1">
-          <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Projects
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
             onClick={() => setShowNewProject(!showNewProject)}
-            className="text-zinc-500 hover:text-zinc-300 text-lg leading-none"
+            aria-label="New project"
           >
-            +
-          </button>
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
         {showNewProject && (
           <div className="flex gap-1 px-1 mb-2">
-            <input
+            <Input
               type="text"
               value={newProjectName}
               onChange={(e) => setNewProjectName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
               placeholder="Project name..."
-              className="flex-1 rounded bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              className="h-7 text-xs"
               autoFocus
             />
           </div>
@@ -171,10 +197,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {projects.map((project) => (
           <div
             key={project.id}
-            className="group flex items-center rounded transition-colors"
+            className="group flex items-center rounded-md transition-colors"
           >
             {editingId === project.id ? (
-              <input
+              <Input
                 type="text"
                 value={editingValue}
                 onChange={(e) => setEditingValue(e.target.value)}
@@ -183,17 +209,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   if (e.key === "Escape") setEditingId(null);
                 }}
                 onBlur={() => handleRenameProject(project.id)}
-                className="flex-1 rounded-l bg-zinc-800 border border-blue-500 px-2 py-1 text-sm text-white focus:outline-none"
+                className="flex-1 h-7 text-sm rounded-r-none"
                 autoFocus
               />
             ) : (
               <button
                 onClick={() => setActiveProject(project)}
                 onDoubleClick={() => { setEditingId(project.id); setEditingValue(project.name); }}
-                className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                className={`flex-1 text-left rounded-l-md px-2 py-1.5 text-sm transition-colors truncate ${
                   activeProject?.id === project.id
-                    ? "bg-zinc-800 text-white"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50"
                 }`}
               >
                 {project.name}
@@ -215,42 +241,43 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   console.error("[sidebar] Failed to delete project:", err);
                 }
               }}
-              className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-zinc-500 hover:text-red-400 transition-all"
+              className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-muted-foreground hover:text-destructive transition-all"
               title="Delete project"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-              </svg>
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>
         ))}
         {projects.length === 0 && !showNewProject && (
-          <p className="text-xs text-zinc-600 px-2 py-1">No projects yet</p>
+          <p className="text-xs text-muted-foreground/60 px-2 py-1">No projects yet</p>
         )}
       </div>
 
       {/* Chats */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <ScrollArea className="flex-1 p-2">
         {activeProject && (
           <>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Chats
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 onClick={handleCreateChat}
-                className="text-zinc-500 hover:text-zinc-300 text-lg leading-none"
+                aria-label="New chat"
               >
-                +
-              </button>
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
             {chats.map((chat) => (
               <div
                 key={chat.id}
-                className="group flex items-center rounded transition-colors"
+                className="group flex items-center rounded-md transition-colors"
               >
                 {editingId === chat.id ? (
-                  <input
+                  <Input
                     type="text"
                     value={editingValue}
                     onChange={(e) => setEditingValue(e.target.value)}
@@ -259,17 +286,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       if (e.key === "Escape") setEditingId(null);
                     }}
                     onBlur={() => handleRenameChat(chat.id)}
-                    className="flex-1 rounded-l bg-zinc-800 border border-blue-500 px-2 py-1 text-sm text-white focus:outline-none"
+                    className="flex-1 h-7 text-sm rounded-r-none"
                     autoFocus
                   />
                 ) : (
                   <button
                     onClick={() => setActiveChat(chat)}
                     onDoubleClick={() => { setEditingId(chat.id); setEditingValue(chat.title); }}
-                    className={`flex-1 text-left rounded-l px-2 py-1.5 text-sm transition-colors truncate ${
+                    className={`flex-1 text-left rounded-l-md px-2 py-1.5 text-sm transition-colors truncate ${
                       activeChat?.id === chat.id
-                        ? "bg-zinc-800 text-white"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50"
                     }`}
                   >
                     {chat.title}
@@ -289,31 +316,42 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       console.error("[sidebar] Failed to delete chat:", err);
                     }
                   }}
-                  className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-zinc-500 hover:text-red-400 transition-all"
+                  className="opacity-0 group-hover:opacity-100 px-1.5 py-1.5 text-muted-foreground hover:text-destructive transition-all"
                   title="Delete chat"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-                  </svg>
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             ))}
             {chats.length === 0 && (
-              <p className="text-xs text-zinc-600 px-2 py-1">No chats yet</p>
+              <p className="text-xs text-muted-foreground/60 px-2 py-1">No chats yet</p>
             )}
           </>
         )}
-      </div>
+      </ScrollArea>
 
       {/* Snapshots */}
       {activeProject && (
-        <div className="border-t border-zinc-800">
+        <div className="border-t border-sidebar-border">
           <SnapshotList />
         </div>
       )}
 
-      <div className="flex items-center border-t border-zinc-800">
+      <Separator />
+
+      {/* Footer bar: Settings, Theme toggle, Usage */}
+      <div className="flex items-center border-t border-sidebar-border">
         <SettingsButton onClick={() => setShowSettings(true)} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 text-muted-foreground hover:text-foreground"
+          onClick={cycleTheme}
+          aria-label={`Theme: ${theme}. Click to cycle.`}
+          title={`Theme: ${theme}`}
+        >
+          <ThemeIcon className="h-4 w-4" />
+        </Button>
         <div className="flex-1">
           <UsageBadge onClick={() => setShowUsage(true)} />
         </div>
@@ -322,7 +360,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Usage dashboard modal */}
       {showUsage && (
         <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowUsage(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card border border-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <UsageDashboard onClose={() => setShowUsage(false)} />
           </div>
         </div>
@@ -331,7 +369,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Settings modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-start pt-[10vh] justify-center bg-black/60" onClick={() => setShowSettings(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card border border-border rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <SettingsModal onClose={() => setShowSettings(false)} />
           </div>
         </div>

@@ -65,7 +65,6 @@ export function App() {
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
-      // Persist width
       try { localStorage.setItem(STORAGE_KEY, String(Math.round(chatWidth))); } catch { /* ignore */ }
     }
 
@@ -73,13 +72,12 @@ export function App() {
     document.addEventListener("mouseup", onMouseUp);
   }, [chatWidth]);
 
-  // Persist on width change (debounced by mouse-up already)
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, String(Math.round(chatWidth))); } catch { /* ignore */ }
   }, [chatWidth]);
 
   return (
-    <div className="flex h-full bg-zinc-950 text-zinc-100">
+    <div className="flex h-full bg-background text-foreground">
       {showSetup && !hasKeys && (
         <ApiKeySetup onComplete={() => setShowSetup(false)} />
       )}
@@ -88,14 +86,16 @@ export function App() {
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
       {/* Chat column — resizable */}
-      <div className="flex flex-col border-r border-zinc-800 min-h-0" style={{ width: chatWidth }}>
+      <div className="flex flex-col border-r border-border min-h-0" style={{ width: chatWidth }}>
         <ChatWindow />
       </div>
 
       {/* Resize handle */}
       <div
         onMouseDown={handleMouseDown}
-        className="w-1 cursor-col-resize hover:bg-blue-500/40 active:bg-blue-500/60 transition-colors flex-shrink-0"
+        className="w-1.5 cursor-col-resize bg-border/50 hover:bg-primary/40 active:bg-primary/60 transition-colors flex-shrink-0"
+        role="separator"
+        aria-orientation="vertical"
       />
 
       {/* Preview column — fills remaining space */}
