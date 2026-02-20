@@ -19,6 +19,7 @@ import {
   extractAssignedFiles,
   truncateArchitectForAgent,
   isNonRetriableApiError,
+  deduplicateErrors,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings, GroupedFilePlan } from "../../src/server/agents/orchestrator.ts";
@@ -1627,6 +1628,81 @@ describe("truncateArchitectForAgent", () => {
     const result = truncateArchitectForAgent(architect, ["src/App.tsx"]);
     const parsed = JSON.parse(result);
     expect(parsed.test_plan).toBe("run all tests");
+  });
+});
+
+// --- deduplicateErrors ---
+
+describe("deduplicateErrors", () => {
+  test("returns empty string for empty array", () => {
+    expect(deduplicateErrors([])).toBe("");
+  });
+
+  test("preserves 'Could not resolve' error (the most common vite failure)", () => {
+    const lines = [
+      'error during build:',
+      'Could not resolve "./components/Tile" from "src/App.tsx"',
+    ];
+    const result = deduplicateErrors(lines);
+    expect(result).toContain("Could not resolve");
+    expect(result).toContain("src/App.tsx");
+  });
+
+  test("deduplicates repeated errors", () => {
+    const lines = [
+      'Could not resolve "./components/A" from "src/App.tsx"',
+      'Could not resolve "./components/B" from "src/App.tsx"',
+      'Could not resolve "./components/C" from "src/App.tsx"',
+    ];
+    const result = deduplicateErrors(lines);
+    // All three have different file references so they should be separate
+    expect(result).toContain("components/A");
+    expect(result).toContain("components/B");
+    expect(result).toContain("components/C");
+  });
+
+  test("handles esbuild transform error format", () => {
+    const lines = [
+      'error during build:',
+      'Transform failed with 1 error:',
+      'C:/project/src/utils/words.ts:150:1: ERROR: Expected ";" but found ")"',
+    ];
+    const result = deduplicateErrors(lines);
+    expect(result).toContain('Expected ";"');
+    expect(result).toContain("words.ts");
+  });
+
+  test("strips ANSI-cleaned lines (no [31m residue)", () => {
+    // After ANSI stripping, lines should be clean
+    const lines = [
+      'error during build:',
+      'Could not resolve "./components/Tile" from "src/App.tsx"',
+    ];
+    const result = deduplicateErrors(lines);
+    expect(result).not.toContain("[31m");
+    expect(result).not.toContain("[39m");
+  });
+
+  test("groups identical error patterns with count", () => {
+    const lines = [
+      'Module not found',
+      'Module not found',
+      'Module not found',
+    ];
+    const result = deduplicateErrors(lines);
+    expect(result).toContain("[3x]");
+    expect(result).toContain("Module not found");
+  });
+
+  test("preserves multiple distinct error types", () => {
+    const lines = [
+      'error during build:',
+      'Could not resolve "./types/game" from "src/hooks/useWordle.ts"',
+      'Export "GameBoard" is not provided by "src/components/index.ts"',
+    ];
+    const result = deduplicateErrors(lines);
+    expect(result).toContain("Could not resolve");
+    expect(result).toContain("is not provided");
   });
 });
 

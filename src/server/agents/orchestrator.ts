@@ -3055,16 +3055,26 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
 
     const stderr = await new Response(proc.stderr).text();
     const stdout = await new Response(proc.stdout).text();
-    const combined = (stderr + "\n" + stdout).trim();
+    // Strip ANSI escape codes so error messages are clean for the fix agent
+    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\[([0-9;]*)m/g, "");
+    const combined = stripAnsi(stderr + "\n" + stdout).trim();
 
-    // Extract just the error lines, skip noise
+    // Extract error lines — keep actionable lines, skip pure stack traces (at ...) and blank lines
     const errorLines = combined
       .split("\n")
-      .filter((line) => /error|Error|ERR_|SyntaxError|TypeError|not found|does not provide/i.test(line));
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        // Skip pure stack trace lines — they add noise without actionable info
+        if (/^\s*at\s+/.test(trimmed)) return false;
+        // Skip vite/rollup build timing lines
+        if (/^✓|^✗|built in|^rendering chunks/i.test(trimmed)) return false;
+        return true;
+      });
 
     // Deduplicate by core error pattern (strip file paths, keep error type + message)
     const deduped = deduplicateErrors(errorLines);
-    const errors = deduped || combined.slice(0, 2000);
+    const errors = (deduped || combined.slice(0, 2000)).trim();
     logBlock("orchestrator", "Build check failed", errors);
     return errors;
   } catch (err) {
