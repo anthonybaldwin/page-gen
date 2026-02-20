@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useSettingsStore } from "../../stores/settingsStore.ts";
+import { Button } from "../ui/button.tsx";
+import { Input } from "../ui/input.tsx";
 
 export function ApiKeySettings() {
   const { anthropic, openai, google, saveKeys, clearKeys } = useSettingsStore();
@@ -26,10 +28,10 @@ export function ApiKeySettings() {
     <div className="space-y-4">
       {(["anthropic", "openai", "google"] as const).map((provider) => (
         <div key={provider}>
-          <label className="block text-sm font-medium text-zinc-300 mb-1 capitalize">
+          <label className="block text-sm font-medium text-muted-foreground mb-1 capitalize">
             {provider} API Key
           </label>
-          <input
+          <Input
             type="password"
             value={keys[provider].apiKey}
             onChange={(e) =>
@@ -38,9 +40,8 @@ export function ApiKeySettings() {
                 [provider]: { ...prev[provider], apiKey: e.target.value },
               }))
             }
-            className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
           />
-          <input
+          <Input
             type="url"
             placeholder="Proxy URL (optional)"
             value={keys[provider].proxyUrl}
@@ -50,24 +51,18 @@ export function ApiKeySettings() {
                 [provider]: { ...prev[provider], proxyUrl: e.target.value },
               }))
             }
-            className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 mt-2"
+            className="mt-2"
           />
         </div>
       ))}
 
       <div className="flex gap-3">
-        <button
-          onClick={handleSave}
-          className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors"
-        >
+        <Button onClick={handleSave} className="flex-1">
           {saved ? "Saved" : "Save Keys"}
-        </button>
-        <button
-          onClick={clearKeys}
-          className="rounded-lg bg-red-600/20 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-600/30 transition-colors"
-        >
+        </Button>
+        <Button variant="destructive" onClick={clearKeys}>
           Clear All
-        </button>
+        </Button>
       </div>
     </div>
   );
