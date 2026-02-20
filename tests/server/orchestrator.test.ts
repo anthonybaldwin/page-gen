@@ -675,6 +675,20 @@ describe("buildExecutionPlan (fix mode — tiered)", () => {
     }
   });
 
+  test("quick-edit frontend input guides file tools and skips project-source payload", () => {
+    const plan = buildExecutionPlan("fix the button color", undefined, "fix", "frontend");
+    const input = plan.steps[0]!.input;
+    expect(input).toContain("read_file/list_files");
+    expect(input).not.toContain("project-source");
+  });
+
+  test("quick-edit styling input guides file tools and skips project-source payload", () => {
+    const plan = buildExecutionPlan("fix the button color", undefined, "fix", "styling");
+    const input = plan.steps[0]!.input;
+    expect(input).toContain("read_file/list_files");
+    expect(input).not.toContain("project-source");
+  });
+
   test("build mode with default params: architect+dev pipeline", () => {
     const plan = buildExecutionPlan("Build a landing page");
     const names = plan.steps.map((s) => s.agentName);

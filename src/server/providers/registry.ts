@@ -28,7 +28,7 @@ export function extractApiKeys(c: Context) {
 }
 
 /** Wrap fetch to log every LLM request and response (status, headers, timing). */
-function createLoggingFetch(provider: string): typeof globalThis.fetch {
+function createLoggingFetch(provider: string): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
   return async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
     const method = init?.method || "POST";
@@ -123,7 +123,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.anthropic = createAnthropic({
       apiKey: keys.anthropic.apiKey,
       ...(keys.anthropic.proxyUrl ? { baseURL: keys.anthropic.proxyUrl } : {}),
-      fetch: createLoggingFetch("anthropic"),
+      fetch: createLoggingFetch("anthropic") as typeof globalThis.fetch,
     });
   }
 
@@ -131,7 +131,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.openai = createOpenAI({
       apiKey: keys.openai.apiKey,
       ...(keys.openai.proxyUrl ? { baseURL: keys.openai.proxyUrl } : {}),
-      fetch: createLoggingFetch("openai"),
+      fetch: createLoggingFetch("openai") as typeof globalThis.fetch,
     });
   }
 
@@ -139,7 +139,7 @@ export function createProviders(keys: ReturnType<typeof extractApiKeys>): Provid
     providers.google = createGoogleGenerativeAI({
       apiKey: keys.google.apiKey,
       ...(keys.google.proxyUrl ? { baseURL: keys.google.proxyUrl } : {}),
-      fetch: createLoggingFetch("google"),
+      fetch: createLoggingFetch("google") as typeof globalThis.fetch,
     });
   }
 

@@ -237,12 +237,23 @@ settingsRoutes.post("/validate-key", async (c) => {
   const providers = createProviders(keys);
 
   try {
-    const trackValidation = (provider: string, model: string, apiKey: string, usage: { inputTokens?: number; outputTokens?: number }) => {
+    const trackValidation = (
+      provider: string,
+      model: string,
+      apiKey: string,
+      usage: { inputTokens?: number; outputTokens?: number },
+      cacheCreationInputTokens = 0,
+      cacheReadInputTokens = 0,
+    ) => {
+      const rawInputTokens = usage.inputTokens || 0;
+      const nonCachedInputTokens = Math.max(0, rawInputTokens - cacheCreationInputTokens - cacheReadInputTokens);
       trackBillingOnly({
         agentName: "system:validate-key",
         provider, model, apiKey,
-        inputTokens: usage.inputTokens || 0,
+        inputTokens: nonCachedInputTokens,
         outputTokens: usage.outputTokens || 0,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
       });
     };
 
@@ -254,7 +265,11 @@ settingsRoutes.post("/validate-key", async (c) => {
           prompt: "Say hi",
           maxOutputTokens: 16,
         });
-        trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const meta = (result as any)?.providerMetadata?.anthropic;
+        const cacheCreate = Number(meta?.cacheCreationInputTokens ?? meta?.cache_creation_input_tokens) || 0;
+        const cacheRead = Number(meta?.cacheReadInputTokens ?? meta?.cache_read_input_tokens) || 0;
+        trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage, cacheCreate, cacheRead);
         return c.json({ valid: true, provider: "anthropic" });
       }
       case "openai": {

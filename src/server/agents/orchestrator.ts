@@ -201,6 +201,11 @@ export function buildFixPlan(userMessage: string, scope: IntentScope): Execution
   return { steps };
 }
 
+function buildQuickEditInput(scope: "styling" | "frontend", originalRequest: string): string {
+  const scopeText = scope === "styling" ? "styling " : "";
+  return `Fix the following ${scopeText}issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: ${originalRequest}`;
+}
+
 /**
  * Extract the design_system JSON from the architect's output and format it
  * as a readable section for downstream agents. Mutates the result object
@@ -1007,6 +1012,8 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         apiKey: providerKey,
         inputTokens: classification.tokenUsage.inputTokens,
         outputTokens: classification.tokenUsage.outputTokens,
+        cacheCreationInputTokens: classification.tokenUsage.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: classification.tokenUsage.cacheReadInputTokens || 0,
         projectId, projectName, chatTitle,
       });
     }
@@ -1044,13 +1051,14 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // styling/frontend = quick-edit (single agent, no reviewers)
   // backend/full = dev agent(s) + reviewers (no testing agent — finishPipeline runs actual tests)
   if (classification.intent === "fix" && hasFiles) {
-    const projectSource = readProjectSource(projectPath);
-    if (projectSource) {
-      agentResults.set("project-source", projectSource);
-    }
-
     const scope = classification.scope as IntentScope;
     const isQuickEdit = scope === "styling" || scope === "frontend";
+    if (!isQuickEdit) {
+      const projectSource = readProjectSource(projectPath);
+      if (projectSource) {
+        agentResults.set("project-source", projectSource);
+      }
+    }
 
     let quickPlan: ExecutionPlan | null = null;
     if (isQuickEdit) {
@@ -1059,7 +1067,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       quickPlan = {
         steps: [{
           agentName,
-          input: `Fix the following ${scope === "styling" ? "styling " : ""}issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+          input: buildQuickEditInput(scope, userMessage),
         }],
       };
     }
@@ -1315,8 +1323,10 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   // Mark pipeline as running again
   await db.update(schema.pipelineRuns).set({ status: "running" }).where(eq(schema.pipelineRuns.id, pipelineRunId));
 
-  // For fix mode, inject project source if not already in results
-  if (intent === "fix" && !agentResults.has("project-source")) {
+  // For fix mode, inject project source if not already in results.
+  // Quick-edit (styling/frontend) skips this to avoid huge prompt overhead.
+  const isQuickFixResume = intent === "fix" && (scope === "styling" || scope === "frontend");
+  if (intent === "fix" && !isQuickFixResume && !agentResults.has("project-source")) {
     const projectSource = readProjectSource(projectPath);
     if (projectSource) agentResults.set("project-source", projectSource);
   }
@@ -1339,7 +1349,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
       plan = {
         steps: [{
           agentName,
-          input: `Fix the following ${scope === "styling" ? "styling " : ""}issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${originalMessage}`,
+          input: buildQuickEditInput(scope, originalMessage),
         }],
       };
     } else {
@@ -2424,7 +2434,16 @@ export async function classifyIntent(
   userMessage: string,
   hasExistingFiles: boolean,
   providers: ProviderInstance
-): Promise<IntentClassification & { tokenUsage?: { inputTokens: number; outputTokens: number; provider: string; model: string } }> {
+): Promise<IntentClassification & {
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+    provider: string;
+    model: string;
+  }
+}> {
   // Fast path: empty project → always build
   if (!hasExistingFiles) {
     return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
@@ -2454,18 +2473,32 @@ export async function classifyIntent(
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const classifyAnthropicMeta = (result as any)?.providerMetadata?.anthropic;
+    const classifyCacheCreation = Number(classifyAnthropicMeta?.cacheCreationInputTokens ?? classifyAnthropicMeta?.cache_creation_input_tokens) || 0;
+    const classifyCacheRead = Number(classifyAnthropicMeta?.cacheReadInputTokens ?? classifyAnthropicMeta?.cache_read_input_tokens) || 0;
+    const classifyRawInput = result.usage.inputTokens || 0;
+    const classifyInputTokens = Math.max(0, classifyRawInput - classifyCacheCreation - classifyCacheRead);
+
     log("orchestrator:classify", `intent=${intent} scope=${scope}`, {
       model: classifyConfig.model,
       promptChars: userMessage.length,
-      tokens: { input: result.usage.inputTokens || 0, output: result.usage.outputTokens || 0 },
+      tokens: {
+        input: classifyInputTokens,
+        output: result.usage.outputTokens || 0,
+        cacheCreate: classifyCacheCreation,
+        cacheRead: classifyCacheRead,
+      },
       rawResponse: raw,
     });
 
     return {
       intent, scope, reasoning: parsed.reasoning || "",
       tokenUsage: {
-        inputTokens: result.usage.inputTokens || 0,
+        inputTokens: classifyInputTokens,
         outputTokens: result.usage.outputTokens || 0,
+        cacheCreationInputTokens: classifyCacheCreation,
+        cacheReadInputTokens: classifyCacheRead,
         provider: classifyConfig.provider,
         model: classifyConfig.model,
       },
@@ -2562,7 +2595,7 @@ export function buildExecutionPlan(
       return {
         steps: [{
           agentName: "styling",
-          input: `Fix the following styling issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+          input: buildQuickEditInput("styling", userMessage),
         }],
       };
     }
@@ -2570,7 +2603,7 @@ export function buildExecutionPlan(
       return {
         steps: [{
           agentName: "frontend-dev",
-          input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
+          input: buildQuickEditInput("frontend", userMessage),
         }],
       };
     }

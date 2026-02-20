@@ -16,6 +16,13 @@ Each API request records:
 - **Total tokens** — sum of input + output
 - **Cost estimate** — USD estimate based on model pricing
 
+Notes:
+- For providers that report cache token metadata (for example Anthropic), cached input tokens are split into:
+  - non-cached input tokens
+  - cache creation tokens
+  - cache read tokens
+- This prevents double-counting when provider SDK `inputTokens` includes cached tokens.
+
 ## Dual-Write Architecture
 
 Token usage is written to **two tables**:
@@ -105,6 +112,16 @@ All limits are stored in the `app_settings` table and configurable from Settings
 
 ### Reset
 - `DELETE /api/usage/reset` — Clears all rows from `token_usage` and `billing_ledger`. Returns `{ ok: true, deleted: { tokenUsage: N, billingLedger: M } }`. Useful for fresh testing.
+
+## Historical Reconciliation
+
+For one-time correction of historical ledger costs after pricing/multiplier changes:
+
+- Dry run: `bun run billing:reconcile`
+- Apply updates: `bun run billing:reconcile --apply`
+- Scoped example: `bun run billing:reconcile --provider anthropic --projectId <projectId> --apply`
+
+The reconciliation script recalculates `billing_ledger.cost_estimate` from stored token fields and current pricing settings.
 
 ## Real-Time Cost Display
 

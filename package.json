@@ -8,6 +8,7 @@
     "build": "vite build && bun build src/server/index.ts --outdir dist/server --target bun",
     "preview": "vite preview",
     "test": "bun test",
+    "billing:reconcile": "bun run src/server/scripts/reconcile-billing.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit"

@@ -275,6 +275,11 @@ Agents only receive relevant upstream data via `filterUpstreamOutputs()`, reduci
 - `testing` → `architect` only
 - Remediation/build-fix/re-review phases receive all outputs (full context needed)
 
+Quick-edit optimization for `fix` requests:
+- `scope=styling|frontend` runs a single dev agent and does **not** preload `project-source`
+- The agent is instructed to use `list_files` + `read_file` for targeted edits
+- This avoids sending large source dumps for small changes (for example, color tweaks)
+
 ### Build Check Pipeline
 
 After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:

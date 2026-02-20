@@ -71,6 +71,7 @@ bun test
 | `bun run dev:client` | Start frontend (Vite) dev server |
 | `bun run build` | Build for production |
 | `bun test` | Run all tests |
+| `bun run billing:reconcile` | Recalculate `billing_ledger.cost_estimate` using current pricing |
 | `bun run typecheck` | TypeScript type checking |
 | `bun run db:generate` | Generate Drizzle migrations |
 
