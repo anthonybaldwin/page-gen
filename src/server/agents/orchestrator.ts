@@ -15,6 +15,7 @@ import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps } from "../preview/vite-server.ts";
 import { createAgentTools } from "./tools.ts";
+import { log, logError, logWarn, logBlock } from "../services/logger.ts";
 
 const MAX_RETRIES = 3;
 const MAX_UNIQUE_ERRORS = 10;
@@ -209,7 +210,7 @@ export async function cleanupStaleExecutions(): Promise<number> {
     })
     .where(eq(schema.pipelineRuns.status, "running"));
 
-  console.log(`[orchestrator] Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
+  log("orchestrator", `Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
   return stale.length;
 }
 
@@ -370,7 +371,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       const alreadyWritten = new Set(nativeFiles);
       const fallbackFiles = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId, alreadyWritten);
       if (fallbackFiles.length > 0) {
-        console.warn(`[orchestrator] ${step.agentName} used text fallback for ${fallbackFiles.length} files`);
+        logWarn("orchestrator", `${step.agentName} used text fallback for ${fallbackFiles.length} files`);
       }
       const filesWritten = [...nativeFiles, ...fallbackFiles];
 
@@ -518,7 +519,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // --- Intent classification ---
   const hasFiles = projectHasFiles(projectPath);
   const classification = await classifyIntent(userMessage, hasFiles, providers);
-  console.log(`[orchestrator] Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
+  log("orchestrator", `Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
 
   // Track classifyIntent token usage
   if (classification.tokenUsage) {
@@ -730,10 +731,10 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
     plan = { steps: [...devSteps, ...postDevSteps] };
     const totalFiles = groupedPlan.shared.length + groupedPlan.components.length + groupedPlan.app.length;
-    console.log(`[orchestrator] Parallel dev pipeline: ${devSteps.length} frontend-dev agents for ${totalFiles} files`);
+    log("orchestrator", `Parallel dev pipeline: ${devSteps.length} frontend-dev agents for ${totalFiles} files`);
   } else {
     // Fallback: single frontend-dev (current behavior)
-    console.log(`[orchestrator] Using single frontend-dev (architect file_plan not parseable or empty)`);
+    log("orchestrator", `Using single frontend-dev (architect file_plan not parseable or empty)`);
     plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
     // Remove architect step since it already ran
     plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
@@ -879,7 +880,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
 
   // For build mode, if research hasn't completed, we can't resume — start fresh
   if (intent === "build" && !agentResults.has("research")) {
-    console.log("[orchestrator] Research not completed — cannot resume, starting fresh");
+    log("orchestrator", "Research not completed — cannot resume, starting fresh");
     await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     abortControllers.delete(chatId);
     return runOrchestration(input);
@@ -930,7 +931,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
 
   if (remainingSteps.length === 0) {
     // All agents completed — just run finish pipeline
-    console.log("[orchestrator] All agents already completed — running finish pipeline");
+    log("orchestrator", "All agents already completed — running finish pipeline");
   } else {
     // Broadcast pipeline plan showing all agents (completed + remaining)
     const allStepIds = plan.steps.map((s) => s.instanceId ?? s.agentName);
@@ -1013,9 +1014,9 @@ async function executePipelineSteps(ctx: {
   const remaining = [...plan.steps];
 
   // Log plan structure for parallel execution diagnosis
-  console.log(`[orchestrator] executePipelineSteps: ${remaining.length} steps, completedSet: [${[...completedSet].join(", ")}]`);
+  log("orchestrator", `executePipelineSteps: ${remaining.length} steps, completedSet: [${[...completedSet].join(", ")}]`);
   for (const s of remaining) {
-    console.log(`  step: ${s.instanceId ?? s.agentName} (agent=${s.agentName}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
+    log("orchestrator", `  step: ${s.instanceId ?? s.agentName} (agent=${s.agentName}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
   }
 
   while (remaining.length > 0) {
@@ -1050,7 +1051,7 @@ async function executePipelineSteps(ctx: {
     // For parallel batches (size > 1), skip per-agent build checks — run one after the batch
     const isParallelBatch = ready.length > 1;
     const readyNames = ready.map((s) => s.instanceId ?? s.agentName);
-    console.log(`[orchestrator] Running batch of ${ready.length} step(s): ${readyNames.join(", ")}${isParallelBatch ? " [PARALLEL]" : ""}`);
+    log("orchestrator", `Running batch of ${ready.length} step(s): ${readyNames.join(", ")}${isParallelBatch ? " [PARALLEL]" : ""}`);
 
     // Run all ready steps concurrently
     const results = await Promise.all(
@@ -1089,7 +1090,7 @@ async function executePipelineSteps(ctx: {
     if (isParallelBatch && !signal.aborted) {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
-        console.log(`[orchestrator] Running consolidated build check after parallel batch`);
+        log("orchestrator", `Running consolidated build check after parallel batch`);
         const buildErrors = await checkProjectBuild(projectPath);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
@@ -1287,12 +1288,19 @@ async function handleQuestion(ctx: {
           totalTokens: (result.usage.inputTokens || 0) + (result.usage.outputTokens || 0),
           costEstimate: record.costEstimate,
         });
+
+        log("orchestrator:question", "answered", {
+          model: questionConfig.model,
+          promptChars: prompt.length,
+          tokens: { input: result.usage.inputTokens || 0, output: result.usage.outputTokens || 0, cacheCreate: cacheCreation, cacheRead },
+        });
       }
     }
+    logBlock("orchestrator:question", "response", result.text);
 
     return result.text;
   } catch (err) {
-    console.error("[orchestrator] Question handling failed:", err);
+    logError("orchestrator", "Question handling failed", err);
     return "I encountered an error processing your question. Please try again.";
   }
 }
@@ -1393,8 +1401,15 @@ async function generateSummary(input: SummaryInput): Promise<string> {
         totalTokens: inputTokens + outputTokens,
         costEstimate: record.costEstimate,
       });
+
+      log("orchestrator:summary", "generated", {
+        model: summaryConfig.model,
+        promptChars: prompt.length,
+        tokens: { input: inputTokens, output: outputTokens, cacheCreate: summaryCacheCreation, cacheRead: summaryCacheRead },
+      });
     }
   }
+  logBlock("orchestrator:summary", "response", result.text);
 
   return result.text;
 }
@@ -1533,7 +1548,7 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
       (findings.qaFindings ? 1 : 0) +
       (findings.securityFindings ? 1 : 0);
     if (currentIssueCount >= previousIssueCount) {
-      console.log(`[orchestrator] Remediation not improving (${currentIssueCount} >= ${previousIssueCount}). Breaking loop.`);
+      log("orchestrator", `Remediation not improving (${currentIssueCount} >= ${previousIssueCount}). Breaking loop.`);
       return;
     }
     previousIssueCount = currentIssueCount;
@@ -1877,6 +1892,13 @@ export async function classifyIntent(
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
 
+    log("orchestrator:classify", `intent=${intent} scope=${scope}`, {
+      model: classifyConfig.model,
+      promptChars: userMessage.length,
+      tokens: { input: result.usage.inputTokens || 0, output: result.usage.outputTokens || 0 },
+      rawResponse: raw,
+    });
+
     return {
       intent, scope, reasoning: parsed.reasoning || "",
       tokenUsage: {
@@ -1887,7 +1909,7 @@ export async function classifyIntent(
       },
     };
   } catch (err) {
-    console.error("[orchestrator] Intent classification failed, defaulting to build:", err);
+    logError("orchestrator", "Intent classification failed, defaulting to build", err);
     return { intent: "build", scope: "full", reasoning: "Fallback: classification error" };
   }
 }
@@ -2268,7 +2290,7 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
             .replace(/(?<!\\)\t/g, "\\t");     // escape literal tabs
           const parsed = JSON.parse(repairedJson.trim());
           if (parsed.name === "write_file" && parsed.parameters?.path && parsed.parameters?.content) {
-            console.warn(`[extractFiles] JSON repaired for ${parsed.parameters.path}`);
+            logWarn("extractFiles", `JSON repaired for ${parsed.parameters.path}`);
             addFile(parsed.parameters.path, parsed.parameters.content);
             repaired = true;
           }
@@ -2283,10 +2305,10 @@ export function extractFilesFromOutput(agentOutput: string): Array<{ path: strin
           if (pathMatch?.[1] && contentMatch?.[1]) {
             try {
               const content = JSON.parse('"' + contentMatch[1] + '"');
-              console.warn(`[extractFiles] Regex fallback used for ${pathMatch[1]} (${content.length} chars)`);
+              logWarn("extractFiles", `Regex fallback used for ${pathMatch[1]} (${content.length} chars)`);
               addFile(pathMatch[1], content);
             } catch {
-              console.warn(`[extractFiles] Failed to extract file from tool_call block`);
+              logWarn("extractFiles", `Failed to extract file from tool_call block`);
             }
           }
         }
@@ -2334,7 +2356,7 @@ function extractAndWriteFiles(
       writeFile(projectPath, file.path, file.content);
       written.push(file.path);
     } catch (err) {
-      console.error(`[orchestrator] Failed to write ${file.path}:`, err);
+      logError("orchestrator", `Failed to write ${file.path}`, err);
     }
   }
 
@@ -2353,10 +2375,10 @@ function extractAndWriteFiles(
       previewPrepStarted.add(projectId);
       prepareProjectForPreview(projectPath)
         .then(() => {
-          console.log(`[orchestrator] Project ${projectId} scaffolded for preview (waiting for build check)`);
+          log("orchestrator", `Project ${projectId} scaffolded for preview (waiting for build check)`);
         })
         .catch((err) => {
-          console.error(`[orchestrator] Preview preparation failed:`, err);
+          logError("orchestrator", "Preview preparation failed", err);
         });
     }
   }
@@ -2376,7 +2398,7 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
   // Wait for any pending preview prep (which includes bun install)
   await prepareProjectForPreview(projectPath);
 
-  console.log(`[orchestrator] Running build check in ${fullPath}...`);
+  log("orchestrator", `Running build check in ${fullPath}...`);
 
   const BUILD_TIMEOUT_MS = 30_000;
 
@@ -2394,14 +2416,14 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     const result = await Promise.race([proc.exited, timeout]);
 
     if (result === "timeout") {
-      console.warn(`[orchestrator] Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("orchestrator", `Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
       proc.kill();
       return null; // Don't block pipeline on timeout
     }
 
     const exitCode = result;
     if (exitCode === 0) {
-      console.log(`[orchestrator] Build check passed`);
+      log("orchestrator", "Build check passed");
       return null;
     }
 
@@ -2417,10 +2439,10 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     // Deduplicate by core error pattern (strip file paths, keep error type + message)
     const deduped = deduplicateErrors(errorLines);
     const errors = deduped || combined.slice(0, 2000);
-    console.log(`[orchestrator] Build check failed:\n${errors}`);
+    logBlock("orchestrator", "Build check failed", errors);
     return errors;
   } catch (err) {
-    console.error(`[orchestrator] Build check process error:`, err);
+    logError("orchestrator", "Build check process error", err);
     return null; // Don't block pipeline on check failure
   }
 }
@@ -2663,7 +2685,7 @@ export async function runProjectTests(
   // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath);
 
-  console.log(`[orchestrator] Running tests in ${fullPath}...`);
+  log("orchestrator", `Running tests in ${fullPath}...`);
 
   const TEST_TIMEOUT_MS = 60_000;
 
@@ -2711,7 +2733,7 @@ export async function runProjectTests(
     const exitResult = await Promise.race([proc.exited, timeout]);
 
     if (exitResult === "timeout") {
-      console.warn(`[orchestrator] Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("orchestrator", `Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
       proc.kill();
       return null;
     }
@@ -2720,7 +2742,7 @@ export async function runProjectTests(
     const stderr = await new Response(proc.stderr).text();
 
     if (stderr.trim()) {
-      console.log("[orchestrator] Test stderr:", stderr.trim().slice(0, 2000));
+      logBlock("orchestrator", "Test stderr", stderr.trim().slice(0, 2000));
     }
 
     // Read JSON output from file (json reporter writes to outputFile)
@@ -2740,10 +2762,10 @@ export async function runProjectTests(
       ...result,
     });
 
-    console.log(`[orchestrator] Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
+    log("orchestrator", `Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
     return result;
   } catch (err) {
-    console.error(`[orchestrator] Test runner error:`, err);
+    logError("orchestrator", "Test runner error", err);
     return null;
   }
 }

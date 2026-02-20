@@ -7,6 +7,7 @@ import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
+import { log, logBlock } from "../services/logger.ts";
 
 /** Resolve a human-readable display name for parallel frontend-dev instances. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
@@ -76,7 +77,7 @@ export async function runAgent(
 
   try {
     const builtPrompt = buildPrompt(input);
-    console.log(`[pipeline] agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
+    log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
 
     const result = streamText({
       model: provider,
@@ -168,6 +169,19 @@ export async function runAgent(
     const cleanText = stripTrailingJson(fullText);
     const summary = extractSummary(cleanText, config.name);
 
+    log("pipeline", `agent=${broadcastName} completed`, {
+      outputChars: cleanText.length,
+      filesWritten: filesWritten.length,
+      tokens: {
+        input: inputTokens,
+        output: outputTokens,
+        cacheCreate: cacheCreationInputTokens,
+        cacheRead: cacheReadInputTokens,
+        total: totalInputTokens + outputTokens,
+      },
+    });
+    logBlock("pipeline", `agent=${broadcastName} output`, cleanText);
+
     broadcastAgentStatus(cid, broadcastName, "completed");
     broadcastAgentStream(cid, broadcastName, cleanText);
     broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "completed", { summary });
@@ -246,7 +260,7 @@ export function buildPrompt(input: AgentInput): string {
   const breakdown = Object.entries(sizeBreakdown)
     .map(([k, v]) => `${k}=${v.toLocaleString()}`)
     .join(" ");
-  console.log(`[pipeline] prompt total=${prompt.length.toLocaleString()}chars ${breakdown}`);
+  log("pipeline", `prompt total=${prompt.length.toLocaleString()}chars ${breakdown}`);
 
   return prompt;
 }

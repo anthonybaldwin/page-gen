@@ -12,13 +12,14 @@ import { settingsRoutes } from "./routes/settings.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
+import { log, logError } from "./services/logger.ts";
 
 // Run migrations on startup
 runMigrations();
 
 // Clean up any agent executions left in "running" state from a previous server instance
 cleanupStaleExecutions().catch((err) => {
-  console.error("[server] Failed to clean up stale executions:", err);
+  logError("server", "Failed to clean up stale executions", err);
 });
 
 const app = new Hono();
@@ -88,6 +89,6 @@ const server = Bun.serve({
 // Register server for WebSocket broadcasts
 setServer(server);
 
-console.log(`[server] Running on http://localhost:${PORT}`);
+log("server", `Started on http://localhost:${PORT}`);
 
 export { app, server };
