@@ -104,13 +104,9 @@ export const useAgentThinkingStore = create<AgentThinkingState>((set) => ({
 
   loadFromExecutions: (executions) =>
     set(() => {
-      // Skip the orchestrator summary execution
-      const agentExecs = executions.filter(
-        (e) => e.agentName !== "orchestrator"
-      );
-      if (agentExecs.length === 0) return { blocks: [] };
+      if (executions.length === 0) return { blocks: [] };
 
-      const blocks: ThinkingBlock[] = agentExecs.map((exec) => {
+      const blocks: ThinkingBlock[] = executions.map((exec) => {
         // Test results have their own block type
         if (exec.agentName === "test-results" && exec.output) {
           try {

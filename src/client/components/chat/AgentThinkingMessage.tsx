@@ -29,14 +29,43 @@ function summarizeStructuredOutput(raw: string): string {
 
   if (lines.length > 0) return lines.join("\n");
 
-  // Always attempt regex extraction on the raw string (handles streaming/partial JSON)
+  // Regex extraction for streaming/partial JSON — pair names with nearest descriptions
+  const nameMatches = [...raw.matchAll(/"(?:name|title)":\s*"([^"]{2,})"/gi)].map(m => ({ value: m[1]!, pos: m.index! }));
+  const descMatches = [...raw.matchAll(/"(?:description|summary|purpose|reason)":\s*"([^"]{10,})"/gi)].map(m => ({ value: m[1]!, pos: m.index! }));
+
   const seen = new Set<string>();
-  const stringValues = [...raw.matchAll(/"(description|summary|purpose|name|title|reason)":\s*"([^"]{10,})"/gi)];
-  for (const m of stringValues) {
-    const key = `${m[1].toLowerCase()}:${m[2]}`;
-    if (!seen.has(key)) {
+
+  if (nameMatches.length > 0) {
+    for (let i = 0; i < nameMatches.length; i++) {
+      const name = nameMatches[i]!;
+      const nextNamePos = i + 1 < nameMatches.length ? nameMatches[i + 1]!.pos : Infinity;
+      // Find nearest description after this name but before the next name
+      const pairedDesc = descMatches.find(d => d.pos > name.pos && d.pos < nextNamePos);
+      const key = `name:${name.value}`;
+      if (seen.has(key)) continue;
       seen.add(key);
-      lines.push(`**${m[1]}:** ${m[2]}`);
+      if (pairedDesc) {
+        lines.push(`- **${name.value}** — ${pairedDesc.value}`);
+        seen.add(`desc:${pairedDesc.value}`);
+      } else {
+        lines.push(`- **${name.value}**`);
+      }
+    }
+    // Add any unpaired descriptions
+    for (const desc of descMatches) {
+      if (!seen.has(`desc:${desc.value}`)) {
+        lines.push(`- ${desc.value}`);
+        seen.add(`desc:${desc.value}`);
+      }
+    }
+  } else {
+    // No names found — show descriptions as plain bullets
+    for (const desc of descMatches) {
+      const key = `desc:${desc.value}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        lines.push(`- ${desc.value}`);
+      }
     }
   }
 
@@ -120,6 +149,14 @@ function humanizeToolCall(raw: string): string {
 }
 
 function sanitizeThinking(raw: string): string {
+  // Early JSON routing: if content looks like structured JSON, summarize it directly
+  // instead of running destructive stripping that produces garbage
+  const jsonKeyCount = (raw.match(/"[\w_-]+"\s*:/g) || []).length;
+  if (jsonKeyCount >= 3) {
+    const structuredSummary = summarizeStructuredOutput(raw);
+    if (structuredSummary) return structuredSummary;
+  }
+
   let cleaned = raw;
 
   cleaned = cleaned.replace(/<tool_call[\s\S]*?(<\/tool_call>|$)/gi, (match) => {
@@ -135,8 +172,8 @@ function sanitizeThinking(raw: string): string {
 
   cleaned = cleaned.replace(/```(?:json|xml|typescript|tsx|ts|jsx|javascript|js|css|html)?\n[\s\S]*?```/g, (match) => {
     const inner = match.replace(/```\w*\n?/, "").replace(/\n?```$/, "").trim();
-    if (inner.startsWith("{") || inner.startsWith("[") || inner.startsWith("<")) return "";
-    if (inner.split("\n").length > 10) return "";
+    if (inner.startsWith("{") || inner.startsWith("[") || inner.startsWith("<")) return "\n\n";
+    if (inner.split("\n").length > 10) return "\n\n";
     return match;
   });
 
@@ -152,11 +189,6 @@ function sanitizeThinking(raw: string): string {
 
   cleaned = cleaned.replace(/^\s*[}\]],?\s*$/gm, "");
   cleaned = cleaned.replace(/^\s*"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null|\[.*?\]|\{.*?\}),?\s*$/gm, "");
-
-  // Strip compact inline JSON key-value pairs (handles single-line JSON without line breaks)
-  cleaned = cleaned.replace(/"[\w_-]+"\s*:\s*(?:"[^"]*"|[\d.]+|true|false|null)\s*,?\s*/g, " ");
-  // Clean up leftover braces/brackets from stripped JSON
-  cleaned = cleaned.replace(/[{}[\]]+/g, " ");
 
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   cleaned = cleaned.replace(/  +/g, " ");
@@ -262,23 +294,27 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
         </Button>
 
         {/* Expandable thinking body */}
-        {expanded && (cleanContent || showRaw) && (
+        {expanded && (
           <div
             ref={scrollRef}
             className="border-t border-border/60 max-h-60 overflow-y-auto"
           >
+            {(cleanContent || showRaw || summary) && (
             <div className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
               {showRaw ? (
                 <pre className="whitespace-pre-wrap break-words font-mono text-muted-foreground/60">{content}</pre>
-              ) : (
+              ) : cleanContent ? (
                 <Suspense fallback={<div className="whitespace-pre-wrap">{cleanContent}</div>}>
                   <MarkdownContent content={cleanContent} />
                 </Suspense>
-              )}
+              ) : summary ? (
+                <span className="italic">{summary}</span>
+              ) : null}
               {isActive && (
                 <span className="inline-block w-1.5 h-3 bg-primary animate-pulse rounded-sm align-middle ml-0.5" />
               )}
             </div>
+            )}
             {/* Tool call log */}
             {toolCalls && toolCalls.length > 0 && (
               <div className="px-4 pb-2 flex flex-wrap gap-1.5">

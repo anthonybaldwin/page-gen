@@ -149,14 +149,15 @@ describe("agentThinkingStore", () => {
       expect(blocks[0]!.id).not.toBe(blocks[1]!.id);
     });
 
-    test("filters out orchestrator executions", () => {
+    test("includes orchestrator executions", () => {
       const store = getStore();
       store.loadFromExecutions([
         { agentName: "orchestrator", status: "completed", output: '{"content":"summary"}', startedAt: 1000 },
         { agentName: "research", status: "completed", output: '{"content":"hello"}', startedAt: 2000 },
       ]);
-      expect(getStore().blocks).toHaveLength(1);
-      expect(getStore().blocks[0]!.agentName).toBe("research");
+      expect(getStore().blocks).toHaveLength(2);
+      expect(getStore().blocks[0]!.agentName).toBe("orchestrator");
+      expect(getStore().blocks[1]!.agentName).toBe("research");
     });
   });
 
