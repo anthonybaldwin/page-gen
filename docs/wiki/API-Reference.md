@@ -108,6 +108,11 @@ Get full billing history from `billing_ledger` (never deleted).
 - `from` — Start timestamp (Unix ms)
 - `to` — End timestamp (Unix ms)
 
+### DELETE /usage/reset
+Clear all billing data. Deletes all rows from both `token_usage` and `billing_ledger` tables.
+
+**Response:** `{ ok: true, deleted: { tokenUsage: number, billingLedger: number } }`
+
 ## Settings
 
 ### GET /settings

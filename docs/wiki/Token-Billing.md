@@ -23,10 +23,13 @@ Token usage is written to **two tables**:
 1. **`token_usage`** (operational) — Has FK references to `chats` and `agent_executions`. Deleted when a chat or project is deleted. Used for active session views.
 2. **`billing_ledger`** (permanent) — No foreign keys. Never deleted. Includes denormalized `project_name` and `chat_title` snapshots so records are self-contained even after parent entities are removed.
 
+A third function, **`trackBillingOnly()`**, writes only to `billing_ledger` for system calls (e.g., API key validation) that have no matching `agentExecutions` or `chats` record and would violate FK constraints on `token_usage`.
+
 This ensures:
 - Active session dashboards show real-time operational data
 - Lifetime cost tracking is never lost, even after cleanup
 - The "Total spent" badge always reflects true lifetime spend
+- System calls are tracked for billing without FK violations
 
 ## Cost Estimation
 
@@ -86,6 +89,9 @@ All limits are stored in the `app_settings` table and configurable from Settings
 - `GET /api/usage/summary` — Aggregate totals (reads from billing_ledger)
 - `GET /api/usage/by-project` — Grouped by project
 - `GET /api/usage/history` — Full billing history with optional filters: `?projectId`, `?chatId`, `?from`, `?to`
+
+### Reset
+- `DELETE /api/usage/reset` — Clears all rows from `token_usage` and `billing_ledger`. Returns `{ ok: true, deleted: { tokenUsage: N, billingLedger: M } }`. Useful for fresh testing.
 
 ## Real-Time Cost Display
 

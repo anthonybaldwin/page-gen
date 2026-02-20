@@ -7,7 +7,10 @@ The system uses 10 specialized AI agents, coordinated by an orchestrator. Each a
 ## Agents
 
 ### 1. Orchestrator
-- **Model:** Claude Opus 4.6 (Anthropic)
+- **Model:** Claude Opus 4.6 (Anthropic) for agent dispatch; uses cheaper models for subtasks:
+  - **classifyIntent** → Haiku (~97% cheaper than Opus)
+  - **generateSummary** → Sonnet (5x cheaper than Opus)
+  - **handleQuestion** → Sonnet (5x cheaper than Opus)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
 - **Tools:** Agent dispatch, snapshot creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
@@ -82,9 +85,9 @@ Before running the pipeline, the orchestrator classifies the user's message into
 |--------|------|----------|
 | **build** | New feature, new project, adding something new | Full pipeline (research → architect → devs → reviewers) |
 | **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
-| **question** | Asking about the project or non-code request | Direct Opus answer with project context, no pipeline |
+| **question** | Asking about the project or non-code request | Direct Sonnet answer with project context, no pipeline |
 
-Classification uses a ~50-token Opus call. Fast-path: empty projects always get "build" (no API call needed).
+Classification uses a ~50-token Haiku call (cheap, fast). Fast-path: empty projects always get "build" (no API call needed).
 
 ### Build Pipeline (Parallelized)
 
@@ -103,7 +106,7 @@ User → Orchestrator → classifyIntent() → "build" (scope used for backend g
       → Code Review ─┐
       → Security     ├─ (parallel, all depend on Styling)
       → QA           ─┘
-  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
+  → Remediation Loop (max 1 cycle, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
 
@@ -125,7 +128,7 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
   → Code Review ─┐
   → Security     ├─ (parallel, all depend on last dev agent)
   → QA           ─┘
-  → Remediation Loop (max 2 cycles, re-reviews run in parallel)
+  → Remediation Loop (max 1 cycle, re-reviews run in parallel)
   → [Final Build Check] → Summary
 ```
 
@@ -134,7 +137,7 @@ User → Orchestrator → classifyIntent() → "fix" (scope: frontend|backend|st
 ```
 User → Orchestrator → classifyIntent() → "question"
   → Read project source for context
-  → Single Opus call → Direct answer (no agents, no pipeline bar)
+  → Single Sonnet call → Direct answer (no agents, no pipeline bar)
 ```
 
 ### Parallelization Details
@@ -169,7 +172,7 @@ The `AgentStatusPanel` resolves display names for parallel instances: `frontend-
 
 - Each agent's output is collected internally by the orchestrator (not saved as a chat message).
 - Agent execution records are still saved to the `agentExecutions` table for debugging and the status panel.
-- After the pipeline completes, the orchestrator calls its own model to generate a single markdown summary.
+- After the pipeline completes, the orchestrator calls Sonnet to generate a single markdown summary (agent outputs are truncated to 500 chars each in the digest).
 - Only this summary is saved as a chat message and shown to the user.
 - The pipeline halts immediately on any agent failure. Up to 3 retries are attempted before halting.
 - All WebSocket messages include `chatId` so multiple chats can run simultaneously without cross-talk.
@@ -190,7 +193,7 @@ After the initial code-review, security, and QA agents run, the orchestrator che
 1. **Route findings** to the correct dev agent(s) based on `[frontend]`/`[backend]`/`[styling]` tags from code-review and QA output. Defaults to frontend-dev when no clear routing.
 2. **Dev agent(s)** receive the findings and output corrected files
 3. **Re-review agents run in parallel:** Code Reviewer, Security Reviewer, and QA Agent all re-evaluate simultaneously
-4. If issues persist, the loop repeats (max 2 cycles)
+4. If issues persist, the loop repeats (max 1 cycle)
 
 Each cycle checks the cost limit before proceeding. The loop exits early if:
 - All issues are resolved (code-review passes + security passes + QA passes)
@@ -239,13 +242,27 @@ The fallback extraction pipeline handles agents that don't use native tools:
 6. Files are written to the project directory via `file-ops.ts`
 7. A `files_changed` WebSocket event is broadcast so the UI updates
 
+### Upstream Output Filtering
+
+Agents only receive relevant upstream data via `filterUpstreamOutputs()`, reducing prompt size:
+- `frontend-dev-N` (parallel instances) → only `architect`
+- `frontend-dev-app` → `architect` + all `frontend-dev-*` outputs
+- `frontend-dev` (single) → `architect` + `research`
+- `backend-dev` → `architect` + `research`
+- `styling` → `architect` only
+- Review agents (`code-review`, `security`, `qa`) → dev agent outputs only (they need the code)
+- `testing` → `architect` only
+- Remediation/build-fix/re-review phases receive all outputs (full context needed)
+
 ### Build Check Pipeline
 
 After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:
 1. Runs `bunx vite build --mode development` to check for compile errors
-2. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
-3. Only broadcasts `preview_ready` after a successful build
-4. The preview pane updates live once the build passes
+2. Build errors are **deduplicated** by core pattern and capped at 10 unique errors (e.g., `[3x] Cannot find module '@/utils'`)
+3. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
+4. Test failures are capped at 5 per fix attempt with a truncation message
+5. Only broadcasts `preview_ready` after a successful build
+6. The preview pane updates live once the build passes
 
 ## Token Tracking
 
