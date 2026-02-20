@@ -691,6 +691,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         );
         broadcastTokenUsage({
           chatId,
+          projectId,
           agentName: stepKey,
           provider: config.provider,
           model: config.model,
@@ -1744,7 +1745,8 @@ async function handleQuestion(ctx: {
         });
 
         broadcastTokenUsage({
-          chatId, agentName: "orchestrator:question",
+          chatId, projectId,
+          agentName: "orchestrator:question",
           provider: questionConfig.provider,
           model: questionConfig.model,
           inputTokens: qInputTokens,
@@ -1879,7 +1881,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       });
 
       broadcastTokenUsage({
-        chatId, agentName: "orchestrator:summary",
+        chatId, projectId,
+        agentName: "orchestrator:summary",
         provider: summaryConfig.provider,
         model: summaryConfig.model,
         inputTokens, outputTokens,
@@ -2191,7 +2194,7 @@ async function runFixAgent(
         result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
       );
       broadcastTokenUsage({
-        chatId: ctx.chatId, agentName,
+        chatId: ctx.chatId, projectId: ctx.projectId, agentName,
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
@@ -2315,7 +2318,7 @@ async function runReviewAgent(
         result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
       );
       broadcastTokenUsage({
-        chatId: ctx.chatId, agentName,
+        chatId: ctx.chatId, projectId: ctx.projectId, agentName,
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
@@ -2999,7 +3002,7 @@ async function runBuildFix(params: {
         result.tokenUsage.cacheCreationInputTokens || 0, result.tokenUsage.cacheReadInputTokens || 0,
       );
       broadcastTokenUsage({
-        chatId, agentName: fixAgent,
+        chatId, projectId, agentName: fixAgent,
         provider: config.provider, model: config.model,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,

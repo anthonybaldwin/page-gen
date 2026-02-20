@@ -47,6 +47,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     setActiveChatId(activeChat?.id ?? null);
   }, [activeChat, setActiveChatId]);
 
+  // Sync active project id to usage store
+  const setActiveProjectId = useUsageStore((s) => s.setActiveProjectId);
+  useEffect(() => {
+    setActiveProjectId(activeProject?.id ?? null);
+  }, [activeProject, setActiveProjectId]);
+
   useEffect(() => {
     api.get<Project[]>("/projects").then(setProjects).catch(console.error);
   }, [setProjects]);

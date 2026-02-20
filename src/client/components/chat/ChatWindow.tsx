@@ -219,6 +219,7 @@ export function ChatWindow() {
       if (msg.type === "token_usage") {
         const payload = msg.payload as {
           chatId: string;
+          projectId?: string;
           agentName: string;
           provider: string;
           model: string;

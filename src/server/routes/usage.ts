@@ -7,10 +7,12 @@ export const usageRoutes = new Hono();
 
 /** Build WHERE conditions from common query params (chatId, from, to). */
 function buildFilters(c: { req: { query: (k: string) => string | undefined } }) {
+  const projectId = c.req.query("projectId");
   const chatId = c.req.query("chatId");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const conditions = [];
+  if (projectId) conditions.push(eq(schema.billingLedger.projectId, projectId));
   if (chatId) conditions.push(eq(schema.billingLedger.chatId, chatId));
   if (from) conditions.push(gte(schema.billingLedger.createdAt, parseInt(from, 10)));
   if (to) conditions.push(lte(schema.billingLedger.createdAt, parseInt(to, 10)));

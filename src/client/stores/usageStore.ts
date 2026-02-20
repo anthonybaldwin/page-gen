@@ -8,12 +8,19 @@ interface UsageState {
   chatTokens: number;
   chatCost: number;
   activeChatId: string | null;
+  projectTokens: number;
+  projectCost: number;
+  activeProjectId: string | null;
   setRecords: (records: TokenUsage[]) => void;
   addRecord: (record: TokenUsage) => void;
   setActiveChatId: (chatId: string | null) => void;
+  setActiveProjectId: (projectId: string | null) => void;
   setLifetimeCost: (cost: number) => void;
+  seedChatCost: (cost: number) => void;
+  seedProjectCost: (cost: number) => void;
   addFromWs: (payload: {
     chatId: string;
+    projectId?: string;
     agentName: string;
     provider: string;
     model: string;
@@ -31,6 +38,9 @@ export const useUsageStore = create<UsageState>((set) => ({
   chatTokens: 0,
   chatCost: 0,
   activeChatId: null,
+  projectTokens: 0,
+  projectCost: 0,
+  activeProjectId: null,
 
   setRecords: (records) =>
     set({
@@ -52,8 +62,17 @@ export const useUsageStore = create<UsageState>((set) => ({
   setActiveChatId: (chatId) =>
     set({ activeChatId: chatId, chatTokens: 0, chatCost: 0 }),
 
+  setActiveProjectId: (projectId) =>
+    set({ activeProjectId: projectId, projectTokens: 0, projectCost: 0 }),
+
   setLifetimeCost: (cost) =>
     set({ totalCost: cost }),
+
+  seedChatCost: (cost) =>
+    set({ chatCost: cost }),
+
+  seedProjectCost: (cost) =>
+    set({ projectCost: cost }),
 
   addFromWs: (payload) =>
     set((state) => {
@@ -61,14 +80,20 @@ export const useUsageStore = create<UsageState>((set) => ({
         totalTokens: state.totalTokens + payload.totalTokens,
         totalCost: state.totalCost + payload.costEstimate,
       };
-      // Increment per-chat counters if this payload matches the active chat
-      if (state.activeChatId && payload.chatId === state.activeChatId) {
-        return {
-          ...newTotal,
-          chatTokens: state.chatTokens + payload.totalTokens,
-          chatCost: state.chatCost + payload.costEstimate,
-        };
-      }
-      return newTotal;
+      const chatUpdate =
+        state.activeChatId && payload.chatId === state.activeChatId
+          ? {
+              chatTokens: state.chatTokens + payload.totalTokens,
+              chatCost: state.chatCost + payload.costEstimate,
+            }
+          : {};
+      const projectUpdate =
+        state.activeProjectId && payload.projectId === state.activeProjectId
+          ? {
+              projectTokens: state.projectTokens + payload.totalTokens,
+              projectCost: state.projectCost + payload.costEstimate,
+            }
+          : {};
+      return { ...newTotal, ...chatUpdate, ...projectUpdate };
     }),
 }));

@@ -54,6 +54,7 @@ export function broadcastFilesChanged(projectId: string, files: string[]) {
 
 export function broadcastTokenUsage(payload: {
   chatId: string;
+  projectId?: string;
   agentName: string;
   provider: string;
   model: string;
