@@ -4,13 +4,15 @@ import { LimitsSettings } from "../billing/LimitsSettings.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { PromptEditor } from "./PromptEditor.tsx";
 import { ToolSettings } from "./ToolSettings.tsx";
+import { CacheSettings } from "./CacheSettings.tsx";
 
-type Tab = "keys" | "limits" | "models" | "prompts" | "tools";
+type Tab = "keys" | "limits" | "models" | "cache" | "prompts" | "tools";
 
 const TAB_LABELS: Record<Tab, string> = {
   keys: "API Keys",
   limits: "Limits",
   models: "Models",
+  cache: "Cache",
   prompts: "Prompts",
   tools: "Tools",
 };
@@ -61,6 +63,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         {activeTab === "keys" && <ApiKeySettings />}
         {activeTab === "limits" && <LimitsSettings />}
         {activeTab === "models" && <ModelSettings />}
+        {activeTab === "cache" && <CacheSettings />}
         {activeTab === "prompts" && <PromptEditor />}
         {activeTab === "tools" && <ToolSettings />}
       </div>
