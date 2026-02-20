@@ -37,13 +37,13 @@ User Message → Orchestrator → Research → Architect → Frontend Dev → St
 ### Model Assignment
 | Agent | Model | Provider |
 |-------|-------|----------|
-| Orchestrator | claude-sonnet-4-5-20250929 | Anthropic |
-| Research | claude-sonnet-4-5-20250929 | Anthropic |
-| Architect | claude-sonnet-4-5-20250929 | Anthropic |
-| Frontend Dev | claude-sonnet-4-5-20250929 | Anthropic |
-| Backend Dev | claude-sonnet-4-5-20250929 | Anthropic |
-| Styling | claude-sonnet-4-5-20250929 | Anthropic |
-| QA | claude-sonnet-4-5-20250929 | Anthropic |
+| Orchestrator | claude-sonnet-4-6 | Anthropic |
+| Research | claude-sonnet-4-6 | Anthropic |
+| Architect | claude-sonnet-4-6 | Anthropic |
+| Frontend Dev | claude-sonnet-4-6 | Anthropic |
+| Backend Dev | claude-sonnet-4-6 | Anthropic |
+| Styling | claude-sonnet-4-6 | Anthropic |
+| QA | claude-sonnet-4-6 | Anthropic |
 | Security | claude-haiku-4-5-20251001 | Anthropic |
 
 ## Alternatives Considered

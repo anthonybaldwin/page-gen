@@ -21,7 +21,7 @@ describe("Agent Registry", () => {
   test("getAgentConfig returns correct config", () => {
     const orchestrator = getAgentConfig("orchestrator");
     expect(orchestrator).toBeDefined();
-    expect(orchestrator!.model).toBe("claude-sonnet-4-5-20250929");
+    expect(orchestrator!.model).toBe("claude-sonnet-4-6");
     expect(orchestrator!.provider).toBe("anthropic");
   });
 
@@ -33,7 +33,7 @@ describe("Agent Registry", () => {
   test("all main agents default to sonnet-4-5", () => {
     for (const name of ["orchestrator", "research", "architect", "frontend-dev", "backend-dev", "styling", "code-review", "qa", "testing"] as const) {
       const config = getAgentConfig(name);
-      expect(config?.model).toBe("claude-sonnet-4-5-20250929");
+      expect(config?.model).toBe("claude-sonnet-4-6");
     }
   });
 
@@ -50,12 +50,12 @@ describe("Agent Registry", () => {
 
   test("orchestrator:question defaults to sonnet-4-5", () => {
     const config = getAgentConfig("orchestrator:question");
-    expect(config?.model).toBe("claude-sonnet-4-5-20250929");
+    expect(config?.model).toBe("claude-sonnet-4-6");
   });
 
   test("orchestrator:summary defaults to sonnet-4-5", () => {
     const config = getAgentConfig("orchestrator:summary");
-    expect(config?.model).toBe("claude-sonnet-4-5-20250929");
+    expect(config?.model).toBe("claude-sonnet-4-6");
   });
 });
 
