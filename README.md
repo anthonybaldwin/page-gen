@@ -15,12 +15,31 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Local-first** — All data in SQLite, API keys encrypted client-side, no cloud dependency
 - **Docker support** — Optional containerization for sandboxed execution
 
-See the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)** for quick-start instructions, tech stack details, and full documentation.
+## Quick Start
+
+```bash
+# Prerequisites: Bun (https://bun.sh)
+
+# 1. Clone and install
+git clone https://github.com/anthonybaldwin/page-gen.git
+cd page-gen
+bun install
+
+# 2. Start dev servers (two terminals)
+bun dev          # Backend  → http://localhost:3000
+bun dev:client   # Frontend → http://localhost:5173
+
+# Or run in Docker (optional — sandboxed code execution)
+bun dev:docker
+```
+
+Open `http://localhost:5173`, configure an API key in Settings, and describe what you want to build.
 
 ## Documentation
 
 Full docs live in the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)**:
 
+- [Home](https://github.com/anthonybaldwin/page-gen/wiki) — Quick start, tech stack overview
 - [Architecture](https://github.com/anthonybaldwin/page-gen/wiki/Architecture) — System overview, agent pipeline, layout
 - [Agent Roster](https://github.com/anthonybaldwin/page-gen/wiki/Agent-Roster) — All agents, roles, models, prompts
 - [HMR Preview](https://github.com/anthonybaldwin/page-gen/wiki/HMR-Preview) — Live preview, backend servers, proxy
