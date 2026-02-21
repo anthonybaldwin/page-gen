@@ -32,6 +32,9 @@ interface LogEntry {
 // --- Core emit ---
 
 function emit(entry: LogEntry) {
+  // Suppress all logging during tests to keep logs/app.jsonl clean
+  if (process.env.NODE_ENV === "test") return;
+
   ensureDir();
   const json = JSON.stringify(entry);
   appendFileSync(LOG_FILE, json + "\n");
