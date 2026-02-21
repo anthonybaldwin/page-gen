@@ -16,6 +16,8 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - [Docker](Docker) - Optional Docker deployment
 - [Logging](Logging) - Structured logging reference
 
+See also the [README](https://github.com/anthonybaldwin/page-gen#readme) for features and ADRs.
+
 ## Getting Started
 
 ```bash

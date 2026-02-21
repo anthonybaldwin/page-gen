@@ -222,6 +222,8 @@ Any new feature/system must update `docs/wiki/` in same commit.
 
 Wiki syncing to GitHub Wiki is handled automatically by the `sync-wiki` GitHub Action whenever `docs/wiki/**` changes on `main`. No manual sync is needed.
 
+When adding a new wiki page, also add a link to it in both `README.md` (Documentation section) and `docs/wiki/Home.md` (Quick Links section).
+
 ## Principles
 
 - Move fast.
