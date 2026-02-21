@@ -317,6 +317,10 @@ export async function runAgent(
     let fullText = "";
     let pendingChunk = "";
     let lastBroadcast = 0;
+    // Accumulate per-step token usage so we have actuals even if totalUsage
+    // rejects on abort. This captures every completed step's real usage.
+    let accInputTokens = 0;
+    let accOutputTokens = 0;
     const THROTTLE_MS = 150;
     const filesWritten: string[] = [];
     let streamErrorCount = 0;
@@ -392,6 +396,8 @@ export async function runAgent(
         }
         case "step-finish" as string: {
           const stepPart = part as unknown as { finishReason: string; usage: { inputTokens: number; outputTokens: number } };
+          accInputTokens += stepPart.usage.inputTokens || 0;
+          accOutputTokens += stepPart.usage.outputTokens || 0;
           log("pipeline", `agent=${broadcastName} step-finish`, {
             agent: broadcastName, finishReason: stepPart.finishReason,
             inputTokens: stepPart.usage.inputTokens, outputTokens: stepPart.usage.outputTokens,
@@ -452,7 +458,17 @@ export async function runAgent(
             log("pipeline", `agent=${broadcastName} partial tokens on abort`, partialTokenUsage);
           }
         } catch {
-          // totalUsage may reject on abort — that's fine, we'll keep the estimate
+          // totalUsage rejected — fall back to accumulated step-finish usage.
+          // This captures actual tokens from all completed steps (not estimates).
+          if (accInputTokens > 0 || accOutputTokens > 0) {
+            partialTokenUsage = {
+              inputTokens: accInputTokens,
+              outputTokens: accOutputTokens,
+              cacheCreationInputTokens: 0,
+              cacheReadInputTokens: 0,
+            };
+            log("pipeline", `agent=${broadcastName} partial tokens on abort (from step-finish accumulator)`, partialTokenUsage);
+          }
         }
         throw new AgentAbortError(errorMessage, partialTokenUsage);
       }
