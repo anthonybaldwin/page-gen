@@ -7,7 +7,7 @@ RUN bun install
 # Dev target — source is bind-mounted, Vite runs in dev mode with HMR
 FROM base AS dev
 EXPOSE 3000 3001-3020 4001-4020 5173
-CMD ["sh", "-c", "bun --watch src/server/index.ts & bunx vite --host 0.0.0.0 & wait"]
+CMD ["sh", "-c", "while true; do bun --watch src/server/index.ts; echo '[dev] server exited, restarting in 2s...'; sleep 2; done & bunx vite --host 0.0.0.0 & wait"]
 
 # Production build — compile frontend
 FROM base AS build
