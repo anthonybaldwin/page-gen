@@ -169,6 +169,7 @@ export function CodeEditor() {
     }
     if (isPreviewing) {
       exts.push(EditorView.editable.of(false));
+      exts.push(EditorView.theme({ ".cm-content, .cm-line": { cursor: "not-allowed" } }));
     }
     return exts;
   }, [openFilePath, resolvedTheme, handleSave, isPreviewing]);
