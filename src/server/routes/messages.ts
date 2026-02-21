@@ -4,7 +4,7 @@ import { eq, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { runOrchestration, resumeOrchestration, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
-import { logError } from "../services/logger.ts";
+import { log, logError } from "../services/logger.ts";
 
 export const messageRoutes = new Hono();
 
@@ -71,6 +71,7 @@ messageRoutes.post("/send", async (c) => {
     createdAt: now,
   };
   await db.insert(schema.messages).values(message);
+  log("user", `New message in chat ${body.chatId}`, { chatId: body.chatId, messageId: id, contentLength: body.content.length });
 
   // 2. Trigger orchestration
   const keys = extractApiKeys(c);
@@ -103,6 +104,7 @@ messageRoutes.post("/send", async (c) => {
   if (body.resume) {
     const interruptedId = findInterruptedPipelineRun(body.chatId);
     if (interruptedId) {
+      log("orchestrator", `Resuming interrupted pipeline for chat ${body.chatId}`);
       resumeOrchestration({ ...orchestrationInput, pipelineRunId: interruptedId }).catch((err) => {
         logError("routes", "Resume orchestration error", err);
       });
@@ -110,6 +112,7 @@ messageRoutes.post("/send", async (c) => {
     }
   }
 
+  log("orchestrator", `Orchestration started for chat ${body.chatId}`);
   runOrchestration(orchestrationInput).catch((err) => {
     logError("routes", "Orchestration error", err);
   });

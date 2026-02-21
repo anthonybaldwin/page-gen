@@ -993,6 +993,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
           .set({ title: autoTitle, updatedAt: Date.now() })
           .where(eq(schema.chats.id, chatId))
           .run();
+        log("orchestrator", `Auto-titled chat ${chatId}: "${autoTitle}"`);
         broadcast({ type: "chat_renamed", payload: { chatId, title: autoTitle } });
       }).catch(() => {
         // Non-critical — don't block pipeline
@@ -1101,6 +1102,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       agentName: "orchestrator", metadata: null, createdAt: Date.now(),
     });
 
+    log("orchestrator", `Question answered directly`, { chatId, chars: answer.length });
     broadcast({
       type: "chat_message",
       payload: { chatId, agentName: "orchestrator", content: answer },
@@ -1751,6 +1753,7 @@ async function finishPipeline(ctx: {
     agentName: "orchestrator", metadata: null, createdAt: Date.now(),
   });
 
+  log("orchestrator", `Final summary sent to user`, { chatId, chars: summary.length });
   broadcast({
     type: "chat_message",
     payload: { chatId, agentName: "orchestrator", content: summary },

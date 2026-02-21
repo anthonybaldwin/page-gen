@@ -164,6 +164,13 @@ export async function runAgent(
         }
         case "tool-call": {
           // Broadcast tool activity so UI can show what the agent is doing
+          const toolName = part.toolName;
+          log("tool", `${broadcastName} called ${toolName}`, {
+            tool: toolName,
+            ...(toolName !== "write_file" && toolName !== "write_files"
+              ? { input: JSON.stringify(part.input).slice(0, 200) }
+              : { path: (part.input as { path?: string }).path }),
+          });
           broadcast({
             type: "agent_thinking",
             payload: {
@@ -172,8 +179,8 @@ export async function runAgent(
               displayName: broadcastDisplayName,
               status: "streaming",
               toolCall: {
-                toolName: part.toolName,
-                input: part.toolName === "write_file" ? { path: (part.input as { path: string }).path } : part.input,
+                toolName,
+                input: toolName === "write_file" ? { path: (part.input as { path: string }).path } : part.input,
               },
             },
           });
@@ -181,6 +188,7 @@ export async function runAgent(
         }
         case "tool-result": {
           const output = part.output as Record<string, unknown>;
+          log("tool", `${broadcastName} tool result: ${part.toolName}`, { tool: part.toolName, success: !!output?.success });
           if (part.toolName === "write_file" && output?.success) {
             filesWritten.push((part.input as { path: string }).path);
           } else if (part.toolName === "write_files" && output?.success) {

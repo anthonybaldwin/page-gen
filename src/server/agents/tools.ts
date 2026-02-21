@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { writeFile, readFile, listFiles } from "../tools/file-ops.ts";
 import { broadcastFilesChanged } from "../ws.ts";
+import { log } from "../services/logger.ts";
 
 export function createAgentTools(projectPath: string, projectId: string) {
   const filesWritten: string[] = [];
@@ -14,6 +15,7 @@ export function createAgentTools(projectPath: string, projectId: string) {
         content: z.string().describe("Complete file content"),
       }),
       execute: async ({ path, content }) => {
+        log("tool", `write_file: ${path}`, { path, chars: content.length });
         writeFile(projectPath, path, content);
         broadcastFilesChanged(projectId, [path]);
         filesWritten.push(path);
@@ -29,6 +31,7 @@ export function createAgentTools(projectPath: string, projectId: string) {
         })),
       }),
       execute: async ({ files }) => {
+        log("tool", `write_files: ${files.length} files`, { paths: files.map(f => f.path) });
         const written: string[] = [];
         for (const f of files) {
           writeFile(projectPath, f.path, f.content);
@@ -45,6 +48,7 @@ export function createAgentTools(projectPath: string, projectId: string) {
         path: z.string().describe("Relative path from project root"),
       }),
       execute: async ({ path }) => {
+        log("tool", `read_file: ${path}`, { path });
         try {
           return { content: readFile(projectPath, path) };
         } catch {
@@ -57,9 +61,10 @@ export function createAgentTools(projectPath: string, projectId: string) {
       inputSchema: z.object({
         directory: z.string().optional().describe("Subdirectory to list, omit for root"),
       }),
-      execute: async ({ directory }) => ({
-        files: listFiles(projectPath, directory),
-      }),
+      execute: async ({ directory }) => {
+        log("tool", `list_files: ${directory || "."}`, { path: directory || "." });
+        return { files: listFiles(projectPath, directory) };
+      },
     }),
   };
 
