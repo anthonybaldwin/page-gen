@@ -4,7 +4,6 @@ import { ModelSettings } from "./ModelSettings.tsx";
 import { PricingSettings } from "./PricingSettings.tsx";
 import { PromptEditor } from "./PromptEditor.tsx";
 import { ToolSettings } from "./ToolSettings.tsx";
-import { AgentLimitsSettings } from "./AgentLimitsSettings.tsx";
 import { GitSettings } from "./GitSettings.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Button } from "../ui/button.tsx";
@@ -62,13 +61,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <TabsContent value="keys" className="mt-0"><ApiKeySettings /></TabsContent>
           <TabsContent value="limits" className="mt-0"><LimitsSettings /></TabsContent>
-          <TabsContent value="models" className="mt-0">
-            <ModelSettings />
-            <div className="mt-6 pt-6 border-t border-border">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">Execution Limits</h3>
-              <AgentLimitsSettings />
-            </div>
-          </TabsContent>
+          <TabsContent value="models" className="mt-0"><ModelSettings /></TabsContent>
           <TabsContent value="pricing" className="mt-0"><PricingSettings /></TabsContent>
           <TabsContent value="prompts" className="mt-0"><PromptEditor /></TabsContent>
           <TabsContent value="tools" className="mt-0"><ToolSettings /></TabsContent>
