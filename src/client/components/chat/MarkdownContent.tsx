@@ -47,17 +47,17 @@ const components: Components = {
   },
   pre: ({ children }) => <pre className="mb-2 last:mb-0">{children}</pre>,
   table: ({ children }) => (
-    <table className="border-collapse border border-border mb-2 text-sm">
+    <table className="border-collapse border border-border mb-2 text-sm w-full">
       {children}
     </table>
   ),
   th: ({ children }) => (
-    <th className="border border-border px-3 py-1 text-left text-foreground bg-muted">
+    <th className="border border-border px-3 py-1 text-left text-foreground bg-muted break-all">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="border border-border px-3 py-1 text-foreground/80">
+    <td className="border border-border px-3 py-1 text-foreground/80 break-all">
       {children}
     </td>
   ),

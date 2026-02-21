@@ -21,7 +21,7 @@ export function ChatMessageItem({ msg }: { msg: Message }) {
   return (
     <div className={`flex px-4 py-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
+        className={`max-w-[80%] rounded-lg px-4 py-2 text-sm overflow-hidden ${
           msg.role === "user"
             ? "bg-primary text-primary-foreground"
             : msg.role === "system"
