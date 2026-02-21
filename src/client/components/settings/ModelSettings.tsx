@@ -157,7 +157,9 @@ function AgentModelCard({
   }
 
   const pricingInfo = pricing.find((p) => p.model === model);
-  const hasOverrides = pricingInfo?.isOverridden || limits?.isOverridden;
+  const hasPricingOverride = !!pricingInfo?.isOverridden;
+  const hasLimitsOverride = !!limits?.isOverridden;
+  const hasOverrides = hasPricingOverride || hasLimitsOverride;
 
   function openEdit() {
     setEditInput(String(pricingInfo?.input ?? ""));
@@ -206,21 +208,44 @@ function AgentModelCard({
           <span className="text-sm font-medium text-foreground">{config.displayName}</span>
           {config.isOverridden && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              custom
+              model
+            </span>
+          )}
+          {hasPricingOverride && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+              pricing
+            </span>
+          )}
+          {hasLimitsOverride && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+              limits
             </span>
           )}
         </div>
-        {config.isOverridden && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onReset(config.name)}
-            disabled={saving}
-            className="h-6 px-2 text-xs text-muted-foreground"
-          >
-            Reset
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {hasOverrides && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResetOverrides}
+              disabled={savingOverrides}
+              className="h-6 px-2 text-xs text-muted-foreground"
+            >
+              Reset overrides
+            </Button>
+          )}
+          {config.isOverridden && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onReset(config.name)}
+              disabled={saving}
+              className="h-6 px-2 text-xs text-muted-foreground"
+            >
+              Reset model
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -277,7 +302,7 @@ function AgentModelCard({
             onFocus={() => { if (!editing) openEdit(); }}
             disabled={savingOverrides}
             readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasPricingOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
           />
         </div>
         <div>
@@ -291,7 +316,7 @@ function AgentModelCard({
             onFocus={() => { if (!editing) openEdit(); }}
             disabled={savingOverrides}
             readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasPricingOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
           />
         </div>
         <div>
@@ -304,7 +329,7 @@ function AgentModelCard({
             onFocus={() => { if (!editing) openEdit(); }}
             disabled={savingOverrides}
             readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
           />
         </div>
         <div>
@@ -317,7 +342,7 @@ function AgentModelCard({
             onFocus={() => { if (!editing) openEdit(); }}
             disabled={savingOverrides}
             readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
           />
         </div>
       </div>
@@ -341,17 +366,6 @@ function AgentModelCard({
           >
             Cancel
           </Button>
-          {hasOverrides && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleResetOverrides}
-              disabled={savingOverrides}
-              className="h-7 text-xs text-muted-foreground"
-            >
-              Reset
-            </Button>
-          )}
         </div>
       )}
 
