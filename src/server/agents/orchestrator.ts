@@ -7,7 +7,7 @@ import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope }
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { runAgent, trackedGenerateText, type AgentInput, type AgentOutput } from "./base.ts";
-import { trackTokenUsage, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
+import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults, broadcastTestResultIncremental } from "../ws.ts";
@@ -846,9 +846,13 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} failed`, err, { agent: stepKey, attempt });
 
-      // Void provisional token records so failed calls don't leave phantom billing
+      // Void provisional token records when retrying (next attempt creates fresh ones).
+      // On the final attempt, keep the estimate so the cost isn't silently lost —
+      // Anthropic already charged for the tokens even though the call failed.
       if (provisionalIds) {
-        voidProvisionalUsage(provisionalIds);
+        if (attempt < MAX_RETRIES) {
+          voidProvisionalUsage(provisionalIds);
+        }
         provisionalIds = null;
       }
 
@@ -1100,6 +1104,25 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         cacheReadInputTokens: classifyCacheRead,
         costEstimate: classifyCostEst,
       });
+    }
+  } else if (classification.reasoning.includes("error")) {
+    // Classification failed — the API call may have consumed tokens before erroring.
+    // Record an estimated cost so billing isn't silently lost.
+    const classifyConfig = getAgentConfigResolved("orchestrator:classify");
+    if (classifyConfig) {
+      const providerKey = apiKeys[classifyConfig.provider];
+      if (providerKey) {
+        const estimatedInputTokens = Math.ceil(userMessage.length / 4);
+        trackBillingOnly({
+          agentName: "orchestrator:classify",
+          provider: classifyConfig.provider,
+          model: classifyConfig.model,
+          apiKey: providerKey,
+          inputTokens: estimatedInputTokens,
+          outputTokens: 0,
+          projectId, projectName, chatTitle,
+        });
+      }
     }
   }
 
