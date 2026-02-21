@@ -459,7 +459,7 @@ export function listVersions(projectPath: string): VersionEntry[] {
   // Merge and sort by timestamp descending
   const all = [...autoVersions, ...userVersions];
   all.sort((a, b) => b.timestamp - a.timestamp);
-  return all;
+  return all.filter((v) => !v.isInitial);
 }
 
 export function rollbackToVersion(

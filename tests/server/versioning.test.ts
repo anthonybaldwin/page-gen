@@ -87,9 +87,9 @@ describe("Git Versioning Service", () => {
     expect(sha).toBeTruthy();
   });
 
-  test("listVersions returns all commits", () => {
+  test("listVersions returns all commits except initial", () => {
     const versions = listVersions(TEST_PROJECT_DIR);
-    expect(versions.length).toBeGreaterThanOrEqual(3); // initial + auto + user
+    expect(versions.length).toBeGreaterThanOrEqual(2); // auto + user (initial filtered)
 
     // Most recent first
     for (let i = 1; i < versions.length; i++) {
@@ -99,6 +99,10 @@ describe("Git Versioning Service", () => {
     // At least one user version
     const userVersions = versions.filter((v) => v.isUserVersion);
     expect(userVersions.length).toBeGreaterThanOrEqual(1);
+
+    // No initial commits should appear
+    const initialVersions = versions.filter((v) => v.isInitial);
+    expect(initialVersions.length).toBe(0);
   });
 
   test("rollback restores files to a previous version", () => {
@@ -169,28 +173,25 @@ describe("Git Versioning Service", () => {
     expect(files).toBeNull();
   });
 
-  test("isInitial flag is true for root commit, false for others", () => {
+  test("listVersions hides the initial commit", () => {
     const versions = listVersions(TEST_PROJECT_DIR);
     expect(versions.length).toBeGreaterThanOrEqual(2);
 
-    // Exactly one version should be initial
+    // No version should be the initial commit
     const initialVersions = versions.filter((v) => v.isInitial);
-    expect(initialVersions.length).toBe(1);
+    expect(initialVersions.length).toBe(0);
 
-    // The initial version should contain the initial commit message
-    expect(initialVersions[0]!.message).toContain("Initial commit");
-
-    // All non-initial versions should have isInitial=false
-    const nonInitial = versions.filter((v) => !v.isInitial);
-    expect(nonInitial.length).toBe(versions.length - 1);
+    // None should contain the "Initial commit" message
+    expect(versions.find((v) => v.message.includes("Initial commit"))).toBeUndefined();
   });
 
   test("rollbackToVersion rejects initial commit", () => {
-    const versions = listVersions(TEST_PROJECT_DIR);
-    const initial = versions.find((v) => v.isInitial);
-    expect(initial).toBeTruthy();
+    // Get root commit SHA directly via git (not exposed by listVersions)
+    const { execSync } = require("child_process");
+    const rootSha = execSync("git rev-list --max-parents=0 HEAD", { cwd: TEST_PROJECT_DIR, encoding: "utf-8" }).trim();
+    expect(rootSha).toBeTruthy();
 
-    const result = rollbackToVersion(TEST_PROJECT_DIR, initial!.sha);
+    const result = rollbackToVersion(TEST_PROJECT_DIR, rootSha);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("initial");
   });
@@ -203,10 +204,11 @@ describe("Git Versioning Service", () => {
     writeFileSync(join(singleDir, "file.txt"), "hello", "utf-8");
     ensureGitRepo(singleDir);
 
-    const versions = listVersions(singleDir);
-    expect(versions.length).toBe(1);
+    // listVersions filters initial, so get SHA directly via git
+    const { execSync } = require("child_process");
+    const sha = execSync("git rev-parse HEAD", { cwd: singleDir, encoding: "utf-8" }).trim();
 
-    const result = deleteVersion(singleDir, versions[0]!.sha);
+    const result = deleteVersion(singleDir, sha);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("only version");
 
@@ -247,23 +249,23 @@ describe("Git Versioning Service", () => {
   });
 
   test("deleteVersion removes the root commit (creates new root)", () => {
-    const versionsBefore = listVersions(TEST_PROJECT_DIR);
-    const root = versionsBefore.find((v) => v.isInitial);
-    expect(root).toBeTruthy();
+    // Get root commit SHA directly via git (hidden from listVersions)
+    const { execSync } = require("child_process");
+    const rootSha = execSync("git rev-list --max-parents=0 HEAD", { cwd: TEST_PROJECT_DIR, encoding: "utf-8" }).trim();
+    expect(rootSha).toBeTruthy();
 
+    const versionsBefore = listVersions(TEST_PROJECT_DIR);
     const countBefore = versionsBefore.length;
-    const result = deleteVersion(TEST_PROJECT_DIR, root!.sha);
+    const result = deleteVersion(TEST_PROJECT_DIR, rootSha);
     expect(result.ok).toBe(true);
 
+    // One fewer visible version: the old root was hidden, but the new root
+    // (previously a visible non-initial commit) is now also hidden.
     const versionsAfter = listVersions(TEST_PROJECT_DIR);
     expect(versionsAfter.length).toBe(countBefore - 1);
 
     // The old root SHA should not appear
-    expect(versionsAfter.find((v) => v.sha === root!.sha)).toBeUndefined();
-
-    // A new root should exist
-    const newRoot = versionsAfter.find((v) => v.isInitial);
-    expect(newRoot).toBeTruthy();
+    expect(versionsAfter.find((v) => v.sha === rootSha)).toBeUndefined();
   });
 
   test("pruneExcessVersions removes oldest auto-commit when over cap", () => {
@@ -274,20 +276,20 @@ describe("Git Versioning Service", () => {
     writeFileSync(join(pruneDir, "file.txt"), "init", "utf-8");
     ensureGitRepo(pruneDir);
 
-    // Create 4 auto-commits (total = 5 with initial)
+    // Create 4 auto-commits (total = 5 with initial, but initial is hidden)
     for (let i = 1; i <= 4; i++) {
       writeFileSync(join(pruneDir, "file.txt"), `v${i}`, "utf-8");
       autoCommit(pruneDir, `Change ${i}`);
     }
 
     const versionsBefore = listVersions(pruneDir);
-    expect(versionsBefore.length).toBe(5);
+    expect(versionsBefore.length).toBe(4); // initial commit hidden
 
     // We can't easily test with MAX=50, so we'll call pruneExcessVersions
     // and verify it doesn't prune when under cap (5 < 50)
     pruneExcessVersions(pruneDir);
     const versionsAfter = listVersions(pruneDir);
-    expect(versionsAfter.length).toBe(5); // No pruning since under cap
+    expect(versionsAfter.length).toBe(4); // No pruning since under cap
 
     try { rmSync(pruneDir, { recursive: true, force: true }); } catch {}
   });

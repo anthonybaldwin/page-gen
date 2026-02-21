@@ -210,8 +210,8 @@ export function VersionHistory() {
         <div className="space-y-2">
           {versions.map((v, idx) => {
             const isHead = idx === 0;
-            const canRollback = !v.isInitial && !isHead;
-            const canDelete = !v.isInitial && !isHead;
+            const canRollback = !isHead;
+            const canDelete = !isHead;
             return (
               <Card
                 key={v.sha}
