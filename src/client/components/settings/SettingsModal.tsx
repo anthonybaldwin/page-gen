@@ -38,17 +38,17 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <TabsTrigger value="limits" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Limits
             </TabsTrigger>
-            <TabsTrigger value="pricing" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-              Models
-            </TabsTrigger>
             <TabsTrigger value="models" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Agents
+            </TabsTrigger>
+            <TabsTrigger value="tools" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Tools
             </TabsTrigger>
             <TabsTrigger value="prompts" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Prompts
             </TabsTrigger>
-            <TabsTrigger value="tools" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-              Tools
+            <TabsTrigger value="pricing" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Models
             </TabsTrigger>
           </TabsList>
         </div>
