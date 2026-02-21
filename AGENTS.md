@@ -117,6 +117,12 @@ Key files: `src/client/lib/crypto.ts`, `src/client/lib/api.ts`.
 
 **Docker (optional).** Source bind-mounted read-only (`.:/app:ro`). Projects, data, and logs get separate writable volumes. `PREVIEW_HOST=0.0.0.0` for container networking.
 
+### Native Package Blocklist
+
+Packages that require native compilation (`node-gyp`) are blocked from agent-generated projects. The blocklist lives in `src/server/config/packages.ts`. When an agent writes a `package.json` containing a blocked package, the `write_file`/`write_files` tool returns an error with the suggested alternative so the agent self-corrects. The fallback extraction path (`extractAndWriteFiles`) silently strips blocked packages.
+
+To add a new blocked package, edit `BLOCKED_PACKAGES` in `src/server/config/packages.ts` — add the npm package name as key and a short message with the recommended alternative as value. Install failures from any cause are also surfaced to the build-fix agent via `checkProjectBuild`.
+
 ## High-Risk Change Rules
 
 If modifying any of the systems above:

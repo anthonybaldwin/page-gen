@@ -38,7 +38,7 @@ function releasePort(port: number) {
 // Track which projects have had deps installed to avoid re-running
 const installedProjects = new Set<string>();
 // Per-project install mutex — prevents concurrent bun install on the same directory
-const pendingInstalls = new Map<string, Promise<void>>();
+const pendingInstalls = new Map<string, Promise<string | null>>();
 
 function ensureProjectHasViteConfig(projectPath: string) {
   const configPath = join(projectPath, "vite.config.ts");
@@ -246,14 +246,14 @@ function ensureProjectHasTailwindCss(projectPath: string) {
  * Run bun install in the project directory.
  * Returns a promise that resolves when install is complete.
  */
-async function installProjectDependencies(projectPath: string, chatId?: string): Promise<void> {
-  if (installedProjects.has(projectPath)) return;
+async function installProjectDependencies(projectPath: string, chatId?: string): Promise<string | null> {
+  if (installedProjects.has(projectPath)) return null;
 
   // If an install is already running for this path, wait for it instead of starting another
   const pending = pendingInstalls.get(projectPath);
   if (pending) return pending;
 
-  const installPromise = (async () => {
+  const installPromise = (async (): Promise<string | null> => {
     log("preview", `Installing dependencies in ${projectPath}`);
 
     const proc = Bun.spawn(["bun", "install"], {
@@ -271,16 +271,18 @@ async function installProjectDependencies(projectPath: string, chatId?: string):
           chunk: "\n\nDependency install failed:\n" + stderr.slice(0, STDERR_TRUNCATION),
         });
       }
-      // Don't throw — preview might still partially work
+      // Return the error so callers can surface it to agents
+      return stderr.slice(0, STDERR_TRUNCATION);
     } else {
       log("preview", "Dependencies installed successfully");
       installedProjects.add(projectPath);
+      return null;
     }
   })();
 
   pendingInstalls.set(projectPath, installPromise);
   try {
-    await installPromise;
+    return await installPromise;
   } finally {
     pendingInstalls.delete(projectPath);
   }
@@ -290,7 +292,7 @@ async function installProjectDependencies(projectPath: string, chatId?: string):
  * Prepare a project for preview: scaffold config, install deps.
  * Called by orchestrator after first file extraction, and as a safety net by startPreviewServer.
  */
-export async function prepareProjectForPreview(projectPath: string, chatId?: string): Promise<void> {
+export async function prepareProjectForPreview(projectPath: string, chatId?: string): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -306,7 +308,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);
   ensureProjectHasMainEntry(fullPath);
-  await installProjectDependencies(fullPath, chatId);
+  return await installProjectDependencies(fullPath, chatId);
 }
 
 export async function startPreviewServer(projectId: string, projectPath: string): Promise<{ url: string; port: number }> {

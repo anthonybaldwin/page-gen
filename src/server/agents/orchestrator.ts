@@ -16,7 +16,7 @@ import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
 import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from "../preview/vite-server.ts";
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
-import { createAgentTools } from "./tools.ts";
+import { createAgentTools, stripBlockedPackages } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 import { autoCommit, ensureGitRepo, isInPreview, exitPreview } from "../services/versioning.ts";
 import { STAGE_HOOKS_ENABLED } from "../config/versioning.ts";
@@ -2884,7 +2884,16 @@ function extractAndWriteFiles(
     // Skip files already written by native tools
     if (alreadyWritten?.has(file.path)) continue;
     try {
-      writeFile(projectPath, file.path, file.content);
+      let content = file.content;
+      // Strip blocked native-module packages from package.json in the fallback path
+      if (file.path === "package.json" || file.path.endsWith("/package.json")) {
+        const { cleaned, stripped } = stripBlockedPackages(content);
+        if (stripped.length > 0) {
+          logWarn("orchestrator", `Stripped blocked packages from ${file.path}: ${stripped.join(", ")}`);
+          content = cleaned;
+        }
+      }
+      writeFile(projectPath, file.path, content);
       written.push(file.path);
     } catch (err) {
       logError("orchestrator", `Failed to write ${file.path}`, err);
@@ -2933,7 +2942,13 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
   }
 
   // Wait for any pending preview prep (which includes bun install)
-  await prepareProjectForPreview(projectPath, chatId);
+  const installError = await prepareProjectForPreview(projectPath, chatId);
+
+  if (installError) {
+    log("build", "Dependency install failed — skipping vite build check", { chars: installError.length });
+    if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed", { error: "Dependency install failed" });
+    return `Dependency install failed:\n${installError}`;
+  }
 
   if (chatId) {
     broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "\nRunning build check..." });
