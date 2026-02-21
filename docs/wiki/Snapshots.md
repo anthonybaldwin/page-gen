@@ -8,7 +8,7 @@ Snapshots capture the complete file state of a project at a point in time. They 
 
 ### Creation
 - **Auto-snapshot (planned, not yet implemented):** Intended to be created automatically after each orchestration run completes. `finishPipeline()` does not currently call `createSnapshot()`.
-- **Manual snapshot (API only):** The `POST /api/snapshots` endpoint works. `SnapshotList.tsx` is rendered in the sidebar; `SnapshotDiff.tsx` exists as an orphaned component not yet wired up.
+- **Manual snapshot:** `SnapshotList.tsx` in the sidebar provides a Create button (plus icon) that calls `POST /api/snapshots` with the active project. Each snapshot card shows its label, timestamp, a Rollback button, and a "View files" toggle that expands to show the file manifest with file count.
 - Each snapshot stores a complete file manifest (JSON mapping of path → content)
 
 ### Rollback

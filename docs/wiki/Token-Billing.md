@@ -77,6 +77,24 @@ Pricing can be overridden per-model via Settings > Models or the pricing API. Ov
 - Assigning an unknown model to an agent is blocked until pricing is configured
 - Deleting a pricing override reverts a known model to its default pricing
 
+### Cache Token Multipliers
+
+Providers charge different rates for cache creation and cache read tokens relative to standard input pricing. These multipliers are applied during cost estimation.
+
+| Provider | Cache Create | Cache Read |
+|----------|-------------|------------|
+| Anthropic | 1.25× | 0.1× |
+| OpenAI | 0× (no create charge) | 0.5× |
+| Google | 0× (no create charge) | 0.25× |
+| Default (unknown) | 1.0× | 0.5× |
+
+These multipliers are configurable per-provider via Settings or the API:
+- `GET /api/settings/cache-multipliers` — All providers with effective multipliers + `isOverridden` flag
+- `PUT /api/settings/cache-multipliers/:provider` — Override `{ create, read }` for a provider
+- `DELETE /api/settings/cache-multipliers/:provider` — Revert to defaults
+
+Overrides are stored in the `app_settings` table. The pricing engine (`src/server/services/pricing.ts`) applies these multipliers when computing cost estimates for cache tokens.
+
 ### Pricing API
 
 - `GET /api/settings/pricing` — All models with effective pricing + `isOverridden`/`isKnown` flags
@@ -138,5 +156,7 @@ Accessible via the gear icon in the sidebar footer (to the left of the usage bad
 
 1. **API Keys** — Edit or clear provider API keys and proxy URLs
 2. **Limits** — Configure spending guardrails (max tokens, agent calls, daily/project cost caps)
-3. **Models** — Per-agent provider and model overrides with pricing visibility (searchable model dropdown, inline pricing display, pricing override via pencil icon, custom model pricing required before save)
-4. **Prompts** — View and edit each agent's system prompt with a two-pane editor
+3. **Agents** — Per-agent provider and model overrides with pricing visibility (searchable model dropdown, inline pricing display, pricing override via pencil icon, custom model pricing required before save)
+4. **Tools** — Per-agent tool assignments (write_file, write_files, read_file, list_files); shows default vs overridden state
+5. **Prompts** — View and edit each agent's system prompt with a two-pane editor
+6. **Models** — Global model pricing table with per-model overrides; shows known vs custom models with effective pricing

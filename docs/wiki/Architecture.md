@@ -62,6 +62,58 @@ graph TB
 - WebSocket messages are coalesced in 50ms batches to reduce client re-renders
 - Chat titles are auto-generated from the first user message via LLM
 
+## UI Layout & Interaction
+
+### Theme System
+Three modes — Light, Dark, System — cycled via a toggle button in the sidebar footer (Sun / Moon / Monitor icons). Stored in `localStorage` under `"theme"`. System mode tracks `prefers-color-scheme` via `matchMedia` listener and auto-applies. Theme is applied by toggling the `dark` class on `document.documentElement`.
+
+### Multi-File Editor
+Tabbed editor built on CodeMirror 6 (Nord color scheme, code-split into a ~220KB gzipped vendor chunk). Features:
+- Horizontal scrollable tab bar for all open files
+- Middle-click closes a tab directly; hover reveals an X button
+- "Close all" button appears when 2+ files are open
+- White dot dirty indicator on unsaved files
+- Closing the active tab auto-activates the nearest neighbor
+- Active tab distinguished by a primary-colored bottom border
+
+### Agent Status Panel
+A horizontal pipeline progress bar in the chat header (`AgentStatusPanel.tsx`). Agent name buttons are connected by separator lines. Status icons:
+- **Pending** — empty circle
+- **Running** — spinning amber loader with elapsed time
+- **Completed** — green checkmark with elapsed time
+- **Failed** — red X
+- **Retrying** — orange refresh icon
+
+Clicking an agent name expands to show raw stream output. Shows phase labels (remediation, build-fix, re-review) and a test badge when applicable. Pipeline agents are populated dynamically from `agent_status` and `pipeline_plan` WebSocket events.
+
+### Agent Thinking Blocks
+Expandable cards in the chat timeline (`AgentThinkingMessage.tsx`). Each card shows:
+- Header: status icon, agent display name, rotating activity phrase (animated every 3s), summary on completion
+- Body: sanitized thinking content (strips tool calls and JSON artifacts, rendered as markdown), tool call log with letter badges (W = write, R = read, L = list), and a "Show raw output" toggle
+- Test result blocks render as `TestResultsBanner` instead of thinking content
+
+### Inline Test Results
+`TestResultsBanner.tsx` renders inside the thinking block timeline:
+- Summary: "All N tests passed" (green) or "X/Y passed, Z failed" (red) or "Running tests..." (amber)
+- Expandable checklist grouped by suite file; each test shows status icon, name, and duration
+- Clicking a failed test expands its error message in a preformatted block
+
+### Project Management
+Managed in the sidebar (`Sidebar.tsx`):
+- **Create** — Plus button opens an inline input; press Enter to confirm
+- **Rename** — Double-click the project name for inline editing; Enter or Escape to submit/cancel
+- **Delete** — Trash icon on hover; confirmation dialog requires typing the project name
+
+### File Explorer
+`FileExplorer.tsx` in the sidebar with dual search modes:
+- **Files** — Filename filter with 150ms debounce and fuzzy match highlighting
+- **Content** — Full-text search via `GET /files/search/:projectId?q=` with 300ms debounce; shows file path, line number, and highlighted snippet
+
+Actions: refresh button reloads the tree, download button triggers `GET /files/zip/:projectId` for ZIP export. File icons are color-coded by extension (tsx/ts/jsx/js/css/html/json).
+
+### Markdown Rendering
+Chat messages are rendered as GitHub Flavored Markdown via `react-markdown` with the `remark-gfm` plugin (`MarkdownContent.tsx`). Supports headings, lists, tables, code blocks (language-aware syntax highlighting), blockquotes, and links (open in new tab). Styled with Tailwind; code blocks use a dark background (Nord palette).
+
 ## Token Consumption Reduction
 
 The orchestrator minimizes token usage through several strategies:

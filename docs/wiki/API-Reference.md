@@ -56,10 +56,14 @@ Delete a chat.
 ### GET /messages?chatId={id}
 List messages for a chat. `chatId` is required.
 
+**Response:** `Message[]` — ordered by `createdAt` ascending
+
 ### POST /messages
 Create a new message.
 
 **Body:** `{ chatId: string, role: string, content: string, agentName?: string, metadata?: object }`
+
+**Response (201):** `{ id, chatId, role, content, agentName, metadata, createdAt }`
 
 ### POST /messages/send
 Atomic message creation + orchestration trigger. Persists the user message and starts (or resumes) the pipeline in one call.
@@ -123,6 +127,8 @@ Get a single snapshot.
 Create a snapshot.
 
 **Body:** `{ projectId: string, label?: string, chatId?: string }`
+
+**Response (201):** The created snapshot object (includes `id`, `projectId`, `label`, `fileManifest`, `createdAt`)
 
 ### POST /snapshots/:id/rollback
 Rollback project files to a snapshot's state.
@@ -282,6 +288,9 @@ Trigger orchestration for a chat, or resume an interrupted pipeline.
 - `resume: true` — Look for an interrupted pipeline for this chat and resume from the last completed agent. Falls back to a fresh start if no interrupted pipeline exists.
 - `resume: false` or omitted — Start a fresh pipeline from scratch.
 
+**Response (201):** `{ status: "started", chatId }`
+**Response (200, resume):** `{ status: "resumed", chatId, pipelineRunId }`
+
 ### POST /agents/stop
 Stop a running orchestration pipeline.
 
@@ -294,9 +303,10 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 **Message types:**
 - `agent_status` — Agent status change (pending, running, completed, failed, stopped)
 - `agent_stream` — Agent output stream (full text after completion)
-- `agent_error` — Agent encountered an error. The orchestrator may include an optional `errorType` field via direct broadcast:
+- `agent_error` — Agent encountered an error. Includes `chatId`, `agentName`, `error` (message string). The orchestrator may include an optional `errorType` field via direct broadcast:
   - `errorType: "cost_limit"` — Token limit reached mid-pipeline. Client shows amber banner with inline settings instead of red error.
   - `errorType: "credit_exhaustion"` — Provider credit/balance exhausted.
+  - When `errorType` is absent, the client renders a standard red error banner.
 - `chat_message` — New chat message
 - `agent_thinking` — Per-agent thinking stream (started, streaming chunk, completed with summary, failed)
 - `token_usage` — Real-time token usage update (chatId, agentName, provider, model, tokens, costEstimate)
