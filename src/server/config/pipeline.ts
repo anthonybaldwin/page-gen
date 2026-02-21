@@ -25,15 +25,15 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 // Agent tool step limits
 export const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
-  "frontend-dev": 8,
+  "frontend-dev": 12,
   "backend-dev": 8,
-  styling: 8,
+  styling: 10,
 };
 export const DEFAULT_MAX_TOOL_STEPS = 10;
 
 // Build-fix caps
 export const BUILD_FIX_MAX_OUTPUT_TOKENS = 16_000;
-export const BUILD_FIX_MAX_TOOL_STEPS = 4;
+export const BUILD_FIX_MAX_TOOL_STEPS = 6;
 
 // Timeouts
 export const BUILD_TIMEOUT_MS = 30_000;
