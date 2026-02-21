@@ -39,11 +39,11 @@ Agent-generated `package.json` is merged — any deps the agent specifies are pr
 ### File Extraction → Preview
 
 After each file-producing agent completes (`frontend-dev`, `backend-dev`, `styling`):
-1. Agent text output is parsed for `<tool_call>` write_file calls
-2. Files are written to disk via `file-ops.ts`
+1. Files are written to disk mid-stream via native AI SDK `write_file` tool calls
+2. Fallback: if an agent outputs `<tool_call>` XML in text, `extractAndWriteFiles()` parses and writes them
 3. `files_changed` WebSocket event is broadcast
 4. After the **first** file-producing agent, `prepareProjectForPreview()` runs in the background (scaffold + install)
-5. When prep completes, `preview_ready` WebSocket event is broadcast
+5. Build check runs — `preview_ready` WebSocket event is broadcast only after a successful build
 
 ### File Change → HMR
 - When agents write/modify files via the `file-ops` tool, Vite's built-in file watcher detects the change

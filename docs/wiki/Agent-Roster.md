@@ -38,10 +38,11 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Generates API routes, server logic, and writes test files alongside server code
+- **Role:** Generates Hono API routes, SQLite persistence, and server logic in the `server/` directory
+- **Framework:** Hono on Bun. Entry point: `server/index.ts`. All routes under `/api/`. Persistence via `bun:sqlite` only.
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside server modules, following the test plan
-- **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`)
+- **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`). The preview system automatically spawns the backend process and proxies `/api/*` from Vite.
 
 ### 6. Styling Agent
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -241,7 +242,7 @@ Test results appear **inline in the thinking block timeline** at the point where
 
 ### Native Tool Use
 
-Agents use the Vercel AI SDK's native `tool()` definitions instead of text-based `<tool_call>` XML. This enables:
+Agents use the AI SDK's native `tool()` definitions instead of text-based `<tool_call>` XML. This enables:
 
 - **Mid-stream file writes:** `write_file` executes during generation — files hit disk immediately, Vite HMR picks up changes
 - **File reading:** `read_file` lets agents inspect existing code (especially useful in fix mode)

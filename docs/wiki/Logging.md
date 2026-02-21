@@ -43,7 +43,8 @@ Optional fields (included when relevant):
 | `ws` | `src/server/index.ts` | Incoming WebSocket messages |
 | `db` | `src/server/db/migrate.ts` | Migration completion |
 | `routes` | `src/server/routes/messages.ts`, `agents.ts` | Orchestration trigger errors |
-| `preview` | `src/server/preview/vite-server.ts` | Vite server lifecycle, dependency installation, port allocation |
+| `preview` | `src/server/preview/vite-server.ts`, `backend-server.ts` | Vite and backend server lifecycle, dependency installation, port allocation |
+| `backend` | `src/server/preview/backend-server.ts` | Backend server stdout/stderr streams (per-project, real-time) |
 | `orchestrator` | `src/server/agents/orchestrator.ts` | Pipeline execution, agent dispatch, build checks, test runs, file extraction, cost limits, remediation |
 | `pipeline` | `src/server/agents/base.ts` | Individual agent calls — model, prompt size, token usage, stream events, cache tokens |
 | `extractFiles` | `src/server/agents/orchestrator.ts` | File extraction warnings (malformed blocks, JSON repair, regex fallback) |
@@ -71,6 +72,13 @@ Optional fields (included when relevant):
 {"ts":"2026-02-20T15:30:06.000Z","level":"info","tag":"preview","msg":"Server for proj_123 died (exit 1) — restarting"}
 {"ts":"2026-02-20T15:30:06.000Z","level":"error","tag":"preview","msg":"Vite server death reason","error":"EADDRINUSE: address already in use"}
 {"ts":"2026-02-20T15:30:07.000Z","level":"error","tag":"preview","msg":"bun install failed (exit 1)","error":"error: could not resolve..."}
+```
+
+### `backend`
+
+```json
+{"ts":"2026-02-20T15:30:10.000Z","level":"info","tag":"backend","msg":"[proj_123] Listening on port 4005"}
+{"ts":"2026-02-20T15:30:10.000Z","level":"error","tag":"backend","msg":"[proj_123] TypeError: Cannot read properties of undefined (reading 'id')"}
 ```
 
 ### `orchestrator`

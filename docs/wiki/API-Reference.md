@@ -292,4 +292,6 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `pipeline_plan` — Broadcast at pipeline start with the list of agent names to display in the status bar
 - `pipeline_interrupted` — Pipeline was interrupted by server restart, can be resumed
 - `preview_ready` — Broadcast after a successful build check, triggers preview iframe reload
+- `backend_ready` — Backend server started and health check passed (projectId, port)
+- `backend_error` — Backend server failed to start or crashed (projectId, error, details)
 - `chat_renamed` — Chat title was auto-generated (chatId, title)

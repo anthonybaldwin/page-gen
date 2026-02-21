@@ -19,7 +19,7 @@ Building a local-first, multi-agent page builder web app. Need to select a tech 
 | Layer | Choice | Why |
 |-------|--------|-----|
 | Runtime | Bun | Fastest JS runtime, native SQLite, native TS |
-| AI SDK | Vercel AI SDK 6.x | Agent abstraction, multi-provider, streaming |
+| AI SDK | AI SDK 6.x | Agent abstraction, multi-provider, streaming |
 | Backend | Hono | Lightweight, Bun-native, Web Standard |
 | Database | Drizzle ORM + bun:sqlite | Type-safe, zero-dep, fast |
 | Frontend | React 19 + Vite 7 | Best HMR, mature ecosystem |

@@ -18,11 +18,18 @@ graph TB
     direction TB
     REST["REST API<br>Routes"] ~~~ WSH["WebSocket<br>Handler"] ~~~ AGT["Agent System<br>+ Orchestrator"]
     DB[("SQLite<br>Drizzle ORM")] ~~~ AIP["AI Providers<br>Anthropic · OpenAI · Google"]
-    VITE["Per-Project Vite Dev Server<br>HMR Preview"]
+  end
+
+  subgraph PV2["Per-Project Preview"]
+    direction LR
+    VITE["Vite Dev Server<br>:3001-3020"]
+    BACK["Backend Server<br>:4001-4020<br>(full-stack only)"]
   end
 
   REST --> DB
   AGT --> AIP
+  AGT -->|"spawns"| PV2
+  VITE -->|"/api proxy"| BACK
 ```
 
 ## Data Flow
@@ -31,7 +38,7 @@ graph TB
 2. Message is persisted and orchestration triggered atomically via `POST /messages/send`
 3. Orchestrator begins execution
 4. Orchestrator creates an execution plan and dispatches specialized agents
-5. Each agent runs via `streamText` (Vercel AI SDK); chunks stream in real time
+5. Each agent runs via `streamText` (AI SDK); chunks stream in real time
 6. Per-agent thinking blocks appear in the chat UI — expandable cards showing live streaming output
 7. Pipeline progress bar updates via `agent_status` WebSocket events
 8. Agent outputs are collected internally — not shown to the user as separate messages
@@ -45,7 +52,7 @@ graph TB
 
 ## Key Decisions
 
-- See [ADR-001: Tech Stack](https://github.com/anthonybaldwin/just-build-it/blob/main/docs/adr/001-tech-stack.md)
+- See [ADR-001: Tech Stack](https://github.com/anthonybaldwin/page-gen/blob/main/docs/adr/001-tech-stack.md)
 - API keys stored in browser localStorage, sent per-request via headers
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
