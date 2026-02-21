@@ -35,7 +35,7 @@ The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coor
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 - **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect
-- **Single instance (build mode):** A single frontend-dev agent handles all component files defined in the architect's plan. The orchestrator infrastructure supports `instanceId`-based parallelism for future use, but currently dispatches one instance per pipeline.
+- **Single instance (build mode):** A single frontend-dev agent handles all component files defined in the architect's plan.
 
 ### 5. Backend Developer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -74,19 +74,15 @@ The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coor
 
 Before running the pipeline, the orchestrator classifies the user's message into one of three intents:
 
-| Intent | When | Pipeline |
-|--------|------|----------|
-| **build** | New feature, new project, adding something new | Full pipeline (research → architect → devs → reviewers) |
-| **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
-| **question** | Asking about the project or non-code request | Direct Sonnet answer with project context, no pipeline |
+| Intent | Scope | Pipeline |
+|--------|-------|----------|
+| **build** | any | Full pipeline (research → architect → devs → styling → reviewers) |
+| **fix** | `styling` or `frontend` | Quick-edit: single dev agent → summary (no reviewers) |
+| **fix** | `backend` | backend-dev → reviewers |
+| **fix** | `full` | frontend-dev → backend-dev → reviewers |
+| **question** | — | Direct Sonnet answer with project context, no pipeline |
 
 Classification uses a ~100-token Haiku call (cheap, fast) with 5 few-shot examples and a tie-breaking rule (prefer "fix" when project has files). Fast-path: empty projects always get "build" (no API call needed).
-
-| Intent | When | Pipeline |
-|--------|------|----------|
-| **styling-only fix** | Styling-only changes on existing project | Quick-edit: skip research/architect → styling agent only → summary |
-
-Quick-edit mode triggers when `scope: "styling"` and the project already has files, saving 4-6 agents' worth of time.
 
 ### Build Pipeline
 
@@ -117,21 +113,18 @@ graph TD
 
 **Design system passthrough:** The architect's output includes a `design_system` JSON field (colors, typography, spacing, radius, shadows). The orchestrator's `injectDesignSystem()` extracts this and injects it into the upstream outputs for frontend-dev and styling agents, ensuring consistent design language across all generated code.
 
-### Fix Pipeline (Parallelized)
+### Fix Pipeline
 
 ```mermaid
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|fix| Read["Read existing<br>project source"]
-  Read --> Route{"Route by scope"}
+  Classify -->|fix| Route{"Route by scope"}
 
-  Route -->|frontend| FD["frontend-dev"]
-  Route -->|backend| BD["backend-dev"]
-  Route -->|styling| STY["styling"]
-  Route -->|full| FULL["frontend-dev +<br>backend-dev"]
+  Route -->|"frontend<br>(quick-edit)"| FD["frontend-dev"] --> QS1["Summary"]
+  Route -->|"styling<br>(quick-edit)"| STY["styling"] --> QS2["Summary"]
 
-  FD & BD & STY & FULL --> Tests["Write tests + code<br>Run tests"]
-  Tests --> P3
+  Route -->|backend| BD["backend-dev"] --> P3
+  Route -->|full| FD2["frontend-dev"] --> BD2["backend-dev"] --> P3
 
   subgraph P3["Parallel Reviews"]
     direction LR
@@ -142,6 +135,8 @@ graph TD
   Rem --> Build["Final Build Check"]
   Build --> Summary
 ```
+
+Quick-edit paths (`frontend`, `styling`) use a single dev agent with no reviewers — the agent uses `list_files` + `read_file` for targeted edits instead of receiving a full project source dump.
 
 **Smart test re-runs:** When tests fail and a dev agent fixes the code, only the failed test files are re-run (specific file paths passed to vitest) instead of the full suite, saving 3-10s per fix cycle.
 
@@ -168,18 +163,15 @@ The pipeline executor uses dependency-aware batch scheduling:
 - `backend-dev` depends on `frontend-dev` (only included if scope + research require it)
 - `styling` depends on all dev agents — waits for all to complete
 - `code-review`, `security`, and `qa` all depend on `styling` — run in parallel as a batch
-- The infrastructure supports `instanceId` for future parallel frontend-dev instances, but currently a single instance is used
 
 **Remediation re-reviews** also run in parallel (`Promise.all` for code-review, security, qa).
 
 ### Pipeline Plan Broadcasting
 
 The orchestrator broadcasts a `pipeline_plan` WebSocket message at the start of each pipeline. The client uses this to dynamically render only the relevant agents in the status bar:
-- Build mode: shows all agents including parallel frontend-dev instances (using instanceIds like `frontend-dev-1`, `frontend-dev-app`)
+- Build mode: shows all pipeline agents
 - Fix mode: shows only the dev agent(s) + reviewers
 - Question mode: hides the pipeline bar entirely, shows a "Thinking..." indicator
-
-The `AgentStatusPanel` resolves display names for parallel instances: `frontend-dev-{N}` → "Frontend Dev {N}", `frontend-dev-app` → "Frontend Dev (App)".
 
 ### General Pipeline Behavior
 
@@ -267,9 +259,7 @@ The fallback extraction pipeline handles agents that don't use native tools:
 ### Upstream Output Filtering
 
 Agents only receive relevant upstream data via `filterUpstreamOutputs()`, reducing prompt size:
-- `frontend-dev-N` (parallel instances) → `architect` + `design-system`
-- `frontend-dev-app` → `architect` + all `frontend-dev-*` outputs + `design-system`
-- `frontend-dev` (single) → `architect` + `research` + `design-system`
+- `frontend-dev` → `architect` + `research` + `design-system`
 - `backend-dev` → `architect` + `research`
 - `styling` → `architect` + `design-system`
 - Review agents (`code-review`, `security`, `qa`) → dev agent outputs only (they need the code)

@@ -75,11 +75,11 @@ Read the full ADRs in `docs/adr/` before modifying any of these systems.
 
 ### Agent Pipeline (ADR-002)
 
-14 agent configs (10 base + 4 orchestrator subtasks) in `src/server/agents/registry.ts`. The orchestrator (`src/server/agents/orchestrator.ts`) classifies each user message as `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
+13 agent configs (9 base + 4 orchestrator subtasks) in `src/server/agents/registry.ts`. The orchestrator (`src/server/agents/orchestrator.ts`) classifies each user message as `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
 
 **Build:** Research → Architect → Frontend Dev → Backend Dev (conditional) → Styling → Code Review + QA + Security (parallel) → Remediation (max 2 cycles) → Summary.
 
-**Fix:** Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary. (`finishPipeline` runs vitest directly; no separate test planner step.)
+**Fix:** Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary. (`finishPipeline` runs vitest directly.)
 
 **Question:** Single Sonnet call with project context, no pipeline.
 
