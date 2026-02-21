@@ -23,7 +23,7 @@ Commit after every meaningful change:
 - Schema change
 - Dependency change
 - Configuration change
-- Snapshot/version logic change
+- Versioning logic change
 - Token accounting change
 - Orchestrator logic change
 
@@ -65,7 +65,7 @@ Squash before pushing:
 Do not squash:
 
 - Architectural milestones
-- Snapshot format changes
+- Versioning changes
 - Schema migrations
 - Major feature additions
 
@@ -136,14 +136,15 @@ You must:
 - Include commit body with risk + validation.
 - Update `docs/wiki/` if user-facing behavior changes.
 
-## Snapshot Safety
+## Version Safety (ADR-006)
 
-Any snapshot/version change must:
+Any versioning change must:
 
-- Preserve rollback behavior
-- Maintain max snapshot pruning
+- Preserve rollback behavior (git-based: `git checkout <sha> -- .`)
+- Maintain display caps (`MAX_AUTO_VERSIONS_DISPLAY`, `MAX_USER_VERSIONS_DISPLAY`)
+- Maintain `save_version` rate limiting (`MAX_AGENT_VERSIONS_PER_RUN`)
 - Include test coverage
-- Document migration impact if format changes
+- Keep security hardening intact (path sandboxing, config isolation, input sanitization)
 
 ## Token Accounting Integrity
 
@@ -171,6 +172,7 @@ Current ADRs:
 - **003** — Token accounting & cost safety (dual-write, write-ahead, cost limiter, filtering)
 - **004** — Client-side security (encrypted keys, sandboxing)
 - **005** — Preview isolation & Docker (per-project Vite, hybrid extraction, containerization)
+- **006** — Git-based versioning (replaced SQLite snapshots with git, stage hooks, save_version tool)
 
 ## Test Gate
 
@@ -178,7 +180,7 @@ Before push:
 
 1. Build/typecheck must pass for changed areas.
 2. Run tests.
-3. No failing snapshots.
+3. No failing tests.
 4. No skipped critical tests.
 5. No temporary debug flags.
 
@@ -204,13 +206,13 @@ If tests are skipped, justify in commit body.
 - Resume behavior
 - Token usage tracking
 - Billing aggregation
-- Snapshot create/rollback/pruning
+- Version create/rollback/listing
 - Provider adapters
 - API key gating
 
 ## Zero-Regression Rule
 
-If touching orchestrator, billing/tokens, snapshots, providers, or security-sensitive code:
+If touching orchestrator, billing/tokens, versioning, providers, or security-sensitive code:
 
 - Run full suite where feasible.
 - Add targeted tests.

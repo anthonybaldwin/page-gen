@@ -121,17 +121,9 @@ Default keys seeded on first read:
 | maxCostPerDay | 0 | Daily $ cap (0 = unlimited) |
 | maxCostPerProject | 0 | Per-project $ cap (0 = unlimited) |
 
-### snapshots
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT PK | nanoid |
-| project_id | TEXT FK | References projects.id |
-| chat_id | TEXT | Associated chat (nullable) |
-| label | TEXT | Snapshot label |
-| file_manifest | TEXT | JSON: { path: content } |
-| created_at | INTEGER | Unix timestamp (ms) |
-
 ## Notes
+
+**Versioning** — Project versioning is git-based (not stored in SQLite). See [Versioning](Versioning) wiki page. Git settings are stored in `app_settings` with keys `git.user.name` and `git.user.email`.
 
 - API keys are **NOT** stored in the database. They live in browser localStorage and are sent per-request via headers.
 - All IDs use nanoid (URL-safe, compact).

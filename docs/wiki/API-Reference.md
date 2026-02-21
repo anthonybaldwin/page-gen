@@ -115,25 +115,30 @@ Download a project's files as a ZIP archive.
 
 **Response:** Binary ZIP file (`Content-Type: application/zip`)
 
-## Snapshots
+## Versions
 
-### GET /snapshots?projectId={id}
-List snapshots for a project.
+### GET /versions?projectId={id}
+List git version history for a project.
 
-### GET /snapshots/:id
-Get a single snapshot.
+**Response:** `VersionEntry[]` — each includes `sha`, `email`, `message`, `timestamp`, `isUserVersion`
 
-### POST /snapshots
-Create a snapshot.
+### POST /versions
+Create a user version (manual save).
 
-**Body:** `{ projectId: string, label?: string, chatId?: string }`
+**Body:** `{ projectId: string, label?: string }`
 
-**Response (201):** The created snapshot object (includes `id`, `projectId`, `label`, `fileManifest`, `createdAt`)
+**Response (201):** `{ sha: string, label: string }`
+**Response (200, no changes):** `{ sha: null, note: "No changes to save" }`
 
-### POST /snapshots/:id/rollback
-Rollback project files to a snapshot's state.
+### POST /versions/:sha/rollback?projectId={id}
+Rollback project files to a specific git commit.
 
 **Response:** `{ ok: true, restoredTo: string }`
+
+### GET /versions/:sha/diff?projectId={id}
+Get unified diff between a commit and its parent.
+
+**Response:** `{ diff: string, files: [{ path: string, additions: number, deletions: number }] }`
 
 ## Usage
 
@@ -179,7 +184,7 @@ Clear all billing data. Deletes all rows from both `token_usage` and `billing_le
 ### GET /settings
 Get server-side settings, including configurable limits from `app_settings`.
 
-**Response:** `{ maxSnapshotsPerProject: number, defaultTokenLimit: number, warningThreshold: number, limits: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject }, limitDefaults: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject } }`
+**Response:** `{ defaultTokenLimit: number, warningThreshold: number, limits: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject }, limitDefaults: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject } }`
 
 ### PUT /settings/limits
 Update cost/usage limits. Accepts a partial object — only provided keys are updated.
@@ -226,7 +231,7 @@ Get tool assignments for all agents.
 ### PUT /settings/agents/:name/tools
 Override tool assignments for an agent.
 
-**Body:** `{ tools: ToolName[] }` — valid values: `"write_file"`, `"write_files"`, `"read_file"`, `"list_files"`
+**Body:** `{ tools: ToolName[] }` — valid values: `"write_file"`, `"write_files"`, `"read_file"`, `"list_files"`, `"save_version"`
 
 ### DELETE /settings/agents/:name/tools
 Remove tool override for an agent, reverting to default assignments.
@@ -267,6 +272,18 @@ Override cache multipliers for a provider.
 
 ### DELETE /settings/cache-multipliers/:provider
 Remove cache multiplier override for a provider, reverting to defaults.
+
+### GET /settings/git
+Get git user settings for version commits.
+
+**Response:** `{ name: string, email: string }`
+
+### PUT /settings/git
+Update git user settings.
+
+**Body:** `{ name?: string, email?: string }`
+
+**Response:** `{ ok: true, settings: { name: string, email: string } }`
 
 ## Agents
 

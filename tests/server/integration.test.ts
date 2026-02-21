@@ -3,7 +3,7 @@ import { runMigrations } from "../../src/server/db/migrate.ts";
 
 /**
  * Integration tests covering the full flow:
- * Project creation → Chat → Messages → File CRUD → Snapshots → Usage
+ * Project creation → Chat → Messages → File CRUD → Versions → Usage
  */
 describe("Integration: Full Orchestration Flow", () => {
   let app: { fetch: (req: Request) => Response | Promise<Response> };
@@ -108,24 +108,26 @@ describe("Integration: Full Orchestration Flow", () => {
     expect(tree.length).toBeGreaterThan(0);
   });
 
-  test("8. create snapshot", async () => {
+  test("8. create version", async () => {
     const res = await app.fetch(
-      new Request("http://localhost/api/snapshots", {
+      new Request("http://localhost/api/versions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, label: "After hero section", chatId }),
+        body: JSON.stringify({ projectId, label: "After hero section" }),
       })
     );
     expect(res.status).toBe(201);
+    const body = (await res.json()) as { sha: string; label: string };
+    expect(body.sha).toBeTruthy();
   });
 
-  test("9. list snapshots", async () => {
+  test("9. list versions", async () => {
     const res = await app.fetch(
-      new Request(`http://localhost/api/snapshots?projectId=${projectId}`)
+      new Request(`http://localhost/api/versions?projectId=${projectId}`)
     );
     expect(res.status).toBe(200);
-    const snaps = (await res.json()) as Array<{ label: string }>;
-    expect(snaps.length).toBeGreaterThanOrEqual(1);
+    const versions = (await res.json()) as Array<{ sha: string; message: string }>;
+    expect(versions.length).toBeGreaterThanOrEqual(1);
   });
 
   test("10. check usage summary", async () => {
@@ -161,8 +163,9 @@ describe("Integration: Full Orchestration Flow", () => {
       new Request("http://localhost/api/settings")
     );
     expect(res.status).toBe(200);
-    const settings = (await res.json()) as { maxSnapshotsPerProject: number };
-    expect(settings.maxSnapshotsPerProject).toBe(10);
+    const settings = (await res.json()) as { defaultTokenLimit: number; warningThreshold: number };
+    expect(settings.defaultTokenLimit).toBe(500000);
+    expect(settings.warningThreshold).toBe(0.8);
   });
 
   test("14. agent executions initially empty", async () => {
