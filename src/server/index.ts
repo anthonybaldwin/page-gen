@@ -1,7 +1,5 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serveStatic } from "hono/bun";
-import { existsSync } from "fs";
 import { runMigrations } from "./db/migrate.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { chatRoutes } from "./routes/chats.ts";
@@ -76,14 +74,6 @@ app.route("/api/files", fileRoutes);
 app.route("/api/settings", settingsRoutes);
 app.route("/api/agents", agentRoutes);
 
-// Serve static frontend in production only.
-// In dev mode Vite on :5173 serves the frontend — serving a stale build
-// on :3000 alongside would be confusing.
-const isDev = process.argv.some((a) => a.includes("--watch")) || !!process.env.DEV;
-if (!isDev && existsSync("./dist/client")) {
-  app.use("/*", serveStatic({ root: "./dist/client" }));
-  app.get("*", serveStatic({ root: "./dist/client", path: "index.html" }));
-}
 
 const PORT = parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 

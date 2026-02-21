@@ -25,6 +25,24 @@ export default defineConfig({
         target: `http://localhost:${DEFAULT_PORT}`,
         changeOrigin: true,
       },
+      "/ws": {
+        target: `ws://localhost:${DEFAULT_PORT}`,
+        ws: true,
+      },
+    },
+  },
+  preview: {
+    port: VITE_DEV_PORT,
+    host: true,
+    proxy: {
+      "/api": {
+        target: `http://localhost:${DEFAULT_PORT}`,
+        changeOrigin: true,
+      },
+      "/ws": {
+        target: `ws://localhost:${DEFAULT_PORT}`,
+        ws: true,
+      },
     },
   },
   build: {
