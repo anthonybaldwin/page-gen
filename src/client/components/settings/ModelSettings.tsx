@@ -3,7 +3,6 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
-import { Pencil } from "lucide-react";
 import type { ResolvedAgentConfig, AgentLimitsConfig, ModelPricing, AgentGroup } from "../../../shared/types.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
@@ -266,118 +265,93 @@ function AgentModelCard({
         )}
       </div>
 
-      {!editing ? (
-        <div className="mt-1.5 space-y-0.5">
-          <div className="flex items-center gap-1.5">
-            {pricingInfo ? (
-              <span className="text-[11px] text-muted-foreground">
-                ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
-              </span>
-            ) : (
-              <span className="text-[11px] text-amber-400">Pricing not configured</span>
-            )}
-            {pricingInfo?.isOverridden && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">custom</span>
-            )}
-          </div>
-          {limits && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-muted-foreground">
-                {limits.maxOutputTokens.toLocaleString()} max tokens / {limits.maxToolSteps} max steps
-              </span>
-              {limits.isOverridden && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">custom</span>
-              )}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 pt-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={openEdit}
-              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
-            >
-              <Pencil className="h-3 w-3" />
-              Edit overrides
-            </Button>
-            {hasOverrides && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleResetOverrides}
-                disabled={savingOverrides}
-                className="h-5 px-1.5 text-[10px] text-muted-foreground"
-              >
-                Reset overrides
-              </Button>
-            )}
-          </div>
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Input $/1M</label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            value={editing ? editInput : (pricingInfo?.input ?? "")}
+            onChange={(e) => setEditInput(e.target.value)}
+            onFocus={() => { if (!editing) openEdit(); }}
+            disabled={savingOverrides}
+            readOnly={!editing}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+          />
         </div>
-      ) : (
-        <div className="mt-2 rounded-md bg-background/50 border border-border/30 p-2.5 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-muted-foreground block mb-1">Input $/1M tokens</label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={editInput}
-                onChange={(e) => setEditInput(e.target.value)}
-                className="h-7 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-muted-foreground block mb-1">Output $/1M tokens</label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={editOutput}
-                onChange={(e) => setEditOutput(e.target.value)}
-                className="h-7 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-muted-foreground block mb-1">Max output tokens</label>
-              <Input
-                type="number"
-                min="1"
-                value={editMaxTokens}
-                onChange={(e) => setEditMaxTokens(e.target.value)}
-                className="h-7 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-muted-foreground block mb-1">Max tool steps</label>
-              <Input
-                type="number"
-                min="1"
-                value={editMaxSteps}
-                onChange={(e) => setEditMaxSteps(e.target.value)}
-                className="h-7 text-xs"
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2 pt-0.5">
-            <Button
-              size="sm"
-              onClick={handleSaveOverrides}
-              disabled={savingOverrides}
-              className="h-7 text-xs"
-            >
-              {savingOverrides ? "..." : "Save"}
-            </Button>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Output $/1M</label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            value={editing ? editOutput : (pricingInfo?.output ?? "")}
+            onChange={(e) => setEditOutput(e.target.value)}
+            onFocus={() => { if (!editing) openEdit(); }}
+            disabled={savingOverrides}
+            readOnly={!editing}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Max tokens</label>
+          <Input
+            type="number"
+            min="1"
+            value={editing ? editMaxTokens : (limits?.maxOutputTokens ?? "")}
+            onChange={(e) => setEditMaxTokens(e.target.value)}
+            onFocus={() => { if (!editing) openEdit(); }}
+            disabled={savingOverrides}
+            readOnly={!editing}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Max steps</label>
+          <Input
+            type="number"
+            min="1"
+            value={editing ? editMaxSteps : (limits?.maxToolSteps ?? "")}
+            onChange={(e) => setEditMaxSteps(e.target.value)}
+            onFocus={() => { if (!editing) openEdit(); }}
+            disabled={savingOverrides}
+            readOnly={!editing}
+            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""}`}
+          />
+        </div>
+      </div>
+
+      {editing && (
+        <div className="flex items-center gap-2 mt-2">
+          <Button
+            size="sm"
+            onClick={handleSaveOverrides}
+            disabled={savingOverrides}
+            className="h-7 text-xs"
+          >
+            {savingOverrides ? "..." : "Save"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditing(false)}
+            disabled={savingOverrides}
+            className="h-7 text-xs text-muted-foreground"
+          >
+            Cancel
+          </Button>
+          {hasOverrides && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setEditing(false)}
+              onClick={handleResetOverrides}
               disabled={savingOverrides}
               className="h-7 text-xs text-muted-foreground"
             >
-              Cancel
+              Reset
             </Button>
-          </div>
+          )}
         </div>
       )}
 
