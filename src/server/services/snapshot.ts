@@ -3,6 +3,7 @@ import { eq, desc, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, rmSync } from "fs";
 import { join, dirname } from "path";
+import { log } from "./logger.ts";
 
 const MAX_SNAPSHOTS = 10;
 
@@ -46,6 +47,7 @@ export function createSnapshot(
   };
 
   db.insert(schema.snapshots).values(snapshot).run();
+  log("snapshot", `Created snapshot "${label}"`, { snapshotId: snapshot.id, projectId, files: Object.keys(fileManifest).length });
 
   // Prune old snapshots
   pruneSnapshots(projectId);
@@ -74,6 +76,7 @@ export function rollbackSnapshot(snapshotId: string, projectPath: string): boole
     writeFileSync(fullPath, content, "utf-8");
   }
 
+  log("snapshot", `Rolled back to snapshot ${snapshotId}`, { projectId: snapshot.projectId, files: Object.keys(manifest).length });
   return true;
 }
 
@@ -103,6 +106,7 @@ export function pruneSnapshots(projectId: string) {
   for (const snap of toDelete) {
     db.delete(schema.snapshots).where(eq(schema.snapshots.id, snap.id)).run();
   }
+  log("snapshot", `Pruned ${toDelete.length} old snapshots`, { projectId, pruned: toDelete.length });
 }
 
 export function listSnapshots(projectId: string) {

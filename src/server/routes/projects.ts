@@ -7,6 +7,7 @@ import { resolve } from "path";
 import { abortOrchestration } from "../agents/orchestrator.ts";
 import { stopPreviewServer } from "../preview/vite-server.ts";
 import { stopBackendServer } from "../preview/backend-server.ts";
+import { log } from "../services/logger.ts";
 
 export const projectRoutes = new Hono();
 
@@ -42,6 +43,7 @@ projectRoutes.post("/", async (c) => {
   };
 
   await db.insert(schema.projects).values(project);
+  log("project", `Created project "${body.name}"`, { projectId: id });
   return c.json(project, 201);
 });
 
@@ -57,6 +59,7 @@ projectRoutes.patch("/:id", async (c) => {
     .returning()
     .get();
   if (!updated) return c.json({ error: "Project not found" }, 404);
+  log("project", `Renamed project ${id} to "${body.name}"`);
   return c.json(updated);
 });
 
@@ -94,5 +97,6 @@ projectRoutes.delete("/:id", async (c) => {
     // Directory may not exist — safe to ignore
   }
 
+  log("project", `Deleted project ${id}`, { chats: projectChats.length });
   return c.json({ ok: true });
 });

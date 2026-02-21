@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 import { getEstimatedTokenTotal } from "../services/token-tracker.ts";
+import { log } from "../services/logger.ts";
 
 export const usageRoutes = new Hono();
 
@@ -182,6 +183,7 @@ usageRoutes.delete("/reset", (c) => {
   const billingCount = db.select({ count: sql<number>`count(*)` }).from(schema.billingLedger).get()?.count || 0;
   db.delete(schema.tokenUsage).run();
   db.delete(schema.billingLedger).run();
+  log("billing", `Usage data reset`, { tokenUsageRecords: tokenUsageCount, billingRecords: billingCount });
   return c.json({
     ok: true,
     deleted: {

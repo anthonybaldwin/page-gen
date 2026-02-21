@@ -3,6 +3,7 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { abortOrchestration } from "../agents/orchestrator.ts";
+import { log } from "../services/logger.ts";
 
 export const chatRoutes = new Hono();
 
@@ -40,6 +41,7 @@ chatRoutes.post("/", async (c) => {
   };
 
   await db.insert(schema.chats).values(chat);
+  log("chat", `Created chat "${body.title}"`, { chatId: id, projectId: body.projectId });
   return c.json(chat, 201);
 });
 
@@ -55,6 +57,7 @@ chatRoutes.patch("/:id", async (c) => {
     .returning()
     .get();
   if (!updated) return c.json({ error: "Chat not found" }, 404);
+  log("chat", `Renamed chat ${id} to "${body.title}"`);
   return c.json(updated);
 });
 
@@ -71,5 +74,6 @@ chatRoutes.delete("/:id", async (c) => {
     .set({ chatId: null })
     .where(eq(schema.snapshots.chatId, id));
   await db.delete(schema.chats).where(eq(schema.chats.id, id));
+  log("chat", `Deleted chat ${id}`);
   return c.json({ ok: true });
 });
