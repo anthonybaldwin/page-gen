@@ -168,7 +168,7 @@ export function App() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-1 mr-2 shrink-0">
-            {Object.keys(openFiles).length > 1 && (
+            {Object.keys(openFiles).length > 0 && (
               <button
                 type="button"
                 className="rounded-sm px-2 py-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
