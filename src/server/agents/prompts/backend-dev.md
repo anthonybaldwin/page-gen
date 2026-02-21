@@ -155,15 +155,23 @@ export { db };
 - Use async/await consistently. No raw Promise chains.
 - If you need additional npm dependencies beyond Hono and Zod, write an updated `package.json` that includes them. The build system will handle installation.
 
-## Test Files (REQUIRED)
+## Test Files (MANDATORY — NO EXCEPTIONS)
 
-If the architect's output includes a `test_plan` with backend test specs, you MUST write every backend test file listed. This is not optional.
+You MUST write test files for every backend module you create. This is not optional — skipping tests is a build failure.
 
-- Write each test file at the exact path specified in the test plan (typically `server/__tests__/<module>.test.ts`).
+**If the architect provided a `test_plan` with backend test specs:** Write every backend test file listed at the exact paths specified.
+
+**If the architect did NOT provide backend test specs (or the `test_plan` is missing/empty):** You MUST still create tests yourself. Write one test file per route module and one for the database layer:
+- Path: `server/__tests__/<module>.test.ts`
+- Cover: request validation, response shapes, error handling, status codes, database operations
+
+**Test authoring rules:**
 - Import `describe`, `it`, `expect`, `vi` from `vitest`.
 - Mock databases and external services with `vi.mock()`.
 - Test request validation, response shapes, error handling, and status codes.
 - Include test files in your `files_written` summary.
+
+**You cannot finish without writing tests.** If your `files_written` summary contains zero `.test.` files, your output is incomplete.
 
 ## Output Discipline
 

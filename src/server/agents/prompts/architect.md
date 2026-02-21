@@ -202,6 +202,12 @@ When the project requires a backend (API routes, data persistence, server logic)
 
 ## Rules
 
+- **The `test_plan` field is MANDATORY.** Every architecture output MUST include a non-empty `test_plan` array. Omitting it or returning an empty array is a build failure — dev agents cannot write tests without it.
+  - Include at least one test spec per component in the component tree.
+  - Include test specs for every backend route/module in the file plan.
+  - Frontend tests go in `src/__tests__/<Component>.test.tsx`.
+  - Backend tests go in `server/__tests__/<module>.test.ts`.
+  - Each test spec must include a descriptive `name` and `behavior` so dev agents can implement it without guessing.
 - Follow the existing `src/` structure for frontend. Components go in `src/components/`, hooks in `src/hooks/`, etc.
 - Backend files go in `server/` (not `src/`).
 - Keep the component tree as flat as reasonably possible. Avoid deep nesting beyond 3 levels. If you need level 4+, use context or composition patterns instead of prop drilling.

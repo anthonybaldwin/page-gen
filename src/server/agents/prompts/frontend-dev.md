@@ -88,16 +88,24 @@ Always handle: empty arrays (show placeholder text), null/undefined (fallback de
 - No `// TODO` placeholders. No `any` type. Keep files under 200 lines.
 - Exports must match what other files import.
 
-## Test Files (REQUIRED)
+## Test Files (MANDATORY — NO EXCEPTIONS)
 
-The architect's output includes a `test_plan`. You MUST write every test file listed in the plan. This is not optional — skipping tests is a build failure.
+You MUST write test files. This is not optional — skipping tests is a build failure.
 
-- Write each test file at the exact path specified in the test plan.
+**If the architect provided a `test_plan`:** Write every test file listed in the plan at the exact paths specified.
+
+**If the architect did NOT provide a `test_plan` (or it is empty):** You MUST still create tests yourself. Write one test file per component you create:
+- Path: `src/__tests__/<ComponentName>.test.tsx`
+- Cover: rendering, props, user interactions, edge cases (empty states, loading, errors)
+
+**Test authoring rules:**
 - Use vitest + @testing-library/react. Import `describe`, `it`, `expect` from `vitest` and render utilities from `@testing-library/react`.
 - Use `@testing-library/user-event` for interactions.
 - Mock external deps with `vi.mock()`.
 - Each test file must match the `.test.tsx` or `.test.ts` naming convention.
 - Include test files in your `files_written` summary.
+
+**You cannot finish without writing tests.** If your `files_written` summary contains zero `.test.` files, your output is incomplete.
 
 ## Output Discipline
 
