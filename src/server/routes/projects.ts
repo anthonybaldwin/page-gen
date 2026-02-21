@@ -65,7 +65,7 @@ projectRoutes.patch("/:id", async (c) => {
   return c.json(updated);
 });
 
-// Delete project (cascade: all chats + children, snapshots, disk cleanup)
+// Delete project (cascade: all chats + children, disk cleanup)
 projectRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
 

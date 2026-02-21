@@ -8,7 +8,6 @@ describe("Database", () => {
     expect(schema.messages).toBeDefined();
     expect(schema.agentExecutions).toBeDefined();
     expect(schema.tokenUsage).toBeDefined();
-    expect(schema.snapshots).toBeDefined();
   });
 
   test("database connection works", async () => {

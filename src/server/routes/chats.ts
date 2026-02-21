@@ -61,7 +61,7 @@ chatRoutes.patch("/:id", async (c) => {
   return c.json(updated);
 });
 
-// Delete chat (cascade: token_usage → agent_executions → pipeline_runs → messages, nullify snapshots)
+// Delete chat (cascade: token_usage → agent_executions → pipeline_runs → messages)
 chatRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
   abortOrchestration(id);

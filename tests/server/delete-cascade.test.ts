@@ -57,11 +57,6 @@ describe("Delete cascade", () => {
       status: "completed", startedAt: now, completedAt: now,
     }).run();
 
-    db.insert(schema.snapshots).values({
-      id: nanoid(), projectId, chatId, label: "test snapshot",
-      fileManifest: "{}", createdAt: now,
-    }).run();
-
     db.insert(schema.billingLedger).values({
       id: nanoid(), projectId, projectName: "Delete Test Project",
       chatId, chatTitle: "Delete Test Chat", executionId,
@@ -99,11 +94,6 @@ describe("Delete cascade", () => {
     expect(db.select().from(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chatId)).all()).toEqual([]);
     expect(db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, chatId)).all()).toEqual([]);
 
-    // Snapshot chatId is nullified (snapshot still exists)
-    const snaps = db.select().from(schema.snapshots).where(eq(schema.snapshots.projectId, projectId)).all();
-    expect(snaps.length).toBeGreaterThan(0);
-    expect(snaps[0]!.chatId).toBeNull();
-
     // Billing ledger is untouched (no FK, survives deletion)
     const billing = db.select().from(schema.billingLedger).where(eq(schema.billingLedger.chatId, chatId)).all();
     expect(billing.length).toBeGreaterThan(0);
@@ -132,6 +122,5 @@ describe("Delete cascade", () => {
     expect(db.select().from(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, chatId)).all()).toEqual([]);
     expect(db.select().from(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chatId)).all()).toEqual([]);
     expect(db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, chatId)).all()).toEqual([]);
-    expect(db.select().from(schema.snapshots).where(eq(schema.snapshots.projectId, projectId)).all()).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Checkbox } from "../ui/checkbox.tsx";
 import type { AgentToolConfig, ToolName, AgentGroup } from "../../../shared/types.ts";
+import { ALL_TOOLS } from "../../../shared/types.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
@@ -23,9 +24,9 @@ const TOOL_LABELS: Record<ToolName, string> = {
   write_files: "Write Files (Batch)",
   read_file: "Read File",
   list_files: "List Files",
+  save_version: "Save Version",
 };
 
-const ALL_TOOL_NAMES: ToolName[] = ["write_file", "write_files", "read_file", "list_files"];
 
 export function ToolSettings() {
   const [configs, setConfigs] = useState<AgentToolConfig[]>([]);
@@ -158,7 +159,7 @@ export function ToolSettings() {
                   </div>
 
                   <div className="flex gap-4">
-                    {ALL_TOOL_NAMES.map((tool) => (
+                    {ALL_TOOLS.map((tool) => (
                       <label
                         key={tool}
                         className={`flex items-center gap-1.5 text-xs ${

@@ -154,7 +154,10 @@ export interface ContentSearchResult {
 }
 
 export type ToolName = "write_file" | "write_files" | "read_file" | "list_files" | "save_version";
+/** All valid tool names. */
 export const ALL_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", "list_files", "save_version"];
+/** File-ops tools only (excludes save_version). */
+export const FILE_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", "list_files"];
 
 export interface AgentToolConfig {
   name: AgentName;

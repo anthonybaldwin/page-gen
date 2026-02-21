@@ -16,7 +16,7 @@ afterEach(() => {
 describe("createAgentTools", () => {
   test("returns correct tool keys", () => {
     const { tools } = createAgentTools(TEST_PROJECT_PATH, "proj-1");
-    expect(Object.keys(tools).sort()).toEqual(["list_files", "read_file", "write_file", "write_files"]);
+    expect(Object.keys(tools).sort()).toEqual(["list_files", "read_file", "save_version", "write_file", "write_files"]);
   });
 
   test("write_file writes to disk and returns success", async () => {

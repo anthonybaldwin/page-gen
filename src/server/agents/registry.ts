@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentName, AgentToolConfig, ResolvedAgentConfig, ToolName } from "../../shared/types.ts";
-import { ALL_TOOLS } from "../../shared/types.ts";
+import { ALL_TOOLS, FILE_TOOLS } from "../../shared/types.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 
@@ -160,9 +160,9 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   "orchestrator:summary": [],
   research: [],
   architect: [],
-  "frontend-dev": [...ALL_TOOLS],
-  "backend-dev": [...ALL_TOOLS],
-  styling: [...ALL_TOOLS],  // save_version included via ALL_TOOLS
+  "frontend-dev": [...FILE_TOOLS, "save_version"],
+  "backend-dev": [...FILE_TOOLS, "save_version"],
+  styling: [...FILE_TOOLS, "save_version"],
   "code-review": [], // reviewer — receives code in prompt, tools cause extra round-trips
   qa: [],            // reviewer — receives code in prompt, tools cause extra round-trips
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips
