@@ -220,18 +220,7 @@ If touching orchestrator, billing/tokens, snapshots, providers, or security-sens
 
 Any new feature/system must update `docs/wiki/` in same commit.
 
-When `docs/wiki/` changes, sync the GitHub wiki clone immediately after commit:
-
-```bash
-git clone <repo>.wiki.git /tmp/wiki-sync
-cp docs/wiki/*.md /tmp/wiki-sync/
-cd /tmp/wiki-sync && git add -A && git commit -m "sync: update wiki from docs/wiki" && git push
-rm -rf /tmp/wiki-sync
-```
-
-**Wiki sync commit message must always be:** `sync: update wiki from docs/wiki`
-
-No bullet lists, no details — keep it clean. The main repo commit already has the context.
+Wiki syncing to GitHub Wiki is handled automatically by the `sync-wiki` GitHub Action on every push to `main` that touches `docs/wiki/**`. No manual sync is needed.
 
 ## Principles
 
