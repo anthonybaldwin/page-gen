@@ -33,7 +33,7 @@ export const DEFAULT_MAX_TOOL_STEPS = 10;
 
 // Build-fix caps
 export const BUILD_FIX_MAX_OUTPUT_TOKENS = 16_000;
-export const BUILD_FIX_MAX_TOOL_STEPS = 6;
+export const BUILD_FIX_MAX_TOOL_STEPS = 10;
 
 // Timeouts
 export const BUILD_TIMEOUT_MS = 30_000;

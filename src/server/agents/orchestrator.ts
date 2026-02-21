@@ -643,7 +643,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     const currentTokens = preflightCheck.currentTokens || 0;
     if (currentTokens + estimatedInputTokens > preflightCheck.limit * 0.95) {
       log("orchestrator", `Pre-flight skip: ${stepKey}`, { agent: stepKey, estimatedTokens: estimatedInputTokens, currentTokens, limit: preflightCheck.limit });
-      broadcastAgentError(chatId, "orchestrator", `Skipping ${stepKey}: estimated token usage would exceed limit`);
+      const pct = Math.round((currentTokens / preflightCheck.limit) * 100);
+      broadcastAgentError(chatId, "orchestrator", `Skipping ${stepKey}: ${currentTokens.toLocaleString()} / ${preflightCheck.limit.toLocaleString()} tokens used (${pct}%), estimated ~${estimatedInputTokens.toLocaleString()} more needed`);
       return null;
     }
   }
