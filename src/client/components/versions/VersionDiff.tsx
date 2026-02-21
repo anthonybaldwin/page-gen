@@ -1,27 +1,27 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 
-interface DiffFile {
+export interface DiffFile {
   path: string;
   additions: number;
   deletions: number;
 }
 
-interface DiffResponse {
+export interface DiffResponse {
   diff: string;
   files: DiffFile[];
 }
 
-interface DiffHunk {
+export interface DiffHunk {
   file: string;
   additions: number;
   deletions: number;
   lines: { type: "add" | "del" | "context" | "header"; content: string; oldNum?: number; newNum?: number }[];
 }
 
-function parseDiffToHunks(rawDiff: string, files: DiffFile[]): DiffHunk[] {
+export function parseDiffToHunks(rawDiff: string, files: DiffFile[]): DiffHunk[] {
   const hunks: DiffHunk[] = [];
   let current: DiffHunk | null = null;
   let oldLine = 0;
@@ -69,7 +69,7 @@ function parseDiffToHunks(rawDiff: string, files: DiffFile[]): DiffHunk[] {
   return hunks;
 }
 
-function FileHunk({ hunk }: { hunk: DiffHunk }) {
+export function FileHunk({ hunk }: { hunk: DiffHunk }) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -158,13 +158,9 @@ export function VersionDiff({ sha, projectId }: { sha: string; projectId: string
     }
   }
 
-  if (!data && !loading) {
-    return (
-      <Button variant="ghost" size="sm" onClick={loadDiff} className="text-xs h-6 px-2">
-        Diff
-      </Button>
-    );
-  }
+  useEffect(() => {
+    loadDiff();
+  }, [sha, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (

@@ -25,8 +25,14 @@ export function checkGitAvailable(): boolean {
       stderr: "pipe",
     });
     gitAvailable = result.exitCode === 0;
+    if (gitAvailable) {
+      log("versioning", `Git available: ${result.stdout.toString().trim()}`);
+    } else {
+      logWarn("versioning", `Git not available (exit code ${result.exitCode})`);
+    }
   } catch {
     gitAvailable = false;
+    logWarn("versioning", `Git not available (spawn failed)`);
   }
   return gitAvailable;
 }
@@ -79,6 +85,8 @@ function sanitizeForGit(input: string): string {
 
 // --- Git runner with config isolation ---
 
+const DEV_NULL = process.platform === "win32" ? "NUL" : "/dev/null";
+
 function runGit(
   projectPath: string,
   args: string[],
@@ -91,8 +99,8 @@ function runGit(
     stderr: "pipe",
     env: {
       ...process.env,
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_GLOBAL: DEV_NULL,
+      GIT_CONFIG_SYSTEM: DEV_NULL,
     },
   });
 
@@ -294,8 +302,14 @@ export interface VersionEntry {
 }
 
 export function listVersions(projectPath: string): VersionEntry[] {
-  if (!checkGitAvailable()) return [];
-  if (!ensureGitRepo(projectPath)) return [];
+  if (!checkGitAvailable()) {
+    logWarn("versioning", `listVersions skipped: git unavailable`);
+    return [];
+  }
+  if (!ensureGitRepo(projectPath)) {
+    logError("versioning", `listVersions skipped: repo init failed`, { projectPath });
+    return [];
+  }
 
   const result = runGit(projectPath, [
     "log",
@@ -349,28 +363,28 @@ export function listVersions(projectPath: string): VersionEntry[] {
 export function rollbackToVersion(
   projectPath: string,
   sha: string,
-): boolean {
-  if (!checkGitAvailable()) return false;
-  if (!ensureGitRepo(projectPath)) return false;
+): { ok: boolean; error?: string } {
+  if (!checkGitAvailable()) return { ok: false, error: "Git is not available" };
+  if (!ensureGitRepo(projectPath)) return { ok: false, error: "Could not initialize git repo" };
 
   // Validate SHA format (must be hex, 7-40 chars)
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
     logError("versioning", `Invalid SHA format: ${sha}`);
-    return false;
+    return { ok: false, error: `Invalid SHA format: ${sha}` };
   }
 
   // Verify the SHA exists
   const verify = runGit(projectPath, ["cat-file", "-t", sha]);
   if (verify.exitCode !== 0 || verify.stdout !== "commit") {
     logError("versioning", `SHA not found or not a commit: ${sha}`);
-    return false;
+    return { ok: false, error: "Version not found" };
   }
 
   // Checkout files from that commit
   const checkout = runGit(projectPath, ["checkout", sha, "--", "."]);
   if (checkout.exitCode !== 0) {
     logError("versioning", `Rollback checkout failed`, checkout.stderr);
-    return false;
+    return { ok: false, error: checkout.stderr || "Checkout failed" };
   }
 
   // Stage and commit the rollback
@@ -384,11 +398,11 @@ export function rollbackToVersion(
 
   if (commit.exitCode !== 0 && !commit.stderr.includes("nothing to commit")) {
     logError("versioning", `Rollback commit failed`, commit.stderr);
-    return false;
+    return { ok: false, error: commit.stderr || "Commit failed after rollback" };
   }
 
   log("versioning", `Rolled back to ${shortSha}`, { projectPath });
-  return true;
+  return { ok: true };
 }
 
 export function getDiff(
@@ -399,7 +413,10 @@ export function getDiff(
   if (!ensureGitRepo(projectPath)) return null;
 
   // Validate SHA format
-  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return null;
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
+    logError("versioning", `getDiff: invalid SHA format: ${sha}`);
+    return null;
+  }
 
   // Get unified diff vs parent
   const diff = runGit(projectPath, ["diff", `${sha}~1`, sha]);
@@ -410,7 +427,10 @@ export function getDiff(
       "4b825dc642cb6eb9a060e54bf899d15363da7b24",
       sha,
     ]);
-    if (diffInitial.exitCode !== 0) return null;
+    if (diffInitial.exitCode !== 0) {
+      logError("versioning", `getDiff failed for ${sha.slice(0, 7)}`, diffInitial.stderr);
+      return null;
+    }
     return parseDiff(diffInitial.stdout);
   }
 
@@ -452,6 +472,27 @@ function parseDiff(rawDiff: string): {
   return { diff: rawDiff, files };
 }
 
+export function getFileTreeAtVersion(
+  projectPath: string,
+  sha: string,
+): string[] | null {
+  if (!checkGitAvailable()) return null;
+  if (!ensureGitRepo(projectPath)) return null;
+
+  // Validate SHA format
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return null;
+
+  const result = runGit(projectPath, ["ls-tree", "-r", "--name-only", sha]);
+  if (result.exitCode !== 0) {
+    logError("versioning", `ls-tree failed for ${sha}`, result.stderr);
+    return null;
+  }
+
+  if (!result.stdout) return [];
+
+  return result.stdout.split("\n").filter(Boolean).sort();
+}
+
 export function applyGitConfig(projectPath: string): void {
   if (!checkGitAvailable()) return;
 
@@ -465,4 +506,5 @@ export function applyGitConfig(projectPath: string): void {
     "user.email",
     sanitizeForGit(settings.email),
   ]);
+  log("versioning", `Applied git config`, { projectPath, name: settings.name, email: settings.email });
 }

@@ -10,6 +10,7 @@ import {
   listVersions,
   rollbackToVersion,
   getDiff,
+  getFileTreeAtVersion,
 } from "../../src/server/services/versioning.ts";
 
 const TEST_PROJECT_DIR = resolve("projects/test-versioning");
@@ -105,22 +106,24 @@ describe("Git Versioning Service", () => {
     autoCommit(TEST_PROJECT_DIR, "Update to v3");
 
     // Rollback to v2
-    const success = rollbackToVersion(TEST_PROJECT_DIR, autoVersion!.sha);
-    expect(success).toBe(true);
+    const result = rollbackToVersion(TEST_PROJECT_DIR, autoVersion!.sha);
+    expect(result.ok).toBe(true);
 
     // Verify file is restored
     const content = readFileSync(join(TEST_PROJECT_DIR, "src", "index.ts"), "utf-8");
     expect(content).toBe('console.log("v2")');
   });
 
-  test("rollback returns false for invalid SHA", () => {
-    const success = rollbackToVersion(TEST_PROJECT_DIR, "invalid");
-    expect(success).toBe(false);
+  test("rollback returns error for invalid SHA", () => {
+    const result = rollbackToVersion(TEST_PROJECT_DIR, "invalid");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
   });
 
-  test("rollback returns false for nonexistent SHA", () => {
-    const success = rollbackToVersion(TEST_PROJECT_DIR, "0000000000000000000000000000000000000000");
-    expect(success).toBe(false);
+  test("rollback returns error for nonexistent SHA", () => {
+    const result = rollbackToVersion(TEST_PROJECT_DIR, "0000000000000000000000000000000000000000");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
   });
 
   test("getDiff returns unified diff with file stats", () => {
@@ -142,6 +145,22 @@ describe("Git Versioning Service", () => {
   test("getDiff returns null for invalid SHA", () => {
     const result = getDiff(TEST_PROJECT_DIR, "not-a-sha");
     expect(result).toBeNull();
+  });
+
+  test("getFileTreeAtVersion returns file list at a commit", () => {
+    const versions = listVersions(TEST_PROJECT_DIR);
+    expect(versions.length).toBeGreaterThan(0);
+
+    const files = getFileTreeAtVersion(TEST_PROJECT_DIR, versions[0]!.sha);
+    expect(files).toBeTruthy();
+    expect(files!.length).toBeGreaterThan(0);
+    // Should include some known file
+    expect(files!.some((f) => f.includes("index.ts") || f.includes("README.md"))).toBe(true);
+  });
+
+  test("getFileTreeAtVersion returns null for invalid SHA", () => {
+    const files = getFileTreeAtVersion(TEST_PROJECT_DIR, "not-a-sha");
+    expect(files).toBeNull();
   });
 
   test("path sandboxing rejects traversal attempts", () => {

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
+import { useVersionStore } from "../../stores/versionStore.ts";
+import { useFileStore } from "../../stores/fileStore.ts";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
-import { RotateCcw, Save, Loader2, GitCommit } from "lucide-react";
-import { VersionDiff } from "./VersionDiff.tsx";
+import { RotateCcw, Save, Loader2, GitCommit, ArrowRight } from "lucide-react";
 
 interface VersionEntry {
   sha: string;
@@ -17,6 +18,8 @@ interface VersionEntry {
 
 export function VersionHistory() {
   const activeProject = useProjectStore((s) => s.activeProject);
+  const { activeVersionSha, openVersion } = useVersionStore();
+  const setActiveTab = useFileStore((s) => s.setActiveTab);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [rolling, setRolling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +27,6 @@ export function VersionHistory() {
   const [showLabelInput, setShowLabelInput] = useState(false);
   const [label, setLabel] = useState("");
   const [gitUnavailable, setGitUnavailable] = useState(false);
-  const [expandedDiff, setExpandedDiff] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeProject) return;
@@ -38,6 +40,8 @@ export function VersionHistory() {
       setVersions(data);
       setError(null);
       setGitUnavailable(false);
+      // Keep the version store in sync
+      useVersionStore.getState().setVersions(data);
     } catch (err: unknown) {
       const errObj = err as { gitUnavailable?: boolean };
       if (errObj?.gitUnavailable) {
@@ -51,11 +55,13 @@ export function VersionHistory() {
   async function handleRollback(sha: string) {
     if (!activeProject) return;
     setRolling(sha);
+    setError(null);
     try {
       await api.post(`/versions/${sha}/rollback?projectId=${activeProject.id}`, {});
       await loadVersions();
-    } catch {
-      setError("Rollback failed");
+    } catch (err: unknown) {
+      const errObj = err as { error?: string };
+      setError(errObj?.error || "Rollback failed");
     } finally {
       setRolling(null);
     }
@@ -77,6 +83,12 @@ export function VersionHistory() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleViewDiff(sha: string) {
+    if (!activeProject) return;
+    openVersion(sha, activeProject.id, versions);
+    setActiveTab("versions");
   }
 
   function stripPrefix(message: string): string {
@@ -156,7 +168,11 @@ export function VersionHistory() {
           {versions.map((v) => (
             <Card
               key={v.sha}
-              className="px-3 py-2 shadow-none"
+              className={`px-3 py-2 shadow-none transition-colors ${
+                activeVersionSha === v.sha
+                  ? "ring-1 ring-primary/50 bg-primary/5"
+                  : ""
+              }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -181,9 +197,10 @@ export function VersionHistory() {
                     variant="ghost"
                     size="sm"
                     className="h-5 px-1.5 text-[10px] text-muted-foreground"
-                    onClick={() => setExpandedDiff(expandedDiff === v.sha ? null : v.sha)}
+                    onClick={() => handleViewDiff(v.sha)}
                   >
-                    Diff
+                    <ArrowRight className="h-3 w-3 mr-0.5" />
+                    View
                   </Button>
                   <Button
                     variant="ghost"
@@ -200,9 +217,6 @@ export function VersionHistory() {
                   </Button>
                 </div>
               </div>
-              {expandedDiff === v.sha && activeProject && (
-                <VersionDiff sha={v.sha} projectId={activeProject.id} />
-              )}
             </Card>
           ))}
         </div>

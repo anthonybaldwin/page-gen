@@ -4,6 +4,7 @@ import { ChatWindow } from "./components/chat/ChatWindow.tsx";
 import { AgentStatusPanel } from "./components/chat/AgentStatusPanel.tsx";
 import { LivePreview } from "./components/preview/LivePreview.tsx";
 import { EditorPanel } from "./components/editor/EditorPanel.tsx";
+import { VersionPanel } from "./components/versions/VersionPanel.tsx";
 import { FileExplorer } from "./components/layout/FileExplorer.tsx";
 import { ApiKeySetup } from "./components/settings/ApiKeySetup.tsx";
 import { useSettingsStore } from "./stores/settingsStore.ts";
@@ -113,7 +114,7 @@ export function App() {
       {/* Content column — tabbed Preview / Editor */}
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as "preview" | "editor")}
+        onValueChange={(v) => setActiveTab(v as "preview" | "editor" | "versions")}
         className="flex-1 flex flex-col min-h-0 min-w-0"
       >
         <AgentStatusPanel chatId={activeChat?.id ?? null} />
@@ -174,6 +175,9 @@ export function App() {
         </TabsContent>
         <TabsContent value="editor" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
           <EditorPanel />
+        </TabsContent>
+        <TabsContent value="versions" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+          <VersionPanel />
         </TabsContent>
       </Tabs>
 

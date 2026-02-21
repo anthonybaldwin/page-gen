@@ -140,6 +140,11 @@ Get unified diff between a commit and its parent.
 
 **Response:** `{ diff: string, files: [{ path: string, additions: number, deletions: number }] }`
 
+### GET /versions/:sha/tree?projectId={id}
+Get the file tree at a specific version.
+
+**Response:** `{ files: string[] }` — sorted list of file paths at that commit
+
 ## Usage
 
 ### GET /usage/chats

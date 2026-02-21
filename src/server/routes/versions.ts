@@ -7,6 +7,7 @@ import {
   userCommit,
   rollbackToVersion,
   getDiff,
+  getFileTreeAtVersion,
   ensureGitRepo,
 } from "../services/versioning.ts";
 
@@ -77,8 +78,8 @@ versionRoutes.post("/:sha/rollback", async (c) => {
     .get();
   if (!project) return c.json({ error: "Project not found" }, 404);
 
-  const success = rollbackToVersion(project.path, sha);
-  if (!success) return c.json({ error: "Rollback failed" }, 500);
+  const result = rollbackToVersion(project.path, sha);
+  if (!result.ok) return c.json({ error: result.error || "Rollback failed" }, 500);
 
   return c.json({ ok: true, restoredTo: sha });
 });
@@ -104,4 +105,27 @@ versionRoutes.get("/:sha/diff", (c) => {
   if (!result) return c.json({ error: "Diff not available" }, 404);
 
   return c.json(result);
+});
+
+// Get file tree at a specific version
+versionRoutes.get("/:sha/tree", (c) => {
+  const sha = c.req.param("sha");
+  const projectId = c.req.query("projectId");
+  if (!projectId) return c.json({ error: "projectId required" }, 400);
+
+  if (!checkGitAvailable()) {
+    return c.json({ error: "Git is not available", gitUnavailable: true }, 503);
+  }
+
+  const project = db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const files = getFileTreeAtVersion(project.path, sha);
+  if (files === null) return c.json({ error: "File tree not available" }, 404);
+
+  return c.json({ files });
 });

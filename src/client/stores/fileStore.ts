@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/api.ts";
 
-type ActiveTab = "preview" | "editor";
+type ActiveTab = "preview" | "editor" | "versions";
 
 interface OpenFile {
   path: string;
