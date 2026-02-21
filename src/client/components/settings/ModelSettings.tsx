@@ -137,11 +137,9 @@ function AgentModelCard({
   const [model, setModel] = useState(config.model);
 
   const [editing, setEditing] = useState(false);
-  const [editInput, setEditInput] = useState("");
-  const [editOutput, setEditOutput] = useState("");
   const [editMaxTokens, setEditMaxTokens] = useState("");
   const [editMaxSteps, setEditMaxSteps] = useState("");
-  const [savingOverrides, setSavingOverrides] = useState(false);
+  const [savingLimits, setSavingLimits] = useState(false);
 
   useEffect(() => {
     setProvider(config.provider);
@@ -157,26 +155,17 @@ function AgentModelCard({
   }
 
   const pricingInfo = pricing.find((p) => p.model === model);
-  const hasPricingOverride = !!pricingInfo?.isOverridden;
   const hasLimitsOverride = !!limits?.isOverridden;
-  const hasOverrides = hasPricingOverride || hasLimitsOverride;
 
   function openEdit() {
-    setEditInput(String(pricingInfo?.input ?? ""));
-    setEditOutput(String(pricingInfo?.output ?? ""));
     setEditMaxTokens(String(limits?.maxOutputTokens ?? ""));
     setEditMaxSteps(String(limits?.maxToolSteps ?? ""));
     setEditing(true);
   }
 
-  async function handleSaveOverrides() {
-    setSavingOverrides(true);
+  async function handleLimitsSave() {
+    setSavingLimits(true);
     try {
-      const inp = parseFloat(editInput);
-      const out = parseFloat(editOutput);
-      if (!isNaN(inp) && !isNaN(out) && inp >= 0 && out >= 0) {
-        await api.put(`/settings/pricing/${model}`, { input: inp, output: out });
-      }
       const tokens = parseInt(editMaxTokens);
       const steps = parseInt(editMaxSteps);
       if (!isNaN(tokens) && !isNaN(steps) && tokens >= 1 && steps >= 1) {
@@ -185,19 +174,18 @@ function AgentModelCard({
       setEditing(false);
       await onRefresh();
     } finally {
-      setSavingOverrides(false);
+      setSavingLimits(false);
     }
   }
 
-  async function handleResetOverrides() {
-    setSavingOverrides(true);
+  async function handleLimitsReset() {
+    setSavingLimits(true);
     try {
-      if (pricingInfo?.isOverridden) await api.delete(`/settings/pricing/${model}`);
-      if (limits?.isOverridden) await api.delete(`/settings/agents/${config.name}/limits`);
+      await api.delete(`/settings/agents/${config.name}/limits`);
       setEditing(false);
       await onRefresh();
     } finally {
-      setSavingOverrides(false);
+      setSavingLimits(false);
     }
   }
 
@@ -208,12 +196,7 @@ function AgentModelCard({
           <span className="text-sm font-medium text-foreground">{config.displayName}</span>
           {config.isOverridden && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              model
-            </span>
-          )}
-          {hasPricingOverride && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              pricing
+              custom
             </span>
           )}
           {hasLimitsOverride && (
@@ -223,15 +206,15 @@ function AgentModelCard({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {hasOverrides && (
+          {hasLimitsOverride && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleResetOverrides}
-              disabled={savingOverrides}
+              onClick={handleLimitsReset}
+              disabled={savingLimits}
               className="h-6 px-2 text-xs text-muted-foreground"
             >
-              Reset overrides
+              Reset limits
             </Button>
           )}
           {config.isOverridden && (
@@ -290,78 +273,72 @@ function AgentModelCard({
         )}
       </div>
 
-      <div className="mt-2 grid grid-cols-4 gap-2">
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Input $/1M</label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            value={editing ? editInput : (pricingInfo?.input ?? "")}
-            onChange={(e) => setEditInput(e.target.value)}
-            onFocus={() => { if (!editing) openEdit(); }}
-            disabled={savingOverrides}
-            readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasPricingOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Output $/1M</label>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
-            value={editing ? editOutput : (pricingInfo?.output ?? "")}
-            onChange={(e) => setEditOutput(e.target.value)}
-            onFocus={() => { if (!editing) openEdit(); }}
-            disabled={savingOverrides}
-            readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasPricingOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Max tokens</label>
-          <Input
-            type="number"
-            min="1"
-            value={editing ? editMaxTokens : (limits?.maxOutputTokens ?? "")}
-            onChange={(e) => setEditMaxTokens(e.target.value)}
-            onFocus={() => { if (!editing) openEdit(); }}
-            disabled={savingOverrides}
-            readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted-foreground block mb-1">Max steps</label>
-          <Input
-            type="number"
-            min="1"
-            value={editing ? editMaxSteps : (limits?.maxToolSteps ?? "")}
-            onChange={(e) => setEditMaxSteps(e.target.value)}
-            onFocus={() => { if (!editing) openEdit(); }}
-            disabled={savingOverrides}
-            readOnly={!editing}
-            className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-          />
-        </div>
+      <div className="mt-1.5">
+        {pricingInfo ? (
+          <span className="text-[11px] text-muted-foreground">
+            ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
+          </span>
+        ) : (
+          <span className="text-[11px] text-amber-400">Pricing not configured</span>
+        )}
       </div>
+
+      {limits && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Max output tokens</label>
+            <Input
+              type="number"
+              min="1"
+              value={editing ? editMaxTokens : limits.maxOutputTokens}
+              onChange={(e) => setEditMaxTokens(e.target.value)}
+              onFocus={() => { if (!editing) openEdit(); }}
+              disabled={savingLimits}
+              readOnly={!editing}
+              className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
+            />
+            {!editing && (
+              <span className="text-[10px] text-muted-foreground/50 mt-0.5 block">
+                default: {limits.defaultMaxOutputTokens.toLocaleString()}
+              </span>
+            )}
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">Max tool steps</label>
+            <Input
+              type="number"
+              min="1"
+              value={editing ? editMaxSteps : limits.maxToolSteps}
+              onChange={(e) => setEditMaxSteps(e.target.value)}
+              onFocus={() => { if (!editing) openEdit(); }}
+              disabled={savingLimits}
+              readOnly={!editing}
+              className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
+            />
+            {!editing && (
+              <span className="text-[10px] text-muted-foreground/50 mt-0.5 block">
+                default: {limits.defaultMaxToolSteps}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="flex items-center gap-2 mt-2">
           <Button
             size="sm"
-            onClick={handleSaveOverrides}
-            disabled={savingOverrides}
+            onClick={handleLimitsSave}
+            disabled={savingLimits}
             className="h-7 text-xs"
           >
-            {savingOverrides ? "..." : "Save"}
+            {savingLimits ? "..." : "Save"}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setEditing(false)}
-            disabled={savingOverrides}
+            disabled={savingLimits}
             className="h-7 text-xs text-muted-foreground"
           >
             Cancel
