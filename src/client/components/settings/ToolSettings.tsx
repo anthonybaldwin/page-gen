@@ -5,7 +5,7 @@ import { Checkbox } from "../ui/checkbox.tsx";
 import type { AgentToolConfig, ToolName } from "../../../shared/types.ts";
 
 const AGENT_GROUPS: { label: string; agents: string[] }[] = [
-  { label: "Planning", agents: ["orchestrator", "orchestrator:classify", "orchestrator:question", "orchestrator:summary", "research", "architect", "testing"] },
+  { label: "Planning", agents: ["orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary", "research", "architect", "testing"] },
   { label: "Development", agents: ["frontend-dev", "backend-dev", "styling"] },
   { label: "Quality", agents: ["code-review", "qa", "security"] },
 ];
