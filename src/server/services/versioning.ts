@@ -347,9 +347,9 @@ export function autoCommit(
 export function userCommit(
   projectPath: string,
   label: string,
-): string | null {
-  if (!checkGitAvailable()) return null;
-  if (!ensureGitRepo(projectPath)) return null;
+): { sha: string } | { sha: null; reason: string } {
+  if (!checkGitAvailable()) return { sha: null, reason: "Git is not available" };
+  if (!ensureGitRepo(projectPath)) return { sha: null, reason: "Could not initialize git repo" };
 
   const safeLabel = sanitizeForGit(label);
 
@@ -358,7 +358,14 @@ export function userCommit(
 
   // Check if there are changes to commit
   const status = runGit(projectPath, ["status", "--porcelain"]);
-  if (!status.stdout) return null; // Nothing to commit
+  if (!status.stdout) {
+    // Check if the most recent commit was an auto-commit (pipeline may have swept up user edits)
+    const lastMsg = runGit(projectPath, ["log", "-1", "--format=%s"]);
+    if (lastMsg.stdout.startsWith(AUTO_COMMIT_PREFIX)) {
+      return { sha: null, reason: "No pending changes — the build pipeline already saved your latest edits automatically" };
+    }
+    return { sha: null, reason: "No changes to save" };
+  }
 
   const commit = runGit(projectPath, [
     "commit",
@@ -367,9 +374,9 @@ export function userCommit(
   ]);
 
   if (commit.exitCode !== 0) {
-    if (commit.stderr.includes("nothing to commit")) return null;
+    if (commit.stderr.includes("nothing to commit")) return { sha: null, reason: "No changes to save" };
     logError("versioning", `User commit failed`, commit.stderr);
-    return null;
+    return { sha: null, reason: commit.stderr || "Commit failed" };
   }
 
   log("versioning", `User committed: ${safeLabel}`);
@@ -379,7 +386,7 @@ export function userCommit(
   pruneExcessVersions(projectPath);
 
   const sha = runGit(projectPath, ["rev-parse", "HEAD"]);
-  return sha.stdout;
+  return { sha: sha.stdout };
 }
 
 export interface VersionEntry {

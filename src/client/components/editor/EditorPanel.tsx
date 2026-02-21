@@ -30,7 +30,7 @@ export function EditorPanel() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="h-full flex flex-col min-h-0 overflow-hidden">
       {externallyChanged && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 border-b border-destructive/20 text-sm shrink-0">
           <span className="text-xs text-destructive flex-1">File changed externally.</span>

@@ -57,13 +57,13 @@ versionRoutes.post("/", async (c) => {
   if (!project) return c.json({ error: "Project not found" }, 404);
 
   const label = body.label || `Saved ${new Date().toISOString()}`;
-  const sha = userCommit(project.path, label);
+  const result = userCommit(project.path, label);
 
-  if (!sha) {
-    return c.json({ sha: null, note: "No changes to save" });
+  if (!result.sha) {
+    return c.json({ sha: null, note: (result as { sha: null; reason: string }).reason });
   }
 
-  return c.json({ sha, label }, 201);
+  return c.json({ sha: result.sha, label }, 201);
 });
 
 // Rollback to a specific version

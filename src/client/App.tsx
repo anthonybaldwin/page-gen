@@ -40,7 +40,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const activeChat = useChatStore((s) => s.activeChat);
   const activeProject = useProjectStore((s) => s.activeProject);
-  const { activeTab, setActiveTab, openFiles, activeFilePath, setActiveFile, closeFile } = useFileStore();
+  const { activeTab, setActiveTab, openFiles, activeFilePath, setActiveFile, pinFile, closeFile } = useFileStore();
   const [chatWidth, setChatWidth] = useState(getInitialWidth);
   const isDragging = useRef(false);
 
@@ -142,12 +142,15 @@ export function App() {
                 <button
                   key={file.path}
                   type="button"
-                  className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-xs border-b-2 transition-colors whitespace-nowrap ${
+                    file.isPreview ? "font-normal italic" : "font-medium"
+                  } ${
                     file.path === activeFilePath && activeTab === "editor"
                       ? "border-primary text-foreground"
                       : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setActiveFile(file.path)}
+                  onDoubleClick={() => pinFile(file.path)}
                   onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.path); } }}
                 >
                   {file.path.split("/").pop()}

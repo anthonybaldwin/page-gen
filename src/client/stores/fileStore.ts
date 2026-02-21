@@ -12,6 +12,8 @@ interface OpenFile {
   isLoading: boolean;
   isSaving: boolean;
   externallyChanged: boolean;
+  /** Preview tabs are italic and replaced by the next single-click open */
+  isPreview: boolean;
 }
 
 interface FileStoreState {
@@ -31,7 +33,8 @@ interface FileStoreState {
   externallyChanged: boolean;
 
   // Actions
-  openFile: (projectId: string, path: string) => Promise<void>;
+  openFile: (projectId: string, path: string, opts?: { preview?: boolean }) => Promise<void>;
+  pinFile: (path?: string) => void;
   closeFile: (path?: string) => void;
   setActiveFile: (path: string) => void;
   updateContent: (content: string) => void;
@@ -82,17 +85,32 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   isSaving: false,
   externallyChanged: false,
 
-  async openFile(projectId, path) {
+  async openFile(projectId, path, opts) {
     const { openFiles } = get();
+    const isPreview = opts?.preview ?? false;
 
-    // Already open — just switch to it
+    // Already open — just switch to it (and pin if double-clicked)
     if (openFiles[path]) {
+      const updated = !isPreview && openFiles[path].isPreview
+        ? { ...openFiles, [path]: { ...openFiles[path], isPreview: false } }
+        : openFiles;
       set({
+        openFiles: updated,
         activeFilePath: path,
         activeTab: "editor",
-        ...deriveActive(openFiles, path),
+        ...deriveActive(updated, path),
       });
       return;
+    }
+
+    // If opening a preview, close any existing preview tab first
+    let base = openFiles;
+    if (isPreview) {
+      const existingPreview = Object.keys(openFiles).find((p) => openFiles[p]?.isPreview);
+      if (existingPreview) {
+        const { [existingPreview]: _, ...rest } = openFiles;
+        base = rest;
+      }
     }
 
     // New file — add entry in loading state
@@ -105,8 +123,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoading: true,
       isSaving: false,
       externallyChanged: false,
+      isPreview,
     };
-    const newOpenFiles = { ...openFiles, [path]: newFile };
+    const newOpenFiles = { ...base, [path]: newFile };
     set({
       openFiles: newOpenFiles,
       activeFilePath: path,
@@ -148,6 +167,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         });
       }
     }
+  },
+
+  pinFile(path?) {
+    const { openFiles, activeFilePath } = get();
+    const target = path ?? activeFilePath;
+    if (!target || !openFiles[target] || !openFiles[target].isPreview) return;
+    const pinned = { ...openFiles, [target]: { ...openFiles[target], isPreview: false } };
+    set({
+      openFiles: pinned,
+      ...deriveActive(pinned, activeFilePath),
+    });
   },
 
   closeFile(path?) {
@@ -210,6 +240,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ...f,
       currentContent: content,
       isDirty: content !== f.originalContent,
+      // Auto-pin when user starts editing
+      isPreview: false,
     };
     const updatedOpenFiles = { ...openFiles, [activeFilePath]: updatedFile };
     set({

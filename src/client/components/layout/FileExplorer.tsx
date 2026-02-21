@@ -59,12 +59,14 @@ function FileTreeNode({
   node,
   depth,
   onSelect,
+  onPin,
   selectedPath,
   forceExpanded,
 }: {
   node: FileNode;
   depth: number;
   onSelect: (path: string) => void;
+  onPin: (path: string) => void;
   selectedPath: string | null;
   forceExpanded?: boolean;
 }) {
@@ -93,6 +95,7 @@ function FileTreeNode({
               node={child}
               depth={depth + 1}
               onSelect={onSelect}
+              onPin={onPin}
               selectedPath={selectedPath}
               forceExpanded={forceExpanded}
             />
@@ -104,6 +107,7 @@ function FileTreeNode({
   return (
     <button
       onClick={() => onSelect(node.path)}
+      onDoubleClick={() => onPin(node.path)}
       className={`flex items-center gap-1.5 w-full text-left py-0.5 rounded text-xs transition-colors ${
         selectedPath === node.path ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       }`}
@@ -117,7 +121,7 @@ function FileTreeNode({
 
 export function FileExplorer() {
   const activeProject = useProjectStore((s) => s.activeProject);
-  const { openFilePath, openFile, handleExternalChange } = useFileStore();
+  const { openFilePath, openFile, pinFile, handleExternalChange } = useFileStore();
   const [tree, setTree] = useState<FileNode[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"files" | "content">("files");
@@ -224,7 +228,12 @@ export function FileExplorer() {
 
   function handleSelectFile(path: string) {
     if (!activeProject) return;
-    openFile(activeProject.id, path);
+    openFile(activeProject.id, path, { preview: true });
+  }
+
+  function handlePinFile(path: string) {
+    if (!activeProject) return;
+    openFile(activeProject.id, path, { preview: false });
   }
 
   function clearSearch() {
@@ -321,6 +330,7 @@ export function FileExplorer() {
                 <div key={result.path}>
                   <button
                     onClick={() => handleSelectFile(result.path)}
+                    onDoubleClick={() => handlePinFile(result.path)}
                     className={`flex items-center gap-1.5 w-full text-left py-1 px-2 rounded text-xs transition-colors ${
                       openFilePath === result.path
                         ? "bg-accent text-accent-foreground"
@@ -363,6 +373,7 @@ export function FileExplorer() {
               node={node}
               depth={0}
               onSelect={handleSelectFile}
+              onPin={handlePinFile}
               selectedPath={openFilePath}
               forceExpanded={hasQuery && showFileTree}
             />
