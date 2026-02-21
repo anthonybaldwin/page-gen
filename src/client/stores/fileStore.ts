@@ -271,7 +271,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     for (const [filePath, file] of Object.entries(openFiles)) {
       if (file.projectId !== projectId) continue;
-      if (!paths.some((p) => p === filePath || p === "__scaffold__")) continue;
+      if (!paths.some((p) => p === filePath || p === "__scaffold__" || p === "__checkout__")) continue;
 
       if (!file.isDirty) {
         // Silent re-fetch

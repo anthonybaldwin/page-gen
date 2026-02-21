@@ -64,13 +64,18 @@ export function VersionHistory() {
   async function handleSaveVersion() {
     if (!activeProject) return;
     setSaving(true);
+    setError(null);
     try {
-      await api.post("/versions", {
+      const result = await api.post<{ sha: string | null; note?: string }>("/versions", {
         projectId: activeProject.id,
         label: label.trim() || undefined,
       });
-      setLabel("");
-      setShowLabelInput(false);
+      if (!result.sha) {
+        setError(result.note || "No changes to save");
+      } else {
+        setLabel("");
+        setShowLabelInput(false);
+      }
       await loadVersions();
     } catch {
       setError("Failed to save version");
@@ -135,8 +140,8 @@ export function VersionHistory() {
         <h3 className="text-sm font-medium text-foreground/80">Versions</h3>
       </div>
 
-      {/* Bookmark current state */}
-      <div className="mb-3">
+      {/* Bookmark current state — hidden during version preview */}
+      {!isPreviewing && <div className="mb-3">
         {showLabelInput ? (
           <div className="flex gap-1">
             <Input
@@ -172,7 +177,7 @@ export function VersionHistory() {
             Bookmark current version
           </Button>
         )}
-      </div>
+      </div>}
 
       {versions.length === 0 ? (
         <p className="text-xs text-muted-foreground/60">No versions yet</p>

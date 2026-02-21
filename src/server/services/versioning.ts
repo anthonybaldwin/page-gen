@@ -351,11 +351,6 @@ export function userCommit(
   if (!checkGitAvailable()) return null;
   if (!ensureGitRepo(projectPath)) return null;
 
-  // Auto-exit preview before committing
-  if (isInPreview(projectPath)) {
-    exitPreview(projectPath);
-  }
-
   const safeLabel = sanitizeForGit(label);
 
   // Stage all changes
