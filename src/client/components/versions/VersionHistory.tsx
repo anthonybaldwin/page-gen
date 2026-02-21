@@ -33,7 +33,6 @@ export function VersionHistory() {
     try {
       const data = await api.get<VersionEntry[]>(`/versions?projectId=${activeProject.id}`);
       setVersions(data);
-      setError(null);
       setGitUnavailable(false);
       // Keep the version store in sync
       useVersionStore.getState().setVersions(data);
@@ -167,7 +166,7 @@ export function VersionHistory() {
               onChange={(e) => setLabel(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSaveVersion();
-                if (e.key === "Escape") setShowLabelInput(false);
+                if (e.key === "Escape") { setShowLabelInput(false); setLabel(""); }
               }}
               placeholder="Name this version..."
               className="h-7 text-xs flex-1"
@@ -181,6 +180,15 @@ export function VersionHistory() {
               disabled={saving}
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-1.5 text-xs text-muted-foreground"
+              onClick={() => { setShowLabelInput(false); setLabel(""); }}
+              disabled={saving}
+            >
+              Cancel
             </Button>
           </div>
         ) : (
