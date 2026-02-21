@@ -149,6 +149,7 @@ export function getModelId(provider: string, model: string): string {
 export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   orchestrator: [],
   "orchestrator:classify": [],
+  "orchestrator:title": [],
   "orchestrator:question": [],
   "orchestrator:summary": [],
   research: [],
@@ -162,7 +163,7 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips
 };
 
-export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator", "orchestrator:classify", "orchestrator:question", "orchestrator:summary"]);
+export const TOOLS_READONLY_AGENTS = new Set<AgentName>(["orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary"]);
 
 /** Get the active tools for an agent (DB override or default). */
 export function getAgentTools(name: AgentName): ToolName[] {
