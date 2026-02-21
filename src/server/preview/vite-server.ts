@@ -11,6 +11,7 @@ import {
   VITE_SHUTDOWN_DEADLINE,
   VITE_SHUTDOWN_POLL,
   DEFAULT_PREVIEW_HOST,
+  TAILWIND_CONFLICT_FILES,
 } from "../config/preview.ts";
 import { STDERR_TRUNCATION } from "../config/logging.ts";
 
@@ -289,6 +290,20 @@ async function installProjectDependencies(projectPath: string, chatId?: string):
 }
 
 /**
+ * Remove postcss.config.* and tailwind.config.* files that conflict with
+ * the scaffold's @tailwindcss/vite plugin (Tailwind CSS v4).
+ */
+function removeConflictingTailwindConfigs(projectPath: string) {
+  for (const file of TAILWIND_CONFLICT_FILES) {
+    const filePath = join(projectPath, file);
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+      log("preview", `Removed conflicting config: ${file}`);
+    }
+  }
+}
+
+/**
  * Prepare a project for preview: scaffold config, install deps.
  * Called by orchestrator after first file extraction, and as a safety net by startPreviewServer.
  */
@@ -301,6 +316,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
     mkdirSync(fullPath, { recursive: true });
   }
 
+  removeConflictingTailwindConfigs(fullPath);
   ensureProjectHasPackageJson(fullPath);
   ensureProjectHasViteConfig(fullPath);
   ensureProjectHasVitestConfig(fullPath);

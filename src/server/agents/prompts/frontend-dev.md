@@ -32,6 +32,8 @@ Do NOT wrap tool calls in XML, JSON, or code blocks.
 The project already has these files (do NOT recreate unless modifying):
 - `index.html`, `src/main.tsx`, `vite.config.ts`, `tsconfig.json`, `package.json` (react, react-dom, vite, tailwindcss), `src/index.css`
 
+Do NOT create `postcss.config.*` or `tailwind.config.*` — Tailwind CSS v4 is configured via the `@tailwindcss/vite` plugin, not PostCSS. These files will be deleted automatically and their presence causes build conflicts.
+
 You MUST modify `src/App.tsx` to import and render your components. If the architecture specifies additional npm dependencies, write an updated `package.json`.
 
 ## File Plan Visibility

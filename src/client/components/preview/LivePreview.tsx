@@ -68,6 +68,10 @@ export function LivePreview() {
   const switchGenRef = useRef(0);
   // Consecutive health-check failures before marking server dead
   const healthFailsRef = useRef(0);
+  // Concurrency guard — prevents overlapping checkAndMaybeStartPreview calls
+  const inFlightRef = useRef(false);
+  // Cooldown — minimum 2 s between checkAndMaybeStartPreview completions
+  const lastCheckRef = useRef(0);
 
   const startPreview = useCallback(async (projectId: string, gen: number) => {
     setLoading(true);
@@ -90,6 +94,11 @@ export function LivePreview() {
   }, []);
 
   const checkAndMaybeStartPreview = useCallback(async (projectId: string, gen: number) => {
+    // Concurrency guard — skip if another call is already in flight
+    if (inFlightRef.current) return;
+    // Cooldown — skip if last call completed less than 2 s ago
+    if (Date.now() - lastCheckRef.current < 2000) return;
+    inFlightRef.current = true;
     try {
       const tree = await api.get<FileNode[]>(`/files/tree/${projectId}`);
       if (switchGenRef.current !== gen) return;
@@ -99,6 +108,9 @@ export function LivePreview() {
       }
     } catch {
       // tree fetch failed — stay in placeholder
+    } finally {
+      inFlightRef.current = false;
+      lastCheckRef.current = Date.now();
     }
   }, [startPreview]);
 
@@ -221,7 +233,7 @@ export function LivePreview() {
     });
 
     return unsub;
-  }, [previewUrl, loading, activeProject?.id, pipelineRunning, checkAndMaybeStartPreview]);
+  }, [previewUrl, loading, activeProject?.id, pipelineRunning]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
   useEffect(() => {

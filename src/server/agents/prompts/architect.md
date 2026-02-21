@@ -29,6 +29,8 @@ The project already has these scaffolded files (do not recreate them — the fro
 - `vite.config.ts` — Vite config with React + Tailwind plugins
 - `package.json` — dependencies (react, react-dom, vite, tailwindcss)
 
+Tailwind CSS v4 is pre-configured via the `@tailwindcss/vite` plugin. Do NOT include `postcss.config.*` or `tailwind.config.*` in the file plan — they conflict with the Vite plugin and will be deleted automatically.
+
 ## Output Format
 
 Return a JSON architecture document:

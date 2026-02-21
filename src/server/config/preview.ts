@@ -24,3 +24,9 @@ export const BACKEND_ENTRY_PATH = "server/index.ts";
 
 // Vite config watch
 export const VITE_WATCH_POLL = 300;
+
+// PostCSS / Tailwind config files that conflict with @tailwindcss/vite plugin
+export const TAILWIND_CONFLICT_FILES = [
+  "postcss.config.js", "postcss.config.cjs", "postcss.config.mjs", "postcss.config.ts",
+  "tailwind.config.js", "tailwind.config.cjs", "tailwind.config.mjs", "tailwind.config.ts",
+];
