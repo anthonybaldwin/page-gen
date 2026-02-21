@@ -16,6 +16,10 @@ function getFileIcon(name: string) {
   return <File className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />;
 }
 
+function treeHasFiles(nodes: FileNode[]): boolean {
+  return nodes.some(n => n.type === "file" || (n.children != null && treeHasFiles(n.children)));
+}
+
 function filterTree(nodes: FileNode[], query: string): FileNode[] {
   const lower = query.toLowerCase();
   const result: FileNode[] = [];
@@ -235,7 +239,7 @@ export function FileExplorer() {
     }
   }
 
-  const hasFiles = tree.length > 0;
+  const hasFiles = treeHasFiles(tree);
   const hasQuery = searchQuery.length > 0;
   const showFileTree = searchMode === "files";
   const displayTree = hasQuery && showFileTree ? filteredTree : tree;
