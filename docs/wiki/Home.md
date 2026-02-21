@@ -39,6 +39,20 @@ bun dev:docker
 
 Open `http://localhost:5173`, configure an API key in Settings, and describe what you want to build.
 
+## Documentation
+
+Wiki pages live in `docs/wiki/` in the main repo. A [GitHub Action](https://github.com/anthonybaldwin/page-gen/blob/main/.github/workflows/sync-wiki.yml) automatically syncs them to the GitHub Wiki whenever `docs/wiki/**` changes on `main`. No manual sync is needed.
+
+ADRs (Architecture Decision Records) live in `docs/adr/` and are linked from the [Architecture](Architecture) page.
+
+## GitHub Actions
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `sync-wiki` | Push to `main` touching `docs/wiki/**` | Syncs `docs/wiki/*.md` to GitHub Wiki |
+
+The wiki sync action requires a `WIKI_SYNC_PAT` repository secret with `repo` scope.
+
 ## Tech Stack
 
 - **Runtime:** Bun
