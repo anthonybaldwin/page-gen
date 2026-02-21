@@ -29,7 +29,7 @@ bun install
 bun dev          # Backend  → http://localhost:3000
 bun dev:client   # Frontend → http://localhost:5173
 
-# 3. Start logs viewer (optional — third terminal, not included in Docker)
+# 3. Start logs viewer (optional — third terminal, not auto-started by Docker)
 bun logs:viewer   # http://localhost:3200
 
 # Or run in Docker (optional — sandboxed code execution)
