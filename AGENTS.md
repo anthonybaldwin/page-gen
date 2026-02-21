@@ -91,7 +91,7 @@ Pipeline execution uses dependency-aware batch scheduling (`executePipelineSteps
 
 **Write-ahead tracking.** Before each LLM call, `trackProvisionalUsage()` inserts records with `estimated=1`. After success, `finalizeTokenUsage()` updates them to `estimated=0`. On failure, `voidProvisionalUsage()` deletes them. This ensures billing data survives server crashes.
 
-**Layered cost limiter.** Four independent checkpoints in `src/server/services/cost-limiter.ts`:
+**Layered cost limiter.** Four independent checkpoints across `src/server/services/cost-limiter.ts` and the orchestrator:
 1. Pre-flight: skip agent if estimated tokens > 95% of session limit
 2. Post-batch: hard stop if session token total exceeds limit
 3. Daily: hard stop if billing_ledger sum today exceeds daily cap
