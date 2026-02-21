@@ -11,6 +11,7 @@ import { useChatStore } from "./stores/chatStore.ts";
 import { useProjectStore } from "./stores/projectStore.ts";
 import { useFileStore } from "./stores/fileStore.ts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs.tsx";
+import { X } from "lucide-react";
 
 const MIN_CHAT_WIDTH = 320;
 const MAX_CHAT_RATIO = 0.5; // max 50% of viewport
@@ -127,12 +128,19 @@ export function App() {
             {openFilePath && (
               <TabsTrigger
                 value="editor"
-                className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
+                className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent gap-1.5"
               >
-                Editor
+                {openFilePath.split("/").pop()}
                 {isDirty && (
-                  <span className="ml-1.5 w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
                 )}
+                <button
+                  type="button"
+                  className="ml-1 rounded-sm opacity-50 hover:opacity-100 hover:bg-muted p-0.5 -mr-1"
+                  onClick={(e) => { e.stopPropagation(); closeFile(); }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </TabsTrigger>
             )}
           </TabsList>
