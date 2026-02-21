@@ -1,5 +1,6 @@
 # Shared base — install deps once
 FROM oven/bun:1 AS base
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 RUN bun install
@@ -18,6 +19,7 @@ RUN bunx vite build --outDir dist/client
 
 # Production runtime — only what's needed to run
 FROM oven/bun:1 AS production
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 RUN bun install --production

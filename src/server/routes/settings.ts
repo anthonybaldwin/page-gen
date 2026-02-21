@@ -12,6 +12,7 @@ import { GOOGLE_MODELS } from "../providers/google.ts";
 import type { AgentName, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
+import { getGitSettings, setGitSettings, applyGitConfig } from "../services/versioning.ts";
 
 /** Read a single limit from app_settings, seeding the default if missing. */
 export function getLimit(key: string): number {
@@ -401,4 +402,28 @@ settingsRoutes.get("/models", (c) => {
   }
 
   return c.json(providers);
+});
+
+// --- Git settings endpoints ---
+
+settingsRoutes.get("/git", (c) => {
+  return c.json(getGitSettings());
+});
+
+settingsRoutes.put("/git", async (c) => {
+  const body = await c.req.json<{ name?: string; email?: string }>();
+  setGitSettings(body);
+
+  // Apply updated config to all existing project repos
+  const projects = db.select().from(schema.projects).all();
+  for (const project of projects) {
+    try {
+      applyGitConfig(project.path);
+    } catch {
+      // Non-fatal — project may not have a git repo yet
+    }
+  }
+
+  log("settings", "Git settings updated", { name: body.name, email: body.email });
+  return c.json({ ok: true, ...getGitSettings() });
 });
