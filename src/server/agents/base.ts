@@ -16,6 +16,27 @@ import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION }
 
 
 /**
+ * Custom error thrown when an agent stream is aborted, carrying any partial
+ * token usage the AI SDK accumulated before the abort. This lets the
+ * orchestrator finalize the provisional billing record with real numbers
+ * instead of leaving the rough pre-flight estimate.
+ */
+export class AgentAbortError extends Error {
+  public partialTokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
+  };
+
+  constructor(message: string, partialTokenUsage?: AgentAbortError["partialTokenUsage"]) {
+    super(message);
+    this.name = "AgentAbortError";
+    this.partialTokenUsage = partialTokenUsage;
+  }
+}
+
+/**
  * Extract safe, structured fields from an error for logging.
  * Strips requestBodyValues (full prompts) and other large/sensitive fields
  * that AI SDK APICallError includes.
@@ -346,7 +367,9 @@ export async function runAgent(
         }
         case "tool-result": {
           const output = part.output as Record<string, unknown>;
-          log("tool", `${broadcastName} tool result: ${part.toolName}`, { tool: part.toolName, success: !!output?.success });
+          // read_file returns {content}, list_files returns {files} — neither has a `success` field
+          const toolSuccess = !!output?.success || !!output?.content || !!output?.files;
+          log("tool", `${broadcastName} tool result: ${part.toolName}`, { tool: part.toolName, success: toolSuccess });
           if (part.toolName === "write_file" && output?.success) {
             filesWritten.push((part.input as { path: string }).path);
           } else if (part.toolName === "write_files" && output?.success) {
@@ -407,6 +430,33 @@ export async function runAgent(
       const errorMessage = `Agent stream ended with finishReason=${finishReason} (tool-use step likely failed)`;
       broadcastAgentStatus(cid, broadcastName, "failed");
       broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
+
+      // For aborts (finishReason=other), collect whatever partial token usage
+      // the AI SDK accumulated so the orchestrator can finalize billing.
+      if (finishReason === "other") {
+        let partialTokenUsage: AgentAbortError["partialTokenUsage"] | undefined;
+        try {
+          const usage = await result.totalUsage;
+          if (usage && (usage.inputTokens || usage.outputTokens)) {
+            const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+            const cacheRead = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+            const rawInput = usage.inputTokens || 0;
+            const inputTokens = usage.inputTokenDetails?.noCacheTokens
+              ?? Math.max(0, rawInput - cacheWrite - cacheRead);
+            partialTokenUsage = {
+              inputTokens,
+              outputTokens: usage.outputTokens || 0,
+              cacheCreationInputTokens: cacheWrite,
+              cacheReadInputTokens: cacheRead,
+            };
+            log("pipeline", `agent=${broadcastName} partial tokens on abort`, partialTokenUsage);
+          }
+        } catch {
+          // totalUsage may reject on abort — that's fine, we'll keep the estimate
+        }
+        throw new AgentAbortError(errorMessage, partialTokenUsage);
+      }
+
       throw new Error(errorMessage);
     }
 

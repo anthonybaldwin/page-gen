@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
-import { runAgent, trackedGenerateText, type AgentInput, type AgentOutput } from "./base.ts";
+import { runAgent, trackedGenerateText, AgentAbortError, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -842,7 +842,27 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
       break;
     } catch (err) {
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        // On abort, finalize the provisional record with partial token data
+        // instead of leaving the rough pre-flight estimate.
+        if (provisionalIds) {
+          if (err instanceof AgentAbortError && err.partialTokenUsage) {
+            log("orchestrator", `Finalizing provisional billing on abort for ${stepKey} with partial tokens`, err.partialTokenUsage);
+            finalizeTokenUsage(provisionalIds, {
+              inputTokens: err.partialTokenUsage.inputTokens,
+              outputTokens: err.partialTokenUsage.outputTokens,
+              cacheCreationInputTokens: err.partialTokenUsage.cacheCreationInputTokens,
+              cacheReadInputTokens: err.partialTokenUsage.cacheReadInputTokens,
+            }, config.provider, config.model);
+          } else {
+            // No partial token data available — void the estimate rather than
+            // leave a stale provisional that undercounts.
+            voidProvisionalUsage(provisionalIds);
+          }
+          provisionalIds = null;
+        }
+        break;
+      }
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} failed`, err, { agent: stepKey, attempt });
 
