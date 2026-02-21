@@ -315,6 +315,7 @@ export async function startPreviewServer(projectId: string, projectPath: string)
 
   const port = allocatePort();
   const host = process.env.PREVIEW_HOST || "localhost";
+  log("preview", `Starting preview server for ${projectId} on port ${port}`);
 
   // Start Vite dev server for this project
   const proc = Bun.spawn(["bunx", "vite", "--port", String(port), "--host", host], {
