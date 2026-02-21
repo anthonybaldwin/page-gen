@@ -138,7 +138,17 @@ body {
   background: var(--muted-foreground);
 }
 
-/* CodeMirror scrollbar matching */
+/* CodeMirror containment & scrollbar */
+.cm-editor {
+  height: 100% !important;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.cm-editor .cm-scroller {
+  overflow: auto !important;
+}
+
 .cm-editor .cm-scroller::-webkit-scrollbar {
   width: 6px;
   height: 6px;
