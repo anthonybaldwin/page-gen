@@ -9,7 +9,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Card, CardContent } from "../ui/card.tsx";
 import { Button } from "../ui/button.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
-import { X } from "lucide-react";
+import { X, RotateCcw } from "lucide-react";
+import { ConfirmDialog } from "../ui/confirm-dialog.tsx";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -74,6 +75,9 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
   const [chatOptions, setChatOptions] = useState<ChatOption[]>([]);
   const [selectedChat, setSelectedChat] = useState<string>("");
   const [timeframe, setTimeframe] = useState<Timeframe>("all");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const filters: UsageFilters = {
     ...(selectedChat ? { chatId: selectedChat } : {}),
@@ -96,17 +100,29 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
         <div className="shrink-0 border-b border-border">
           <div className="flex items-center justify-between px-4 py-3">
             <h2 className="text-sm font-medium text-foreground">Usage Dashboard</h2>
-            {onClose && (
+            <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={onClose}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                aria-label="Close usage dashboard"
+                onClick={() => setShowResetConfirm(true)}
+                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                aria-label="Reset usage data"
+                title="Reset usage data"
               >
-                <X className="h-4 w-4" />
+                <RotateCcw className="h-3.5 w-3.5" />
               </Button>
-            )}
+              {onClose && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  aria-label="Close usage dashboard"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Summary cards */}
@@ -215,7 +231,7 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
         </div>
 
         {/* Scrollable tab content */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div key={refreshKey} className="min-h-0 flex-1 overflow-y-auto p-4">
           <TabsContent value="overview" className="mt-0">
             <UsageOverview filterQuery={filterQuery} summary={summary} />
           </TabsContent>
@@ -225,6 +241,30 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
           <TabsContent value="log" className="mt-0"><RequestLog filterQuery={filterQuery} /></TabsContent>
         </div>
       </Tabs>
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        onOpenChange={setShowResetConfirm}
+        title="Reset Usage Data"
+        description="This will permanently delete all token usage and billing records. This action cannot be undone."
+        confirmLabel="Reset"
+        destructive
+        loading={resetting}
+        onConfirm={async () => {
+          setResetting(true);
+          try {
+            await api.delete("/usage/reset");
+            const freshSummary = await api.get<UsageSummary>(`/usage/summary${filterQuery}`);
+            setSummary(freshSummary);
+            setRefreshKey((k) => k + 1);
+            setShowResetConfirm(false);
+          } catch (err) {
+            console.error("[usage] Failed to reset usage data:", err);
+          } finally {
+            setResetting(false);
+          }
+        }}
+      />
     </div>
   );
 }

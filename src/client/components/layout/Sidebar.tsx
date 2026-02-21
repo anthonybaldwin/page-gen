@@ -15,6 +15,7 @@ import { Input } from "../ui/input.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
 import { Separator } from "../ui/separator.tsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog.tsx";
+import { ConfirmDialog } from "../ui/confirm-dialog.tsx";
 import {
   PanelLeft,
   Plus,
@@ -39,6 +40,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [chatToDelete, setChatToDelete] = useState<Chat | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const { theme, setTheme } = useThemeStore();
 
   // Sync active chat id to usage store
@@ -241,20 +245,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <Button
               variant="ghost"
               size="icon"
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation();
-                try {
-                  await api.delete(`/projects/${project.id}`);
-                  setProjects(projects.filter((p) => p.id !== project.id));
-                  if (activeProject?.id === project.id) {
-                    setActiveProject(null);
-                    setChats([]);
-                    setActiveChat(null);
-                    setMessages([]);
-                  }
-                } catch (err) {
-                  console.error("[sidebar] Failed to delete project:", err);
-                }
+                setProjectToDelete(project);
               }}
               className="opacity-0 group-hover:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive transition-all"
               title="Delete project"
@@ -321,18 +314,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
-                    try {
-                      await api.delete(`/chats/${chat.id}`);
-                      setChats(chats.filter((ch) => ch.id !== chat.id));
-                      if (activeChat?.id === chat.id) {
-                        setActiveChat(null);
-                        setMessages([]);
-                      }
-                    } catch (err) {
-                      console.error("[sidebar] Failed to delete chat:", err);
-                    }
+                    setChatToDelete(chat);
                   }}
                   className="opacity-0 group-hover:opacity-100 h-7 w-7 text-muted-foreground hover:text-destructive transition-all"
                   title="Delete chat"
@@ -398,6 +382,65 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </Suspense>
         </DialogContent>
       </Dialog>
+
+      {/* Project delete confirmation */}
+      <ConfirmDialog
+        open={!!projectToDelete}
+        onOpenChange={(open) => { if (!open) setProjectToDelete(null); }}
+        title="Delete Project"
+        description="This will permanently delete the project and all its chats, snapshots, messages, pipeline runs, agent executions, and generated files. This action cannot be undone."
+        confirmText={projectToDelete?.name}
+        confirmLabel="Delete"
+        destructive
+        loading={deleting}
+        onConfirm={async () => {
+          if (!projectToDelete) return;
+          setDeleting(true);
+          try {
+            await api.delete(`/projects/${projectToDelete.id}`);
+            setProjects(projects.filter((p) => p.id !== projectToDelete.id));
+            if (activeProject?.id === projectToDelete.id) {
+              setActiveProject(null);
+              setChats([]);
+              setActiveChat(null);
+              setMessages([]);
+            }
+            setProjectToDelete(null);
+          } catch (err) {
+            console.error("[sidebar] Failed to delete project:", err);
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
+
+      {/* Chat delete confirmation */}
+      <ConfirmDialog
+        open={!!chatToDelete}
+        onOpenChange={(open) => { if (!open) setChatToDelete(null); }}
+        title="Delete Chat"
+        description="This will permanently delete this chat along with its messages and token usage records."
+        confirmLabel="Delete"
+        destructive
+        loading={deleting}
+        onConfirm={async () => {
+          if (!chatToDelete) return;
+          setDeleting(true);
+          try {
+            await api.delete(`/chats/${chatToDelete.id}`);
+            setChats(chats.filter((ch) => ch.id !== chatToDelete.id));
+            if (activeChat?.id === chatToDelete.id) {
+              setActiveChat(null);
+              setMessages([]);
+            }
+            setChatToDelete(null);
+          } catch (err) {
+            console.error("[sidebar] Failed to delete chat:", err);
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </aside>
   );
 }
