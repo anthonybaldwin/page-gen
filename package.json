@@ -11,8 +11,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
-    "dev:docker": "start http://localhost:5173 && docker compose up --build",
-    "dev:docker:d": "docker compose up --build -d && start http://localhost:5173",
+    "dev:docker": "docker compose up --build",
+    "dev:docker:d": "docker compose up --build -d",
     "logs:viewer": "bun --hot scripts/logs-viewer.ts"
   },
   "devDependencies": {
