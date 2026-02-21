@@ -4,7 +4,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 ## Features
 
-- **Multi-agent pipeline** — 14 specialized agents (research, architect, frontend, backend, styling, testing, code review, QA, security) orchestrated automatically
+- **Multi-agent pipeline** — 13 specialized agents (research, architect, frontend, backend, styling, code review, QA, security) orchestrated automatically
 - **Full-stack generation** — Frontend (React + Tailwind) and backend (Hono + SQLite) with working API routes and data persistence
 - **Live preview** — Side-by-side HMR preview updates as agents write code, with `/api` proxy for full-stack projects
 - **Built-in editor** — CodeMirror editor with syntax highlighting for direct file editing

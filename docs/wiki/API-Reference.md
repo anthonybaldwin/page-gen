@@ -194,7 +194,7 @@ Reset all limits to defaults.
 **Response:** `{ ok: true, limits: { ... }, defaults: { ... } }`
 
 ### GET /settings/agents
-Get all 14 agent configs with DB overrides applied.
+Get all 13 agent configs with DB overrides applied.
 
 **Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
 
