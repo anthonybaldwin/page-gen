@@ -4,7 +4,7 @@ import { writeFile, readFile, listFiles } from "../tools/file-ops.ts";
 import { broadcastFilesChanged } from "../ws.ts";
 import { log } from "../services/logger.ts";
 import { autoCommit } from "../services/versioning.ts";
-import { MAX_AGENT_VERSIONS_PER_RUN } from "../config/versioning.ts";
+import { getPipelineSetting } from "../config/pipeline.ts";
 import { BLOCKED_PACKAGES } from "../config/packages.ts";
 
 /**
@@ -134,7 +134,7 @@ export function createAgentTools(projectPath: string, projectId: string) {
         label: z.string().describe("Short description of what this checkpoint captures (e.g. 'Scaffolding complete', 'Before refactor')"),
       }),
       execute: async ({ label }) => {
-        if (versionCounter >= MAX_AGENT_VERSIONS_PER_RUN) {
+        if (versionCounter >= getPipelineSetting("maxAgentVersionsPerRun")) {
           return { success: false, reason: "Version limit reached for this pipeline run" };
         }
         try {

@@ -8,11 +8,11 @@ import {
   USER_COMMIT_PREFIX,
   MAX_AUTO_VERSIONS_DISPLAY,
   MAX_USER_VERSIONS_DISPLAY,
-  MAX_VERSIONS_RETAINED,
   DEFAULT_GIT_NAME,
   DEFAULT_GIT_EMAIL,
   DEFAULT_GITIGNORE,
 } from "../config/versioning.ts";
+import { getPipelineSetting } from "../config/pipeline.ts";
 
 // --- Preview state ---
 // Tracks which projects are currently in version-preview mode.
@@ -698,7 +698,8 @@ export function pruneExcessVersions(projectPath: string): void {
   const countResult = runGit(projectPath, ["rev-list", "--count", "HEAD"]);
   let totalCommits = parseInt(countResult.stdout || "0", 10);
 
-  while (totalCommits > MAX_VERSIONS_RETAINED) {
+  const maxRetained = getPipelineSetting("maxVersionsRetained");
+  while (totalCommits > maxRetained) {
     // Walk oldest-first, find first auto-commit to prune
     const logResult = runGit(projectPath, ["log", "--reverse", "--format=%H|%s"]);
     if (logResult.exitCode !== 0 || !logResult.stdout) break;

@@ -1,5 +1,48 @@
 // Orchestrator & agent execution constants
 
+import { db, schema } from "../db/index.ts";
+import { eq } from "drizzle-orm";
+
+// ---------------------------------------------------------------------------
+// PIPELINE_DEFAULTS — the single registry of tunable pipeline constants.
+// Every key here is exposed in Settings > Limits > Pipeline Settings.
+// ---------------------------------------------------------------------------
+
+export const PIPELINE_DEFAULTS: Record<string, number> = {
+  maxBuildFixAttempts: 3,
+  maxRemediationCycles: 2,
+  buildFixMaxOutputTokens: 16_000,
+  buildFixMaxToolSteps: 10,
+  defaultMaxOutputTokens: 8192,
+  defaultMaxToolSteps: 10,
+  buildTimeoutMs: 30_000,
+  testTimeoutMs: 60_000,
+  maxTestFailures: 5,
+  maxUniqueErrors: 10,
+  warningThreshold: 80, // stored as integer percentage (80 = 0.80)
+  maxVersionsRetained: 50,
+  maxAgentVersionsPerRun: 3,
+};
+
+/**
+ * Read a pipeline setting from app_settings (key prefix `pipeline.`),
+ * falling back to PIPELINE_DEFAULTS.
+ */
+export function getPipelineSetting(key: string): number {
+  const dbKey = `pipeline.${key}`;
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, dbKey)).get();
+  if (row) return Number(row.value);
+  const def = PIPELINE_DEFAULTS[key];
+  return def ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Named exports — kept for backwards compatibility.
+// Values that are tunable read from the DB-backed getter at import time
+// where possible, but most consumers should call getPipelineSetting() at
+// call-site for runtime configurability.
+// ---------------------------------------------------------------------------
+
 // Retries
 export const MAX_RETRIES = 3;
 export const MAX_BUILD_FIX_ATTEMPTS = 3;
@@ -25,8 +68,8 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
 // Agent tool step limits
 export const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
-  "frontend-dev": 12,
-  "backend-dev": 8,
+  "frontend-dev": 16,
+  "backend-dev": 12,
   styling: 10,
 };
 export const DEFAULT_MAX_TOOL_STEPS = 10;

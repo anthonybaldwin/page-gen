@@ -12,6 +12,7 @@ import { GOOGLE_MODELS } from "../providers/google.ts";
 import type { AgentName, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
+import { PIPELINE_DEFAULTS, getPipelineSetting } from "../config/pipeline.ts";
 import { getGitSettings, setGitSettings, applyGitConfig } from "../services/versioning.ts";
 
 /** Read a single limit from app_settings, seeding the default if missing. */
@@ -458,6 +459,60 @@ settingsRoutes.get("/models", (c) => {
   }
 
   return c.json(providers);
+});
+
+// --- Pipeline settings endpoints ---
+
+// Get all pipeline settings (current values + defaults)
+settingsRoutes.get("/pipeline", (c) => {
+  const current: Record<string, number> = {};
+  for (const key of Object.keys(PIPELINE_DEFAULTS)) {
+    current[key] = getPipelineSetting(key);
+  }
+  return c.json({ settings: current, defaults: PIPELINE_DEFAULTS });
+});
+
+// Upsert pipeline setting overrides
+settingsRoutes.put("/pipeline", async (c) => {
+  const body = await c.req.json<Record<string, number>>();
+  const updated: Record<string, number> = {};
+
+  for (const [key, value] of Object.entries(body)) {
+    if (!(key in PIPELINE_DEFAULTS)) continue;
+    if (typeof value !== "number" || value < 0) continue;
+    const dbKey = `pipeline.${key}`;
+    const strVal = String(value);
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, dbKey)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: strVal }).where(eq(schema.appSettings.key, dbKey)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key: dbKey, value: strVal }).run();
+    }
+    updated[key] = value;
+  }
+
+  if (Object.keys(updated).length > 0) {
+    log("settings", `Pipeline settings updated`, { updated });
+  }
+
+  const current: Record<string, number> = {};
+  for (const key of Object.keys(PIPELINE_DEFAULTS)) {
+    current[key] = getPipelineSetting(key);
+  }
+  return c.json({ ok: true, settings: current, defaults: PIPELINE_DEFAULTS });
+});
+
+// Reset all pipeline settings to defaults
+settingsRoutes.delete("/pipeline", (c) => {
+  for (const key of Object.keys(PIPELINE_DEFAULTS)) {
+    const dbKey = `pipeline.${key}`;
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, dbKey)).get();
+    if (existing) {
+      db.delete(schema.appSettings).where(eq(schema.appSettings.key, dbKey)).run();
+    }
+  }
+  log("settings", `All pipeline settings reset to defaults`);
+  return c.json({ ok: true, settings: { ...PIPELINE_DEFAULTS }, defaults: PIPELINE_DEFAULTS });
 });
 
 // --- Git settings endpoints ---

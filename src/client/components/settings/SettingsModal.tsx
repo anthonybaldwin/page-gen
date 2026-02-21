@@ -6,6 +6,7 @@ import { PromptEditor } from "./PromptEditor.tsx";
 import { ToolSettings } from "./ToolSettings.tsx";
 import { GitSettings } from "./GitSettings.tsx";
 import { AppearanceSettings } from "./AppearanceSettings.tsx";
+import { PipelineSettings } from "./PipelineSettings.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Button } from "../ui/button.tsx";
 import { X } from "lucide-react";
@@ -64,7 +65,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         {/* Scrollable content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <TabsContent value="keys" className="mt-0"><ApiKeySettings /></TabsContent>
-          <TabsContent value="limits" className="mt-0"><LimitsSettings /></TabsContent>
+          <TabsContent value="limits" className="mt-0">
+            <LimitsSettings />
+            <hr className="my-6 border-border" />
+            <PipelineSettings />
+          </TabsContent>
           <TabsContent value="models" className="mt-0"><ModelSettings /></TabsContent>
           <TabsContent value="pricing" className="mt-0"><PricingSettings /></TabsContent>
           <TabsContent value="prompts" className="mt-0"><PromptEditor /></TabsContent>

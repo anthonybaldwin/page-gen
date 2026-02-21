@@ -4,6 +4,7 @@ import { db, schema } from "../db/index.ts";
 import { eq, sql } from "drizzle-orm";
 import { log, logWarn } from "./logger.ts";
 import { WARNING_THRESHOLD } from "../config/limits.ts";
+import { getPipelineSetting } from "../config/pipeline.ts";
 
 export interface CostCheckResult {
   allowed: boolean;
@@ -18,7 +19,8 @@ export function checkCostLimit(chatId: string, limitOverride?: number): CostChec
   const currentTokens = getSessionTokenTotal(chatId);
   const percentUsed = limit > 0 ? currentTokens / limit : 0;
   const allowed = limit <= 0 || currentTokens < limit;
-  const warning = limit > 0 && percentUsed >= WARNING_THRESHOLD && percentUsed < 1;
+  const warnThreshold = getPipelineSetting("warningThreshold") / 100; // stored as integer %
+  const warning = limit > 0 && percentUsed >= warnThreshold && percentUsed < 1;
 
   if (!allowed) {
     logWarn("billing", `Token limit exceeded for chat ${chatId}`, { chatId, currentTokens, limit });
@@ -75,6 +77,6 @@ export function checkProjectCostLimit(projectId: string): { allowed: boolean; cu
 export function getCostLimitSettings() {
   return {
     defaultTokenLimit: getLimit("maxTokensPerChat"),
-    warningThreshold: WARNING_THRESHOLD,
+    warningThreshold: getPipelineSetting("warningThreshold") / 100,
   };
 }

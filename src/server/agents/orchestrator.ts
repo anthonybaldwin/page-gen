@@ -22,23 +22,16 @@ import { autoCommit, ensureGitRepo, isInPreview, exitPreview } from "../services
 import { STAGE_HOOKS_ENABLED } from "../config/versioning.ts";
 import {
   MAX_RETRIES,
-  MAX_UNIQUE_ERRORS,
-  MAX_TEST_FAILURES,
   MAX_OUTPUT_CHARS,
   MAX_PROJECT_SOURCE_CHARS,
-  MAX_BUILD_FIX_ATTEMPTS,
-  BUILD_FIX_MAX_OUTPUT_TOKENS,
-  BUILD_FIX_MAX_TOOL_STEPS,
   MAX_SOURCE_SIZE,
-  MAX_REMEDIATION_CYCLES,
   REVIEWER_SOURCE_CAP,
   STAGGER_MS,
-  BUILD_TIMEOUT_MS,
-  TEST_TIMEOUT_MS,
   ORCHESTRATOR_CLASSIFY_MAX_TOKENS,
   SUMMARY_MAX_OUTPUT_TOKENS,
   QUESTION_MAX_OUTPUT_TOKENS,
   DATA_DIR_PATTERNS,
+  getPipelineSetting,
 } from "../config/pipeline.ts";
 
 /**
@@ -92,11 +85,12 @@ export function deduplicateErrors(errorLines: string[]): string {
       counts.set(key, { count: 1, example: line.trim() });
     }
   }
-  const entries = [...counts.entries()].slice(0, MAX_UNIQUE_ERRORS);
+  const maxErrors = getPipelineSetting("maxUniqueErrors");
+  const entries = [...counts.entries()].slice(0, maxErrors);
   const lines = entries.map(([, { count, example }]) =>
     count > 1 ? `[${count}x] ${example}` : example
   );
-  const omitted = counts.size - MAX_UNIQUE_ERRORS;
+  const omitted = counts.size - maxErrors;
   if (omitted > 0) lines.push(`(and ${omitted} more unique errors)`);
   return lines.join("\n");
 }
@@ -105,10 +99,11 @@ export function deduplicateErrors(errorLines: string[]): string {
  * Format test failures for agent consumption. Caps at MAX_TEST_FAILURES to prevent prompt bloat.
  */
 export function formatTestFailures(failures: Array<{ name: string; error: string }>): string {
-  const capped = failures.slice(0, MAX_TEST_FAILURES);
+  const maxFails = getPipelineSetting("maxTestFailures");
+  const capped = failures.slice(0, maxFails);
   const lines = capped.map((f) => `- ${f.name}: ${f.error}`);
-  if (failures.length > MAX_TEST_FAILURES) {
-    lines.push(`(and ${failures.length - MAX_TEST_FAILURES} more failures — fix the above first)`);
+  if (failures.length > maxFails) {
+    lines.push(`(and ${failures.length - maxFails} more failures — fix the above first)`);
   }
   return `Test failures:\n${lines.join("\n")}`;
 }
@@ -856,9 +851,9 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
               cacheReadInputTokens: err.partialTokenUsage.cacheReadInputTokens,
             }, config.provider, config.model);
           } else {
-            // No partial token data available — void the estimate rather than
-            // leave a stale provisional that undercounts.
-            voidProvisionalUsage(provisionalIds);
+            // No partial token data available — keep the provisional estimate.
+            // A rough estimate is better than $0 which guarantees undercounting.
+            log("orchestrator", `Keeping provisional estimate on abort for ${stepKey} (no partial token data)`);
           }
           provisionalIds = null;
         }
@@ -2123,12 +2118,13 @@ interface RemediationContext {
  * Iterative remediation loop: detects code-review/QA/security issues,
  * routes fixes to the correct dev agent(s) based on finding categories,
  * then re-runs code-review, security, and QA to verify. Repeats up to
- * MAX_REMEDIATION_CYCLES times or until all issues are resolved.
+ * maxRemediationCycles times or until all issues are resolved.
  */
 async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
   let previousIssueCount = Infinity;
+  const maxCycles = getPipelineSetting("maxRemediationCycles");
 
-  for (let cycle = 0; cycle < MAX_REMEDIATION_CYCLES; cycle++) {
+  for (let cycle = 0; cycle < maxCycles; cycle++) {
     if (ctx.signal.aborted) return;
 
     // 1. Check for issues in current code-review/QA/security output
@@ -2279,8 +2275,8 @@ async function runFixAgent(
     }
 
     const result = await runAgent(displayConfig, ctx.providers, agentInput, remediationToolSubset, ctx.signal, ctx.chatId, undefined, {
-      maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
-      maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
+      maxOutputTokens: getPipelineSetting("buildFixMaxOutputTokens"),
+      maxToolSteps: getPipelineSetting("buildFixMaxToolSteps"),
     });
 
     if (result.tokenUsage && remProviderKey && remProvisionalIds) {
@@ -2985,13 +2981,14 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
       env: { ...process.env, NODE_ENV: "development" },
     });
 
+    const buildTimeout = getPipelineSetting("buildTimeoutMs");
     const timeout = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), BUILD_TIMEOUT_MS),
+      setTimeout(() => resolve("timeout"), buildTimeout),
     );
     const result = await Promise.race([proc.exited, timeout]);
 
     if (result === "timeout") {
-      logWarn("build", `Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("build", `Build check timed out after ${buildTimeout / 1000}s — killing process`);
       proc.kill();
       if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build check timed out (continuing)" });
       return null; // Don't block pipeline on timeout
@@ -3062,9 +3059,10 @@ async function runBuildFix(params: {
     userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal } = params;
 
   // Enforce per-pipeline build-fix attempt limit
-  if (buildFixCounter.value >= MAX_BUILD_FIX_ATTEMPTS) {
-    log("orchestrator", `Build fix limit reached (${MAX_BUILD_FIX_ATTEMPTS}). Skipping to prevent runaway costs.`);
-    broadcastAgentError(chatId, "orchestrator", `Build fix attempt limit reached (${MAX_BUILD_FIX_ATTEMPTS}). Skipping further fixes.`);
+  const maxBuildFixes = getPipelineSetting("maxBuildFixAttempts");
+  if (buildFixCounter.value >= maxBuildFixes) {
+    log("orchestrator", `Build fix limit reached (${maxBuildFixes}). Skipping to prevent runaway costs.`);
+    broadcastAgentError(chatId, "orchestrator", `Build fix attempt limit reached (${maxBuildFixes}). Skipping further fixes.`);
     return null;
   }
   buildFixCounter.value++;
@@ -3147,8 +3145,8 @@ async function runBuildFix(params: {
     }
 
     const result = await runAgent(buildFixConfig, providers, fixInput, fixToolSubset, signal, chatId, undefined, {
-      maxOutputTokens: BUILD_FIX_MAX_OUTPUT_TOKENS,
-      maxToolSteps: BUILD_FIX_MAX_TOOL_STEPS,
+      maxOutputTokens: getPipelineSetting("buildFixMaxOutputTokens"),
+      maxToolSteps: getPipelineSetting("buildFixMaxToolSteps"),
     });
 
     if (result.tokenUsage && bfProviderKey && bfProvisionalIds) {
@@ -3371,13 +3369,14 @@ export async function runProjectTests(
       }
     }
 
+    const testTimeout = getPipelineSetting("testTimeoutMs");
     const timeout = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), TEST_TIMEOUT_MS),
+      setTimeout(() => resolve("timeout"), testTimeout),
     );
     const exitResult = await Promise.race([proc.exited, timeout]);
 
     if (exitResult === "timeout") {
-      logWarn("test", `Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("test", `Test run timed out after ${testTimeout / 1000}s — killing process`);
       proc.kill();
       return null;
     }
