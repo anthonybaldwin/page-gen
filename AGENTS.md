@@ -220,7 +220,7 @@ If touching orchestrator, billing/tokens, snapshots, providers, or security-sens
 
 Any new feature/system must update `docs/wiki/` in same commit.
 
-Wiki syncing to GitHub Wiki is handled automatically by the `sync-wiki` GitHub Action on every push to `main` that touches `docs/wiki/**`. No manual sync is needed.
+Wiki syncing to GitHub Wiki is handled automatically by the `sync-wiki` GitHub Action whenever `docs/wiki/**` changes on `main`. No manual sync is needed.
 
 ## Principles
 
