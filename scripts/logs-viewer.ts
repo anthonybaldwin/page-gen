@@ -211,7 +211,7 @@ function render() {
 function showToast() {
   clearTimeout(toastTimer);
   toast.classList.add('visible');
-  toastTimer = setTimeout(() => toast.classList.remove('visible'), 6000);
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), 5000);
 }
 
 function pauseTailing() {
