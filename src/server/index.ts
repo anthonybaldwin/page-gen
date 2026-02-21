@@ -14,6 +14,8 @@ import { settingsRoutes } from "./routes/settings.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
+import { stopAllPreviewServers } from "./preview/vite-server.ts";
+import { stopAllBackendServers } from "./preview/backend-server.ts";
 import { log, logError } from "./services/logger.ts";
 
 // Run migrations on startup
@@ -98,5 +100,23 @@ const server = Bun.serve({
 setServer(server);
 
 log("server", `Started on http://localhost:${PORT}`);
+
+// --- Graceful shutdown ---
+async function shutdown(signal: string) {
+  log("server", `Shutting down (${signal})...`);
+  try {
+    await Promise.all([
+      stopAllPreviewServers(),
+      stopAllBackendServers(),
+    ]);
+    log("server", `Cleanup complete — exiting`);
+  } catch (err) {
+    logError("server", "Error during shutdown cleanup", err);
+  }
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 export { app, server };
