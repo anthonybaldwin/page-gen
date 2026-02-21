@@ -19,6 +19,13 @@ export const AGENT_ROSTER: AgentConfig[] = [
     description: "Classifies user intent (build/fix/question) — fast, cheap",
   },
   {
+    name: "orchestrator:title",
+    displayName: "Chat Titler",
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    description: "Generates short chat titles — fast, cheap, fire-and-forget",
+  },
+  {
     name: "orchestrator:question",
     displayName: "Question Answerer",
     provider: "anthropic",

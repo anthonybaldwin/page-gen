@@ -80,6 +80,7 @@ export interface ApiKeyHeaders {
 export type AgentName =
   | "orchestrator"
   | "orchestrator:classify"
+  | "orchestrator:title"
   | "orchestrator:question"
   | "orchestrator:summary"
   | "research"

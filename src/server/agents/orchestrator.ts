@@ -976,19 +976,27 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     logWarn("orchestrator", `Stale execution cleanup failed (non-critical): ${cleanupErr}`);
   }
 
-  // Auto-title: if chat has a generic title and this is the first real message, generate a title
+  // Auto-title: if chat has a generic title, generate a short title via LLM (fire-and-forget)
   if (chatTitle === "New Chat" || chatTitle === "Unknown" || /^Chat \d+$/.test(chatTitle)) {
-    const autoTitle = userMessage.length <= 60
-      ? userMessage
-      : userMessage.slice(0, 57).replace(/\s+\S*$/, "") + "...";
-    try {
-      db.update(schema.chats)
-        .set({ title: autoTitle, updatedAt: Date.now() })
-        .where(eq(schema.chats.id, chatId))
-        .run();
-      broadcast({ type: "chat_renamed", payload: { chatId, title: autoTitle } });
-    } catch {
-      // Non-critical — don't block pipeline
+    const titleConfig = getAgentConfigResolved("orchestrator:classify");
+    const titleModel = titleConfig ? resolveProviderModel(titleConfig, providers) : null;
+    if (titleModel) {
+      generateText({
+        model: titleModel,
+        system: "Generate a short title (3-6 words, no quotes) for a chat based on the user's message. Just output the title, nothing else.",
+        prompt: userMessage,
+        maxOutputTokens: 20,
+      }).then((result) => {
+        const autoTitle = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
+        if (!autoTitle) return;
+        db.update(schema.chats)
+          .set({ title: autoTitle, updatedAt: Date.now() })
+          .where(eq(schema.chats.id, chatId))
+          .run();
+        broadcast({ type: "chat_renamed", payload: { chatId, title: autoTitle } });
+      }).catch(() => {
+        // Non-critical — don't block pipeline
+      });
     }
   }
 
