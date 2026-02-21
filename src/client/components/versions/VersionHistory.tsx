@@ -78,7 +78,7 @@ export function VersionHistory() {
         setLabel("");
         setShowLabelInput(false);
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2500);
+        setTimeout(() => setSaveSuccess(false), 4000);
       }
       await loadVersions();
     } catch {
@@ -137,25 +137,29 @@ export function VersionHistory() {
 
   return (
     <div className="p-4">
-      {error && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded bg-destructive/10 border border-destructive/20">
-          <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
-          <p className="text-xs text-destructive">{error}</p>
-        </div>
-      )}
-      {saveSuccess && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded bg-emerald-500/10 border border-emerald-500/20">
-          <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">Version saved</p>
-        </div>
-      )}
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-foreground/80">Versions</h3>
+        <h3 className="text-sm font-medium text-foreground/80">Previous Versions</h3>
       </div>
 
       {/* Bookmark current state — hidden during version preview */}
       {!isPreviewing && <div className="mb-3">
-        {showLabelInput ? (
+        {saveSuccess ? (
+          <div className="flex items-center justify-center gap-1.5 h-7 rounded border border-emerald-500/30 bg-emerald-500/10">
+            <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-xs text-emerald-600 dark:text-emerald-400">Version saved</span>
+          </div>
+        ) : error ? (
+          <div className="flex items-center gap-1.5 h-7 px-2 rounded border border-destructive/30 bg-destructive/10">
+            <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
+            <span className="text-xs text-destructive truncate">{error}</span>
+            <button
+              className="ml-auto text-destructive/60 hover:text-destructive text-xs shrink-0"
+              onClick={() => setError(null)}
+            >
+              dismiss
+            </button>
+          </div>
+        ) : showLabelInput ? (
           <div className="flex gap-1">
             <Input
               type="text"
