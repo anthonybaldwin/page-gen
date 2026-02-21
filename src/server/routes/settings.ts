@@ -50,6 +50,9 @@ settingsRoutes.get("/", (c) => {
     defaultTokenLimit: limits.maxTokensPerChat,
     warningThreshold: 0.8,
     limits,
+    limitDefaults: Object.fromEntries(
+      Object.entries(LIMIT_DEFAULTS).map(([k, v]) => [k, Number(v)])
+    ),
   });
 });
 
@@ -71,11 +74,26 @@ settingsRoutes.put("/limits", async (c) => {
     updated[key] = Number(strVal);
   }
 
-  return c.json({ ok: true, limits: getAllLimits() });
+  return c.json({ ok: true, limits: getAllLimits(), defaults: LIMIT_DEFAULTS_NUMERIC });
+});
+
+const LIMIT_DEFAULTS_NUMERIC = Object.fromEntries(
+  Object.entries(LIMIT_DEFAULTS).map(([k, v]) => [k, Number(v)])
+);
+
+// Reset all limits to defaults
+settingsRoutes.delete("/limits", (c) => {
+  for (const [key, value] of Object.entries(LIMIT_DEFAULTS)) {
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
+    }
+  }
+  return c.json({ ok: true, limits: getAllLimits(), defaults: LIMIT_DEFAULTS_NUMERIC });
 });
 
 const VALID_AGENT_NAMES = new Set<AgentName>([
-  "orchestrator", "orchestrator:classify", "orchestrator:question", "orchestrator:summary",
+  "orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary",
   "research", "architect", "frontend-dev", "backend-dev",
   "styling", "testing", "code-review", "qa", "security",
 ]);

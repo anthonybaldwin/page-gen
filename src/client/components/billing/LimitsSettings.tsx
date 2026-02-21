@@ -10,8 +10,23 @@ interface Limits {
   maxCostPerProject: number;
 }
 
+const LIMIT_LABELS: Record<keyof Limits, { label: string; hint: string; step?: number }> = {
+  maxTokensPerChat: { label: "Max tokens per chat", hint: "Token ceiling per chat session (0 = unlimited)" },
+  maxAgentCallsPerRun: { label: "Max agent calls per run", hint: "Max agent invocations per pipeline run" },
+  maxCostPerDay: { label: "Max cost per day ($)", hint: "Daily spending cap in USD (0 = unlimited)", step: 0.01 },
+  maxCostPerProject: { label: "Max cost per project ($)", hint: "Per-project spending cap in USD (0 = unlimited)", step: 0.01 },
+};
+
+const LIMIT_KEYS = Object.keys(LIMIT_LABELS) as (keyof Limits)[];
+
 export function LimitsSettings() {
   const [limits, setLimits] = useState<Limits>({
+    maxTokensPerChat: 500000,
+    maxAgentCallsPerRun: 30,
+    maxCostPerDay: 0,
+    maxCostPerProject: 0,
+  });
+  const [defaults, setDefaults] = useState<Limits>({
     maxTokensPerChat: 500000,
     maxAgentCallsPerRun: 30,
     maxCostPerDay: 0,
@@ -22,16 +37,22 @@ export function LimitsSettings() {
 
   useEffect(() => {
     api
-      .get<{ limits: Limits }>("/settings")
-      .then((res) => setLimits(res.limits))
+      .get<{ limits: Limits; limitDefaults: Limits }>("/settings")
+      .then((res) => {
+        setLimits(res.limits);
+        setDefaults(res.limitDefaults);
+      })
       .catch(console.error);
   }, []);
+
+  const isCustom = (key: keyof Limits) => limits[key] !== defaults[key];
+  const anyCustom = LIMIT_KEYS.some(isCustom);
 
   async function handleSave() {
     setSaving(true);
     setSaved(false);
     try {
-      const res = await api.put<{ limits: Limits }>("/settings/limits", limits);
+      const res = await api.put<{ limits: Limits; defaults: Limits }>("/settings/limits", limits);
       setLimits(res.limits);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -42,65 +63,67 @@ export function LimitsSettings() {
     }
   }
 
+  async function handleReset() {
+    setSaving(true);
+    try {
+      const res = await api.delete<{ limits: Limits; defaults: Limits }>("/settings/limits");
+      setLimits(res.limits);
+      setSaved(false);
+    } catch (err) {
+      console.error("[limits] Failed to reset:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        Configure spending guardrails. Set to 0 for unlimited.
-      </p>
-
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-1">
-          Max tokens per chat
-        </label>
-        <Input
-          type="number"
-          min={0}
-          value={limits.maxTokensPerChat}
-          onChange={(e) => setLimits((l) => ({ ...l, maxTokensPerChat: Number(e.target.value) }))}
-        />
-        <p className="text-xs text-muted-foreground/60 mt-1">Token ceiling per chat session (0 = unlimited)</p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Configure spending guardrails. Set to 0 for unlimited.
+        </p>
+        {anyCustom && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReset}
+            disabled={saving}
+            className="h-6 px-2 text-xs text-muted-foreground"
+          >
+            Reset all
+          </Button>
+        )}
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-1">
-          Max agent calls per run
-        </label>
-        <Input
-          type="number"
-          min={0}
-          value={limits.maxAgentCallsPerRun}
-          onChange={(e) => setLimits((l) => ({ ...l, maxAgentCallsPerRun: Number(e.target.value) }))}
-        />
-        <p className="text-xs text-muted-foreground/60 mt-1">Max agent invocations per pipeline run</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-1">
-          Max cost per day ($)
-        </label>
-        <Input
-          type="number"
-          min={0}
-          step={0.01}
-          value={limits.maxCostPerDay}
-          onChange={(e) => setLimits((l) => ({ ...l, maxCostPerDay: Number(e.target.value) }))}
-        />
-        <p className="text-xs text-muted-foreground/60 mt-1">Daily spending cap in USD (0 = unlimited)</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-1">
-          Max cost per project ($)
-        </label>
-        <Input
-          type="number"
-          min={0}
-          step={0.01}
-          value={limits.maxCostPerProject}
-          onChange={(e) => setLimits((l) => ({ ...l, maxCostPerProject: Number(e.target.value) }))}
-        />
-        <p className="text-xs text-muted-foreground/60 mt-1">Per-project spending cap in USD (0 = unlimited)</p>
-      </div>
+      {LIMIT_KEYS.map((key) => {
+        const { label, hint, step } = LIMIT_LABELS[key];
+        const custom = isCustom(key);
+        return (
+          <div key={key}>
+            <div className="flex items-center gap-2 mb-1">
+              <label className="block text-sm font-medium text-muted-foreground">
+                {label}
+              </label>
+              {custom && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+                  custom
+                </span>
+              )}
+            </div>
+            <Input
+              type="number"
+              min={0}
+              step={step}
+              value={limits[key]}
+              onChange={(e) => setLimits((l) => ({ ...l, [key]: Number(e.target.value) }))}
+            />
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              {hint}
+              {custom && <span className="ml-1">(default: {defaults[key]})</span>}
+            </p>
+          </div>
+        );
+      })}
 
       <Button onClick={handleSave} disabled={saving}>
         {saving ? "Saving..." : saved ? "Saved" : "Save Limits"}
