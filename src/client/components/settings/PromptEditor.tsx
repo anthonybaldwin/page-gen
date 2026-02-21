@@ -74,7 +74,7 @@ export function PromptEditor() {
   const selectedConfig = configs.find((c) => c.name === selectedAgent);
 
   return (
-    <div className="flex gap-3 h-full min-h-[400px]">
+    <div className="flex gap-3 h-full min-h-[500px]">
       {/* Agent list sidebar */}
       <div className="w-40 shrink-0 space-y-2">
         {GROUP_ORDER.map((group) => {
