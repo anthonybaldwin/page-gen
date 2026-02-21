@@ -977,7 +977,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   }
 
   // Auto-title: if chat has a generic title and this is the first real message, generate a title
-  if (chatTitle === "New Chat" || chatTitle === "Unknown") {
+  if (chatTitle === "New Chat" || chatTitle === "Unknown" || /^Chat \d+$/.test(chatTitle)) {
     const autoTitle = userMessage.length <= 60
       ? userMessage
       : userMessage.slice(0, 57).replace(/\s+\S*$/, "") + "...";
