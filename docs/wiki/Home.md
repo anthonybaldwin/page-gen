@@ -19,21 +19,25 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 ## Getting Started
 
 ```bash
-# Install dependencies
+# Prerequisites: Bun (https://bun.sh)
+
+# 1. Clone and install
+git clone https://github.com/anthonybaldwin/page-gen.git
+cd page-gen
 bun install
 
-# Start development server (backend)
-bun dev
+# 2. Start dev servers (two terminals)
+bun dev          # Backend  → http://localhost:3000
+bun dev:client   # Frontend → http://localhost:5173
 
-# Start frontend dev server
-bun dev:client
-
-# Run tests
-bun test
+# 3. Start logs viewer (optional — third terminal, not included in Docker)
+bun logs:viewer   # http://localhost:3200
 
 # Or run in Docker (optional — sandboxed code execution)
 bun dev:docker
 ```
+
+Open `http://localhost:5173`, configure an API key in Settings, and describe what you want to build.
 
 ## Tech Stack
 
