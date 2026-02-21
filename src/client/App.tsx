@@ -37,7 +37,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const activeChat = useChatStore((s) => s.activeChat);
   const activeProject = useProjectStore((s) => s.activeProject);
-  const { activeTab, setActiveTab, isDirty, openFilePath, closeFile } = useFileStore();
+  const { activeTab, setActiveTab, openFiles, activeFilePath, setActiveFile, closeFile } = useFileStore();
   const [chatWidth, setChatWidth] = useState(getInitialWidth);
   const isDragging = useRef(false);
 
@@ -118,31 +118,42 @@ export function App() {
       >
         <AgentStatusPanel chatId={activeChat?.id ?? null} />
         <div className="flex items-center border-b border-border bg-card shrink-0">
-          <TabsList className="ml-auto mr-2 h-8 bg-transparent p-0 gap-0">
+          {Object.keys(openFiles).length > 0 && (
+            <div className="flex items-center overflow-x-auto min-w-0 flex-1 pl-1">
+              {Object.values(openFiles).map((file) => (
+                <button
+                  key={file.path}
+                  type="button"
+                  className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    file.path === activeFilePath && activeTab === "editor"
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setActiveFile(file.path)}
+                >
+                  {file.path.split("/").pop()}
+                  {file.isDirty && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block shrink-0" />
+                  )}
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="rounded-sm opacity-0 group-hover:opacity-50 hover:!opacity-100 hover:bg-muted p-0.5 -mr-1 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); closeFile(file.path); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); closeFile(file.path); } }}
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <TabsList className="ml-auto mr-2 h-8 bg-transparent p-0 gap-0 shrink-0">
             <TabsTrigger
               value="preview"
               className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
             >
               Preview
-            </TabsTrigger>
-            <TabsTrigger
-              value="editor"
-              disabled={!openFilePath}
-              className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {openFilePath ? openFilePath.split("/").pop() : "Editor"}
-              {isDirty && (
-                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
-              )}
-              {openFilePath && (
-                <button
-                  type="button"
-                  className="ml-1 rounded-sm opacity-50 hover:opacity-100 hover:bg-muted p-0.5 -mr-1"
-                  onClick={(e) => { e.stopPropagation(); closeFile(); }}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
             </TabsTrigger>
           </TabsList>
         </div>
