@@ -10,6 +10,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Creates execution plans, dispatches agents, merges results, handles errors",
+    group: "planning",
   },
   {
     name: "orchestrator:classify",
@@ -17,6 +18,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-haiku-4-5-20251001",
     description: "Classifies user intent (build/fix/question) — fast, cheap",
+    group: "planning",
   },
   {
     name: "orchestrator:title",
@@ -24,6 +26,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-haiku-4-5-20251001",
     description: "Generates short chat titles — fast, cheap, fire-and-forget",
+    group: "planning",
   },
   {
     name: "orchestrator:question",
@@ -31,6 +34,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Answers user questions about their project — no pipeline",
+    group: "planning",
   },
   {
     name: "orchestrator:summary",
@@ -38,6 +42,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Writes the final pipeline summary shown to the user",
+    group: "planning",
   },
   {
     name: "research",
@@ -45,6 +50,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Analyzes user requests, identifies requirements, suggests approaches",
+    group: "planning",
   },
   {
     name: "architect",
@@ -52,6 +58,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Designs component tree, file structure, data flow",
+    group: "planning",
   },
   {
     name: "frontend-dev",
@@ -59,6 +66,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Generates React/HTML/CSS/JS code",
+    group: "development",
   },
   {
     name: "backend-dev",
@@ -66,6 +74,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Generates API routes, server logic, data handling",
+    group: "development",
   },
   {
     name: "styling",
@@ -73,6 +82,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Applies design system, responsive layout, theming",
+    group: "development",
   },
   {
     name: "testing",
@@ -80,6 +90,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Creates test plans that define expected behavior; dev agents write the actual test files",
+    group: "planning",
   },
   {
     name: "code-review",
@@ -87,6 +98,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Reviews code for bugs, type errors, and correctness; reports issues for dev agents to fix",
+    group: "quality",
   },
   {
     name: "qa",
@@ -94,6 +106,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-sonnet-4-6",
     description: "Validates implementation against requirements; reports gaps without fixing code",
+    group: "quality",
   },
   {
     name: "security",
@@ -101,6 +114,7 @@ export const AGENT_ROSTER: AgentConfig[] = [
     provider: "anthropic",
     model: "claude-haiku-4-5-20251001",
     description: "Scans for XSS, injection, key exposure, sandbox escapes",
+    group: "quality",
   },
 ];
 
@@ -193,6 +207,7 @@ export function getAgentToolConfig(name: AgentName): AgentToolConfig | undefined
   return {
     name,
     displayName: base.displayName,
+    group: base.group,
     tools,
     defaultTools,
     isOverridden: !!row,

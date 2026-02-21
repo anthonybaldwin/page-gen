@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Textarea } from "../ui/textarea.tsx";
-import type { ResolvedAgentConfig } from "../../../shared/types.ts";
+import type { ResolvedAgentConfig, AgentGroup } from "../../../shared/types.ts";
 
-const AGENT_NAMES = [
-  "orchestrator", "research", "architect", "testing",
-  "frontend-dev", "backend-dev", "styling",
-  "code-review", "qa", "security",
-] as const;
+const GROUP_LABELS: Record<AgentGroup, string> = {
+  planning: "Planning",
+  development: "Development",
+  quality: "Quality",
+};
+
+const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality"];
 
 export function PromptEditor() {
   const [configs, setConfigs] = useState<ResolvedAgentConfig[]>([]);
@@ -74,27 +76,33 @@ export function PromptEditor() {
   return (
     <div className="flex gap-3 h-full min-h-[400px]">
       {/* Agent list sidebar */}
-      <div className="w-40 shrink-0 space-y-0.5">
-        <p className="text-xs text-muted-foreground mb-2">Agents</p>
-        {AGENT_NAMES.map((name) => {
-          const config = configs.find((c) => c.name === name);
-          const hasCustomPrompt = config?.isOverridden;
+      <div className="w-40 shrink-0 space-y-2">
+        {GROUP_ORDER.map((group) => {
+          const groupConfigs = configs.filter((c) => c.group === group);
+          if (groupConfigs.length === 0) return null;
           return (
-            <Button
-              key={name}
-              variant="ghost"
-              onClick={() => setSelectedAgent(name)}
-              className={`w-full justify-start px-2 py-1.5 h-auto text-xs ${
-                selectedAgent === name
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground"
-              }`}
-            >
-              <span className="truncate flex-1 text-left">{config?.displayName || name}</span>
-              {hasCustomPrompt && (
-                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-              )}
-            </Button>
+            <div key={group}>
+              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider px-2 mb-0.5">
+                {GROUP_LABELS[group]}
+              </p>
+              {groupConfigs.map((config) => (
+                <Button
+                  key={config.name}
+                  variant="ghost"
+                  onClick={() => setSelectedAgent(config.name)}
+                  className={`w-full justify-start px-2 py-1.5 h-auto text-xs ${
+                    selectedAgent === config.name
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  <span className="truncate flex-1 text-left">{config.displayName}</span>
+                  {config.isOverridden && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                  )}
+                </Button>
+              ))}
+            </div>
           );
         })}
       </div>

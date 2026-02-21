@@ -2,13 +2,21 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
-import type { ResolvedAgentConfig, ModelPricing } from "../../../shared/types.ts";
+import type { ResolvedAgentConfig, ModelPricing, AgentGroup } from "../../../shared/types.ts";
 
-const AGENT_GROUPS: { label: string; agents: string[] }[] = [
-  { label: "Planning", agents: ["orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary", "research", "architect", "testing"] },
-  { label: "Development", agents: ["frontend-dev", "backend-dev", "styling"] },
-  { label: "Quality", agents: ["code-review", "qa", "security"] },
-];
+const GROUP_LABELS: Record<AgentGroup, string> = {
+  planning: "Planning",
+  development: "Development",
+  quality: "Quality",
+};
+
+const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality"];
+
+function buildAgentGroups(configs: ResolvedAgentConfig[]) {
+  return GROUP_ORDER
+    .map((g) => ({ label: GROUP_LABELS[g], agents: configs.filter((c) => c.group === g) }))
+    .filter((g) => g.agents.length > 0);
+}
 
 const PROVIDERS = ["anthropic", "openai", "google"];
 
@@ -76,27 +84,23 @@ export function ModelSettings() {
         Override the provider and model for each agent. Changes take effect on the next pipeline run.
       </p>
 
-      {AGENT_GROUPS.map((group) => (
+      {buildAgentGroups(configs).map((group) => (
         <div key={group.label}>
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.label}
           </h3>
           <div className="space-y-3">
-            {group.agents.map((agentName) => {
-              const config = configs.find((c) => c.name === agentName);
-              if (!config) return null;
-              return (
+            {group.agents.map((config) => (
                 <AgentModelCard
-                  key={agentName}
+                  key={config.name}
                   config={config}
                   knownModels={knownModels}
                   pricing={pricing}
-                  saving={saving === agentName}
+                  saving={saving === config.name}
                   onSave={handleSave}
                   onReset={handleReset}
                 />
-              );
-            })}
+              ))}
           </div>
         </div>
       ))}

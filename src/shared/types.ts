@@ -93,12 +93,15 @@ export type AgentName =
   | "qa"
   | "security";
 
+export type AgentGroup = "planning" | "development" | "quality";
+
 export interface AgentConfig {
   name: AgentName;
   displayName: string;
   provider: string;
   model: string;
   description: string;
+  group: AgentGroup;
 }
 
 export interface ResolvedAgentConfig extends AgentConfig {
@@ -166,6 +169,7 @@ export const ALL_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", 
 export interface AgentToolConfig {
   name: AgentName;
   displayName: string;
+  group: AgentGroup;
   tools: ToolName[];
   defaultTools: ToolName[];
   isOverridden: boolean;

@@ -2,13 +2,21 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Checkbox } from "../ui/checkbox.tsx";
-import type { AgentToolConfig, ToolName } from "../../../shared/types.ts";
+import type { AgentToolConfig, ToolName, AgentGroup } from "../../../shared/types.ts";
 
-const AGENT_GROUPS: { label: string; agents: string[] }[] = [
-  { label: "Planning", agents: ["orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary", "research", "architect", "testing"] },
-  { label: "Development", agents: ["frontend-dev", "backend-dev", "styling"] },
-  { label: "Quality", agents: ["code-review", "qa", "security"] },
-];
+const GROUP_LABELS: Record<AgentGroup, string> = {
+  planning: "Planning",
+  development: "Development",
+  quality: "Quality",
+};
+
+const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality"];
+
+function buildAgentGroups(configs: AgentToolConfig[]) {
+  return GROUP_ORDER
+    .map((g) => ({ label: GROUP_LABELS[g], agents: configs.filter((c) => c.group === g) }))
+    .filter((g) => g.agents.length > 0);
+}
 
 const TOOL_LABELS: Record<ToolName, string> = {
   write_file: "Write File",
@@ -92,15 +100,14 @@ export function ToolSettings() {
         Control which native tools each agent can use during pipeline runs. Changes take effect on the next run.
       </p>
 
-      {AGENT_GROUPS.map((group) => (
+      {buildAgentGroups(configs).map((group) => (
         <div key={group.label}>
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.label}
           </h3>
           <div className="space-y-3">
-            {group.agents.map((agentName) => {
-              const config = configs.find((c) => c.name === agentName);
-              if (!config) return null;
+            {group.agents.map((config) => {
+              const agentName = config.name;
               const local = localTools[agentName] || [];
               const dirty = isDirty(agentName);
 
