@@ -8,7 +8,7 @@ export function EditorPanel() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-background">
+      <div className="h-full flex items-center justify-center bg-background">
         <div className="text-center">
           <Loader2 className="h-6 w-6 text-primary animate-spin mx-auto mb-2" />
           <p className="text-muted-foreground text-sm">Loading file...</p>
@@ -19,7 +19,7 @@ export function EditorPanel() {
 
   if (!openFilePath) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-background gap-4 px-8">
+      <div className="h-full flex flex-col items-center justify-center bg-background gap-4 px-8">
         <FileCode className="h-12 w-12 text-muted-foreground/20" />
         <div className="text-center space-y-1">
           <p className="text-sm text-muted-foreground">No file open</p>
