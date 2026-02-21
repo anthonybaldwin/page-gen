@@ -69,10 +69,6 @@ chatRoutes.delete("/:id", async (c) => {
   await db.delete(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, id));
   await db.delete(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, id));
   await db.delete(schema.messages).where(eq(schema.messages.chatId, id));
-  await db
-    .update(schema.snapshots)
-    .set({ chatId: null })
-    .where(eq(schema.snapshots.chatId, id));
   await db.delete(schema.chats).where(eq(schema.chats.id, id));
   log("chat", `Deleted chat ${id}`);
   return c.json({ ok: true });

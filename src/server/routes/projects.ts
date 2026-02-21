@@ -8,6 +8,7 @@ import { abortOrchestration } from "../agents/orchestrator.ts";
 import { stopPreviewServer } from "../preview/vite-server.ts";
 import { stopBackendServer } from "../preview/backend-server.ts";
 import { log } from "../services/logger.ts";
+import { ensureGitRepo } from "../services/versioning.ts";
 
 export const projectRoutes = new Hono();
 
@@ -33,6 +34,7 @@ projectRoutes.post("/", async (c) => {
   const now = Date.now();
 
   mkdirSync(`${projectPath}/src`, { recursive: true });
+  ensureGitRepo(projectPath);
 
   const project = {
     id,
@@ -83,8 +85,7 @@ projectRoutes.delete("/:id", async (c) => {
     await db.delete(schema.messages).where(eq(schema.messages.chatId, chat.id));
   }
 
-  // Delete snapshots, then chats, then project
-  await db.delete(schema.snapshots).where(eq(schema.snapshots.projectId, id));
+  // Delete chats, then project
   await db.delete(schema.chats).where(eq(schema.chats.projectId, id));
   await db.delete(schema.projects).where(eq(schema.projects.id, id));
 

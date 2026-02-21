@@ -111,16 +111,8 @@ export function runMigrations() {
     )
   `);
 
-  db.run(sql`
-    CREATE TABLE IF NOT EXISTS snapshots (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id),
-      chat_id TEXT,
-      label TEXT NOT NULL,
-      file_manifest TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // Drop legacy snapshots table (versioning is now git-based)
+  db.run(sql`DROP TABLE IF EXISTS snapshots`);
 
   // Add estimated column to token_usage (for existing DBs)
   try {

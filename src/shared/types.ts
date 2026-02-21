@@ -57,15 +57,6 @@ export interface TokenUsage {
   createdAt: number;
 }
 
-export interface Snapshot {
-  id: string;
-  projectId: string;
-  chatId: string | null;
-  label: string;
-  fileManifest: Record<string, string>;
-  createdAt: number;
-}
-
 export interface ProviderConfig {
   apiKey: string;
   proxyUrl?: string;

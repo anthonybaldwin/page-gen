@@ -108,13 +108,4 @@ export const pipelineRuns = sqliteTable("pipeline_runs", {
   completedAt: integer("completed_at"),
 });
 
-export const snapshots = sqliteTable("snapshots", {
-  id: text("id").primaryKey(),
-  projectId: text("project_id")
-    .notNull()
-    .references(() => projects.id),
-  chatId: text("chat_id"),
-  label: text("label").notNull(),
-  fileManifest: text("file_manifest").notNull(), // JSON string
-  createdAt: integer("created_at").notNull(),
-});
+// snapshots table removed — versioning is now git-based (see services/versioning.ts)

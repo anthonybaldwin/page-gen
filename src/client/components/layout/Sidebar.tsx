@@ -9,7 +9,7 @@ import { UsageBadge } from "../billing/UsageBadge.tsx";
 const UsageDashboard = React.lazy(() => import("../billing/UsageDashboard.tsx").then(m => ({ default: m.UsageDashboard })));
 import { SettingsButton } from "../settings/SettingsButton.tsx";
 const SettingsModal = React.lazy(() => import("../settings/SettingsModal.tsx").then(m => ({ default: m.SettingsModal })));
-import { SnapshotList } from "../snapshots/SnapshotList.tsx";
+import { VersionHistory } from "../versions/VersionHistory.tsx";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
@@ -332,10 +332,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         )}
       </ScrollArea>
 
-      {/* Snapshots */}
+      {/* Versions */}
       {activeProject && (
         <div className="border-t border-sidebar-border">
-          <SnapshotList />
+          <VersionHistory />
         </div>
       )}
 
@@ -388,7 +388,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         open={!!projectToDelete}
         onOpenChange={(open) => { if (!open) setProjectToDelete(null); }}
         title="Delete Project"
-        description="This will permanently delete the project and all its chats, snapshots, messages, pipeline runs, agent executions, and generated files. This action cannot be undone."
+        description="This will permanently delete the project and all its chats, messages, pipeline runs, agent executions, and generated files. This action cannot be undone."
         confirmText={projectToDelete?.name}
         confirmLabel="Delete"
         destructive
