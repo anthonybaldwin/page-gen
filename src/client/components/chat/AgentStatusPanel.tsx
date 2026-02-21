@@ -166,7 +166,7 @@ export function AgentStatusPanel({ chatId }: Props) {
         if (status === "running" || status === "retrying") {
           setPipelineActive(true);
         }
-        if (agentName === "orchestrator" && (status === "completed" || status === "stopped")) {
+        if (agentName === "orchestrator" && (status === "completed" || status === "stopped" || status === "failed")) {
           setPipelineActive(false);
         }
 

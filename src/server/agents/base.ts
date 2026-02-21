@@ -10,6 +10,74 @@ import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 
+/**
+ * Extract safe, structured fields from an error for logging.
+ * Strips requestBodyValues (full prompts) and other large/sensitive fields
+ * that AI SDK APICallError includes.
+ */
+function sanitizeErrorForLog(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { message: String(err) };
+  const e = err as Record<string, unknown>;
+  const safe: Record<string, unknown> = { name: err.name, message: err.message.slice(0, 300) };
+  if (typeof e.statusCode === "number") safe.statusCode = e.statusCode;
+  if (typeof e.url === "string") safe.url = redactUrlKeys(e.url);
+  if (typeof e.requestBodyValues === "object" && e.requestBodyValues) {
+    const body = e.requestBodyValues as Record<string, unknown>;
+    safe.requestModel = body.model;
+    safe.requestMaxTokens = body.max_tokens;
+  }
+  if (typeof e.responseBody === "string") {
+    safe.responseBody = e.responseBody.slice(0, 500);
+  }
+  return safe;
+}
+
+/** Redact API keys from URLs (e.g., Google AI uses ?key=... query params). */
+function redactUrlKeys(url: string): string {
+  return url.replace(/([?&]key=)[^&]+/gi, "$1[REDACTED]");
+}
+
+/**
+ * Extract a user-friendly error message from AI SDK errors.
+ * APICallError includes statusCode, responseBody, etc. — parse those
+ * instead of showing the raw (often huge/generic) message.
+ */
+function formatUserFacingError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const e = err as Record<string, unknown>;
+
+  // AI SDK APICallError has statusCode and responseBody
+  const statusCode = typeof e.statusCode === "number" ? e.statusCode : undefined;
+  const responseBody = typeof e.responseBody === "string" ? e.responseBody : undefined;
+
+  // Try to extract the API error type/message from the response body
+  if (responseBody) {
+    try {
+      const parsed = JSON.parse(responseBody);
+      const apiError = parsed?.error;
+      if (apiError?.type && apiError?.message) {
+        const prefix = statusCode ? `API error ${statusCode}` : "API error";
+        return `${prefix}: ${apiError.message} (${apiError.type})`;
+      }
+    } catch { /* not JSON */ }
+  }
+
+  // Map common HTTP status codes to clear messages
+  if (statusCode) {
+    const msg = err.message || "";
+    if (statusCode === 401) return "API authentication failed — check your API key.";
+    if (statusCode === 402) return "API credits exhausted — check your account balance.";
+    if (statusCode === 403) return "API access forbidden — check your API key permissions.";
+    if (statusCode === 429) return "API rate limit exceeded — please wait and retry.";
+    if (statusCode === 500) return "API server error — the provider is experiencing issues.";
+    if (statusCode === 529 || statusCode === 503) return "API is temporarily overloaded — please retry shortly.";
+    return `API error (${statusCode}): ${msg.slice(0, 200)}`;
+  }
+
+  // For non-API errors, use the message but cap length
+  return err.message.length > 200 ? err.message.slice(0, 200) + "..." : err.message;
+}
+
 /** Per-agent output token caps to reduce chattiness and speed up generation. */
 const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "research": 3000,
@@ -98,7 +166,11 @@ export async function runAgent(
   try {
     const { cacheablePrefix, dynamicSuffix } = buildSplitPrompt(input);
     const builtPrompt = cacheablePrefix ? `${cacheablePrefix}\n${dynamicSuffix}` : dynamicSuffix;
-    log("pipeline", `agent=${broadcastName} model=${config.model} prompt=${builtPrompt.length.toLocaleString()}chars system=${systemPrompt.length.toLocaleString()}chars tools=${tools ? Object.keys(tools).length : 0}`);
+    log("pipeline", `agent=${broadcastName} starting`, {
+      agent: broadcastName, model: config.model,
+      promptChars: builtPrompt.length, systemChars: systemPrompt.length,
+      toolCount: tools ? Object.keys(tools).length : 0,
+    });
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
     const maxOutputTokens = overrides?.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS[config.name] ?? DEFAULT_MAX_OUTPUT_TOKENS;
@@ -199,16 +271,22 @@ export async function runAgent(
         }
         case "error": {
           streamErrorCount++;
-          const errorDetail = JSON.stringify((part as { error: unknown }).error);
-          logWarn("pipeline", `agent=${broadcastName} stream error event (${streamErrorCount}/${MAX_STREAM_ERRORS}): ${errorDetail}`);
+          const rawError = (part as { error: unknown }).error;
+          const safeDetail = sanitizeErrorForLog(rawError);
+          logWarn("pipeline", `agent=${broadcastName} stream error (${streamErrorCount}/${MAX_STREAM_ERRORS})`, safeDetail);
           if (streamErrorCount >= MAX_STREAM_ERRORS) {
-            throw new Error(`Agent stream hit ${MAX_STREAM_ERRORS} errors — failing deterministically. Last error: ${errorDetail}`);
+            // Throw the original error so formatUserFacingError can parse APICallError fields
+            if (rawError instanceof Error) throw rawError;
+            throw new Error(`Agent stream hit ${MAX_STREAM_ERRORS} errors. ${formatUserFacingError(rawError)}`);
           }
           break;
         }
         case "step-finish" as string: {
           const stepPart = part as unknown as { finishReason: string; usage: { inputTokens: number; outputTokens: number } };
-          log("pipeline", `agent=${broadcastName} step-finish: reason=${stepPart.finishReason} tokens=${JSON.stringify(stepPart.usage)}`);
+          log("pipeline", `agent=${broadcastName} step-finish`, {
+            agent: broadcastName, finishReason: stepPart.finishReason,
+            inputTokens: stepPart.usage.inputTokens, outputTokens: stepPart.usage.outputTokens,
+          });
           break;
         }
       }
@@ -227,9 +305,15 @@ export async function runAgent(
       const headers = response?.headers as Record<string, string> | undefined;
       const retryAfter = headers?.["retry-after"];
       const requestId = headers?.["request-id"] || headers?.["x-request-id"];
-      log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} status=${status} streamParts=${streamPartCount}${requestId ? ` requestId=${requestId}` : ""}${retryAfter ? ` retryAfter=${retryAfter}` : ""}`);
+      log("pipeline", `agent=${broadcastName} response`, {
+        agent: broadcastName, finishReason, status, streamPartCount,
+        ...(requestId ? { requestId } : {}),
+        ...(retryAfter ? { retryAfter } : {}),
+      });
     } catch {
-      log("pipeline", `agent=${broadcastName} response: finishReason=${finishReason} streamParts=${streamPartCount} (response metadata unavailable)`);
+      log("pipeline", `agent=${broadcastName} response`, {
+        agent: broadcastName, finishReason, streamPartCount, metadataUnavailable: true,
+      });
     }
 
     // Treat non-successful finish reasons as failures — the agent didn't complete its work
@@ -276,7 +360,7 @@ export async function runAgent(
       for (const step of steps) {
         const { cacheCreationInputTokens: creation, cacheReadInputTokens: read } = extractAnthropicCacheTokens(step);
         if (creation > 0 || read > 0) {
-          log("pipeline", `cache tokens step: creation=${creation} read=${read}`);
+          log("pipeline", `agent=${broadcastName} cache tokens step`, { agent: broadcastName, cacheCreation: creation, cacheRead: read });
         }
         cacheCreationInputTokens += creation;
         cacheReadInputTokens += read;
@@ -326,9 +410,9 @@ export async function runAgent(
       },
     };
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const userMessage = formatUserFacingError(err);
     broadcastAgentStatus(cid, broadcastName, "failed");
-    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: errorMessage });
+    broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: userMessage });
     throw err;
   }
 }
@@ -416,10 +500,9 @@ export function buildSplitPrompt(input: AgentInput): SplitPrompt {
 
   // Log prompt size breakdown
   const totalLen = cacheablePrefix.length + (cacheablePrefix ? 1 : 0) + dynamicSuffix.length;
-  const breakdown = Object.entries(sizeBreakdown)
-    .map(([k, v]) => `${k}=${v.toLocaleString()}`)
-    .join(" ");
-  log("pipeline", `prompt total=${totalLen.toLocaleString()}chars prefix=${cacheablePrefix.length.toLocaleString()}chars ${breakdown}`);
+  log("pipeline", "prompt size breakdown", {
+    totalChars: totalLen, prefixChars: cacheablePrefix.length, ...sizeBreakdown,
+  });
 
   return { cacheablePrefix, dynamicSuffix };
 }

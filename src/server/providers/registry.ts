@@ -27,28 +27,36 @@ export function extractApiKeys(c: Context) {
   };
 }
 
+/** Redact API keys from URLs (e.g., Google AI uses ?key=... query params). */
+function redactUrlKeys(url: string): string {
+  return url.replace(/([?&]key=)[^&]+/gi, "$1[REDACTED]");
+}
+
 /** Wrap fetch to log every LLM request and response (status, headers, timing). */
 function createLoggingFetch(provider: string): typeof globalThis.fetch {
   // Cast: Bun's fetch type includes a static `preconnect` property we don't need
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    const url = redactUrlKeys(rawUrl);
     const method = init?.method || "POST";
     const start = Date.now();
 
     // Log request body summary (model + message count, not full content)
-    let bodySummary = "";
+    const requestData: Record<string, unknown> = { method, url, provider };
     if (init?.body) {
       try {
         const bodyStr = typeof init.body === "string" ? init.body : "";
         if (bodyStr) {
           const parsed = JSON.parse(bodyStr);
-          bodySummary = ` model=${parsed.model || "?"} messages=${parsed.messages?.length || 0} max_tokens=${parsed.max_tokens || "?"}`;
-          if (parsed.stream) bodySummary += " stream=true";
+          requestData.model = parsed.model || "?";
+          requestData.messages = parsed.messages?.length || 0;
+          requestData.maxTokens = parsed.max_tokens || "?";
+          if (parsed.stream) requestData.stream = true;
         }
       } catch { /* not JSON or not parseable */ }
     }
 
-    log("llm-http", `→ ${method} ${url}${bodySummary}`);
+    log("llm-http", `→ ${method} ${provider}`, requestData);
 
     // Fix malformed tool_use.input (AI SDK bug — stringifies instead of object)
     if (init?.body && typeof init.body === "string") {
@@ -65,7 +73,9 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
                   } catch {
                     // Input is malformed JSON (model hit output token limit mid-string).
                     // Log clearly and let the 400 happen — retrying won't help.
-                    logWarn("llm-http", `${provider} tool_use.input is invalid JSON (${block.input.length} chars, tool=${block.name || "?"}) — model likely hit output token limit`);
+                    logWarn("llm-http", `${provider} tool_use.input is invalid JSON — model likely hit output token limit`, {
+                      provider, tool: block.name || "?", inputChars: block.input.length,
+                    });
                     block.input = {};
                   }
                   modified = true;
@@ -74,7 +84,7 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
             }
           }
           if (modified) {
-            log("llm-http", `Fixed ${provider} request: parsed stringified tool_use.input back to object`);
+            log("llm-http", `Fixed ${provider} request: parsed stringified tool_use.input back to object`, { provider });
             init = { ...init, body: JSON.stringify(parsed) };
           }
         }
@@ -92,25 +102,25 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
     const rateLimitTokensRemaining = response.headers.get("anthropic-ratelimit-tokens-remaining")
       || response.headers.get("x-ratelimit-remaining-tokens") || "";
 
-    const headerInfo = [
-      requestId && `id=${requestId}`,
-      retryAfter && `retry-after=${retryAfter}`,
-      rateLimitRemaining && `req-remaining=${rateLimitRemaining}`,
-      rateLimitTokensRemaining && `tok-remaining=${rateLimitTokensRemaining}`,
-    ].filter(Boolean).join(" ");
+    const responseData: Record<string, unknown> = {
+      status: response.status, provider, elapsed,
+      ...(requestId ? { requestId } : {}),
+      ...(retryAfter ? { retryAfter } : {}),
+      ...(rateLimitRemaining ? { reqRemaining: rateLimitRemaining } : {}),
+      ...(rateLimitTokensRemaining ? { tokRemaining: rateLimitTokensRemaining } : {}),
+    };
 
     if (response.ok) {
-      log("llm-http", `← ${response.status} ${provider} ${elapsed}ms ${headerInfo}`);
+      log("llm-http", `← ${response.status} ${provider} ${elapsed}ms`, responseData);
     } else {
       // For error responses, try to read the body for the error message
       // Clone so the SDK can still read it
       const cloned = response.clone();
-      let errorBody = "";
       try {
-        errorBody = await cloned.text();
-        if (errorBody.length > 500) errorBody = errorBody.slice(0, 500) + "...";
+        const errorBody = await cloned.text();
+        responseData.body = errorBody.length > 500 ? errorBody.slice(0, 500) + "..." : errorBody;
       } catch { /* stream not readable */ }
-      logWarn("llm-http", `← ${response.status} ${provider} ${elapsed}ms ${headerInfo} body=${errorBody}`);
+      logWarn("llm-http", `← ${response.status} ${provider} ${elapsed}ms`, responseData);
     }
 
     return response;

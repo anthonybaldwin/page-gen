@@ -537,10 +537,10 @@ export async function cleanupStaleExecutions(): Promise<number> {
   // Log any provisional billing records from interrupted pipelines
   const provisionalCount = countProvisionalRecords();
   if (provisionalCount > 0) {
-    log("orchestrator", `Found ${provisionalCount} provisional (estimated) billing records from interrupted pipelines`);
+    log("orchestrator", "Cleaning up provisional billing records from interrupted pipelines", { provisionalCount });
   }
 
-  log("orchestrator", `Cleaned up ${stale.length} stale executions across ${affectedChats.length} chats`);
+  log("orchestrator", "Cleaned up stale executions", { staleCount: stale.length, affectedChats: affectedChats.length });
   return stale.length;
 }
 
@@ -639,7 +639,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   if (preflightCheck.allowed && preflightCheck.limit > 0) {
     const currentTokens = preflightCheck.currentTokens || 0;
     if (currentTokens + estimatedInputTokens > preflightCheck.limit * 0.95) {
-      log("orchestrator", `Pre-flight skip: ${stepKey} estimated ${estimatedInputTokens.toLocaleString()} tokens would exceed 95% of limit (${currentTokens.toLocaleString()}/${preflightCheck.limit.toLocaleString()})`);
+      log("orchestrator", `Pre-flight skip: ${stepKey}`, { agent: stepKey, estimatedTokens: estimatedInputTokens, currentTokens, limit: preflightCheck.limit });
       broadcastAgentError(chatId, "orchestrator", `Skipping ${stepKey}: estimated token usage would exceed limit`);
       return null;
     }
@@ -698,7 +698,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       const emptyOutputTokens = result.tokenUsage?.outputTokens || 0;
       const hasContent = result.content.length > 0 || (result.filesWritten && result.filesWritten.length > 0);
       if (emptyOutputTokens === 0 && !hasContent) {
-        log("orchestrator", `Agent ${stepKey} returned empty response (0 tokens) — treating as retriable failure`);
+        log("orchestrator", `Agent ${stepKey} returned empty response — treating as retriable failure`, { agent: stepKey });
         throw new Error(`Agent returned empty response (possible API rate limit or timeout)`);
       }
 
@@ -839,7 +839,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     } catch (err) {
       if (signal.aborted) break;
       lastError = err instanceof Error ? err : new Error(String(err));
-      logError("orchestrator", `Agent ${stepKey} attempt ${attempt} error: ${lastError.message}`, err);
+      logError("orchestrator", `Agent ${stepKey} attempt ${attempt} failed`, err, { agent: stepKey, attempt });
 
       // Void provisional token records so failed calls don't leave phantom billing
       if (provisionalIds) {
@@ -850,7 +850,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       // Check for non-retriable API errors (credit exhaustion, auth failure, etc.)
       const apiCheck = isNonRetriableApiError(err);
       if (apiCheck.nonRetriable) {
-        log("orchestrator", `Non-retriable API error for ${stepKey}: ${apiCheck.reason}`);
+        log("orchestrator", `Non-retriable API error for ${stepKey}`, { agent: stepKey, reason: apiCheck.reason });
         await db.update(schema.agentExecutions)
           .set({ status: "failed", error: apiCheck.reason, completedAt: Date.now() })
           .where(eq(schema.agentExecutions.id, executionId));
@@ -875,7 +875,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
   if (!result) {
     const errorMsg = lastError?.message || "Unknown error";
-    log("orchestrator", `Agent ${stepKey} failed after ${MAX_RETRIES} retries. Last error: ${errorMsg}`);
+    log("orchestrator", `Agent ${stepKey} failed after ${MAX_RETRIES} retries`, { agent: stepKey, retries: MAX_RETRIES, lastError: errorMsg });
     await db.update(schema.agentExecutions)
       .set({ status: "failed", error: errorMsg, completedAt: Date.now() })
       .where(eq(schema.agentExecutions.id, executionId));
@@ -1019,7 +1019,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // --- Intent classification ---
   const hasFiles = projectHasFiles(projectPath);
   const classification = await classifyIntent(userMessage, hasFiles, providers);
-  log("orchestrator", `Intent: ${classification.intent} (scope: ${classification.scope}) — ${classification.reasoning}`);
+  log("orchestrator", "Intent classified", { intent: classification.intent, scope: classification.scope, reasoning: classification.reasoning });
 
   // --- Preflight: verify only planned agents can resolve a provider model ---
   {
@@ -1028,6 +1028,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     if (preflightErrors.length > 0) {
       abortControllers.delete(chatId);
       broadcastAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
       return;
     }
   }
@@ -1230,6 +1231,8 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   });
 
   if (!architectResult && !researchResult) {
+    broadcastAgentError(chatId, "orchestrator", "Pipeline failed — all initial agents encountered errors.");
+    broadcastAgentStatus(chatId, "orchestrator", "failed");
     abortControllers.delete(chatId);
     return;
   }
@@ -1523,7 +1526,7 @@ async function executePipelineSteps(ctx: {
   const remaining = [...plan.steps];
 
   // Log plan structure for parallel execution diagnosis
-  log("orchestrator", `executePipelineSteps: ${remaining.length} steps, completedSet: [${[...completedSet].join(", ")}]`);
+  log("orchestrator", "Starting pipeline steps", { stepCount: remaining.length, completedSet: [...completedSet] });
   for (const s of remaining) {
     log("orchestrator", `  step: ${s.instanceId ?? s.agentName} (agent=${s.agentName}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
   }
@@ -1553,7 +1556,7 @@ async function executePipelineSteps(ctx: {
 
     if (ready.length === 0) {
       // Deadlock — remaining steps have unmet deps that will never resolve
-      log("orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet deps. completedSet=[${[...completedSet].join(", ")}]`);
+      log("orchestrator", "Pipeline deadlock detected", { blockedSteps: remaining.map((s) => s.instanceId ?? s.agentName), completedSet: [...completedSet] });
       broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet dependencies`);
       return false;
     }
@@ -1561,7 +1564,7 @@ async function executePipelineSteps(ctx: {
     // For parallel batches (size > 1), skip per-agent build checks — run one after the batch
     const isParallelBatch = ready.length > 1;
     const readyNames = ready.map((s) => s.instanceId ?? s.agentName);
-    log("orchestrator", `Running batch of ${ready.length} step(s): ${readyNames.join(", ")}${isParallelBatch ? " [PARALLEL]" : ""}`);
+    log("orchestrator", `Running batch of ${ready.length} step(s)`, { steps: readyNames, parallel: isParallelBatch });
 
     // Stagger parallel launches to avoid API rate-limit bursts
     const STAGGER_MS = 1000;
@@ -2553,7 +2556,8 @@ export async function classifyIntent(
     const classifyRawInput = result.usage.inputTokens || 0;
     const classifyInputTokens = Math.max(0, classifyRawInput - classifyCacheCreation - classifyCacheRead);
 
-    log("orchestrator:classify", `intent=${intent} scope=${scope}`, {
+    log("orchestrator:classify", "classified", {
+      intent, scope,
       model: classifyConfig.model,
       promptChars: userMessage.length,
       tokens: {
@@ -2948,7 +2952,7 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
   // Wait for any pending preview prep (which includes bun install)
   await prepareProjectForPreview(projectPath);
 
-  log("build", `Running build check in ${fullPath}...`);
+  log("build", "Running build check", { path: fullPath });
 
   const BUILD_TIMEOUT_MS = 30_000;
 
@@ -2999,7 +3003,7 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     // Deduplicate by core error pattern (strip file paths, keep error type + message)
     const deduped = deduplicateErrors(errorLines);
     const errors = (deduped || combined.slice(0, 2000)).trim();
-    log("build", `Build failed (exit ${exitCode})`, { errorLines: errorLines.length, chars: errors.length });
+    log("build", "Build failed", { exitCode, errorLines: errorLines.length, chars: errors.length });
     logBlock("build", "Build errors", errors);
     return errors;
   } catch (err) {
@@ -3296,7 +3300,7 @@ export async function runProjectTests(
   // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath);
 
-  log("test", `Running tests in ${fullPath}...`);
+  log("test", "Running tests", { path: fullPath });
 
   const TEST_TIMEOUT_MS = 60_000;
 
@@ -3393,7 +3397,7 @@ export async function runProjectTests(
       completedAt: Date.now(),
     });
 
-    log("test", `Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
+    log("test", "Test run completed", { passed: result.passed, failed: result.failed, total: result.total });
     return result;
   } catch (err) {
     logError("test", "Test runner error", err);

@@ -53,15 +53,18 @@ export function log(tag: string, message: string, data?: Record<string, unknown>
   emit(entry);
 }
 
-export function logError(tag: string, message: string, error?: unknown) {
+export function logError(tag: string, message: string, error?: unknown, data?: Record<string, unknown>) {
   const errStr = error instanceof Error ? error.message : error !== undefined ? String(error) : undefined;
   const entry: LogEntry = { ts: new Date().toISOString(), level: "error", tag, msg: message };
   if (errStr) entry.error = errStr;
+  if (data) entry.data = data;
   emit(entry);
 }
 
-export function logWarn(tag: string, message: string) {
-  emit({ ts: new Date().toISOString(), level: "warn", tag, msg: message });
+export function logWarn(tag: string, message: string, data?: Record<string, unknown>) {
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "warn", tag, msg: message };
+  if (data) entry.data = data;
+  emit(entry);
 }
 
 export function logBlock(tag: string, message: string, block: string) {
