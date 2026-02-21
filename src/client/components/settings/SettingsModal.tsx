@@ -5,6 +5,7 @@ import { PricingSettings } from "./PricingSettings.tsx";
 import { PromptEditor } from "./PromptEditor.tsx";
 import { ToolSettings } from "./ToolSettings.tsx";
 import { GitSettings } from "./GitSettings.tsx";
+import { AppearanceSettings } from "./AppearanceSettings.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Button } from "../ui/button.tsx";
 import { X } from "lucide-react";
@@ -54,6 +55,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <TabsTrigger value="git" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Git
             </TabsTrigger>
+            <TabsTrigger value="appearance" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Appearance
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -66,6 +70,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <TabsContent value="prompts" className="mt-0"><PromptEditor /></TabsContent>
           <TabsContent value="tools" className="mt-0"><ToolSettings /></TabsContent>
           <TabsContent value="git" className="mt-0"><GitSettings /></TabsContent>
+          <TabsContent value="appearance" className="mt-0"><AppearanceSettings /></TabsContent>
         </div>
       </Tabs>
     </div>

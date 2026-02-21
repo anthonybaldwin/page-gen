@@ -8,6 +8,7 @@ import { VITE_WATCH_POLL } from "./src/server/config/preview.ts";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   root: "src/client",
+  publicDir: path.resolve(__dirname, "public"),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

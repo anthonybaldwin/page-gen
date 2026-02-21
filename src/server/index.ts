@@ -9,6 +9,7 @@ import { versionRoutes } from "./routes/versions.ts";
 import { fileRoutes } from "./routes/files.ts";
 import { settingsRoutes } from "./routes/settings.ts";
 import { agentRoutes } from "./routes/agents.ts";
+import { fontRoutes } from "./routes/fonts.ts";
 import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
 import { stopAllPreviewServers } from "./preview/vite-server.ts";
@@ -73,6 +74,7 @@ app.route("/api/versions", versionRoutes);
 app.route("/api/files", fileRoutes);
 app.route("/api/settings", settingsRoutes);
 app.route("/api/agents", agentRoutes);
+app.route("/api/fonts", fontRoutes);
 
 
 const PORT = parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
