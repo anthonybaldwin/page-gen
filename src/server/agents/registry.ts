@@ -162,7 +162,7 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   architect: [],
   "frontend-dev": [...ALL_TOOLS],
   "backend-dev": [...ALL_TOOLS],
-  styling: [...ALL_TOOLS],
+  styling: [...ALL_TOOLS],  // save_version included via ALL_TOOLS
   "code-review": [], // reviewer — receives code in prompt, tools cause extra round-trips
   qa: [],            // reviewer — receives code in prompt, tools cause extra round-trips
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips

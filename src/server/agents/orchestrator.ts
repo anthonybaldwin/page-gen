@@ -18,6 +18,8 @@ import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
+import { autoCommit, ensureGitRepo } from "../services/versioning.ts";
+import { STAGE_HOOKS_ENABLED } from "../config/versioning.ts";
 import {
   MAX_RETRIES,
   MAX_UNIQUE_ERRORS,
@@ -1612,6 +1614,14 @@ async function executePipelineSteps(ctx: {
       completedSet.add(r.stepKey);
     }
 
+    // Auto-save version after each batch if stage hooks are enabled
+    if (STAGE_HOOKS_ENABLED && !signal.aborted) {
+      try {
+        const batchNames = ready.map(s => s.instanceId ?? s.agentName).join(", ");
+        autoCommit(projectPath, `After ${batchNames}`);
+      } catch { /* non-fatal */ }
+    }
+
     // Consolidated build check after parallel batch — only if file-writing agents were in the batch
     if (isParallelBatch && !signal.aborted) {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
@@ -1766,6 +1776,13 @@ async function finishPipeline(ctx: {
   });
 
   broadcastAgentStatus(chatId, "orchestrator", buildOk ? "completed" : "failed");
+
+  // Final auto-commit after pipeline completes
+  if (!signal.aborted) {
+    try {
+      autoCommit(projectPath, buildOk ? "Pipeline completed" : "Pipeline completed (with errors)");
+    } catch { /* non-fatal */ }
+  }
 }
 
 const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a React + TypeScript + Tailwind CSS page builder.
