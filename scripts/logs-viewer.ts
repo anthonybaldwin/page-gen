@@ -408,9 +408,12 @@ const server = Bun.serve({
 const viewerUrl = `http://localhost:${server.port}`;
 console.log(`Log viewer running at ${viewerUrl}`);
 
-// Auto-open browser (best-effort, cross-platform)
-const openCmd =
-  process.platform === "win32" ? ["cmd", "/c", "start", viewerUrl] :
-  process.platform === "darwin" ? ["open", viewerUrl] :
-  ["xdg-open", viewerUrl];
-Bun.spawn(openCmd, { stdout: "ignore", stderr: "ignore" });
+// Auto-open browser once (globalThis survives bun --hot reloads)
+if (!(globalThis as Record<string, unknown>).__logViewerOpened) {
+  (globalThis as Record<string, unknown>).__logViewerOpened = true;
+  const openCmd =
+    process.platform === "win32" ? ["cmd", "/c", "start", viewerUrl] :
+    process.platform === "darwin" ? ["open", viewerUrl] :
+    ["xdg-open", viewerUrl];
+  Bun.spawn(openCmd, { stdout: "ignore", stderr: "ignore" });
+}
