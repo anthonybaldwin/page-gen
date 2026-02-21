@@ -25,7 +25,7 @@ Every line in `app.jsonl` has these required fields:
 | `tag` | string | Source component (see table below) |
 | `msg` | string | Human-readable message |
 
-Additional fields are spread to the top level of the JSON object (not nested under a `data` key). Any key beyond `ts`, `level`, `tag`, and `msg` is a data field whose presence varies by tag. Common examples:
+Additional fields are spread to the top level of the JSON object (not nested under a `data` key), with two exceptions: `tokens` (nested object in `pipeline` completion events) and `data` (nested object in `logBlock` output). Any key beyond `ts`, `level`, `tag`, and `msg` is a data field whose presence varies by tag. Common examples:
 
 | Field | Type | Appears in |
 |-------|------|------------|
@@ -61,11 +61,15 @@ Additional fields are spread to the top level of the JSON object (not nested und
 | `settings` | `src/server/routes/settings.ts` | Settings changes (limits, agent overrides, pricing, API key validation) |
 | `preview` | `src/server/preview/vite-server.ts`, `backend-server.ts` | Vite and backend server lifecycle, dependency installation, port allocation |
 | `backend` | `src/server/preview/backend-server.ts` | Backend server stdout/stderr streams (per-project, real-time) |
-| `orchestrator` | `src/server/agents/orchestrator.ts` | Pipeline execution, agent dispatch, build checks, test runs, file extraction, cost limits, remediation |
+| `orchestrator` | `src/server/agents/orchestrator.ts` | Pipeline execution, agent dispatch, cost limits, remediation, intent classification |
+| `orchestrator:classify` | `src/server/agents/orchestrator.ts` | Intent classification results (intent, scope, reasoning) |
+| `build` | `src/server/agents/orchestrator.ts` | Build check execution (run, pass, fail, timeout) |
+| `test` | `src/server/agents/orchestrator.ts` | Test runner execution (run, results, timeout, smart re-run) |
+| `snapshot` | `src/server/services/snapshot.ts` | Snapshot create, rollback, pruning |
 | `pipeline` | `src/server/agents/base.ts` | Individual agent calls — model, prompt size, token usage, stream events, cache tokens |
 | `llm-http` | `src/server/providers/registry.ts` | Outbound LLM API calls (request model/messages/maxTokens, response status/elapsed/requestId/rateLimits/errors) |
-| `billing` | `src/server/services/token-tracker.ts` | Per-call token counts and cost estimates (actual, provisional, finalized) |
-| `tool` | `src/server/agents/base.ts` | Agent tool invocations (write_file, read_file, etc.) and results |
+| `billing` | `src/server/services/token-tracker.ts`, `cost-limiter.ts`, `src/server/agents/base.ts`, `src/server/routes/usage.ts` | Per-call token counts and cost estimates (actual, provisional, finalized, voided), cost limit warnings, and usage resets |
+| `tool` | `src/server/agents/base.ts`, `tools.ts` | Agent tool invocations (write_file, read_file, etc.) and results |
 | `extractFiles` | `src/server/agents/orchestrator.ts` | File extraction warnings (malformed blocks, JSON repair, regex fallback) |
 
 ## Examples by Tag
@@ -211,6 +215,31 @@ Additional fields are spread to the top level of the JSON object (not nested und
 {"ts":"2026-02-20T15:30:25.000Z","level":"warn","tag":"extractFiles","msg":"Regex fallback used for src/App.tsx (58 chars)"}
 ```
 
+### `build`
+
+```json
+{"ts":"2026-02-20T15:30:30.000Z","level":"info","tag":"build","msg":"Running build check","path":"/app/projects/abc123"}
+{"ts":"2026-02-20T15:30:32.000Z","level":"info","tag":"build","msg":"Build check passed"}
+{"ts":"2026-02-20T15:30:32.000Z","level":"info","tag":"build","msg":"Build failed","exitCode":1,"errorLines":3,"chars":450}
+{"ts":"2026-02-20T15:30:40.000Z","level":"warn","tag":"build","msg":"Build check timed out after 30s — killing process"}
+```
+
+### `test`
+
+```json
+{"ts":"2026-02-20T15:30:32.000Z","level":"info","tag":"test","msg":"Running tests","path":"/app/projects/abc123"}
+{"ts":"2026-02-20T15:30:35.000Z","level":"info","tag":"test","msg":"Test run completed","passed":5,"failed":0,"total":5}
+{"ts":"2026-02-20T15:30:60.000Z","level":"warn","tag":"test","msg":"Test run timed out after 60s — killing process"}
+```
+
+### `snapshot`
+
+```json
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"snapshot","msg":"Created snapshot \"v1\"","snapshotId":"snap_abc","projectId":"proj_789","files":5}
+{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"snapshot","msg":"Rolled back to snapshot snap_abc","projectId":"proj_789","files":5}
+{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"snapshot","msg":"Pruned 3 old snapshots","projectId":"proj_789","pruned":3}
+```
+
 ### LLM Log References
 
 ```json
@@ -244,7 +273,7 @@ The viewer reads `logs/app.jsonl` directly and serves a single-page app with no 
 Controlled by the `LOG_FORMAT` environment variable:
 
 - **`LOG_FORMAT=text`** (default for local dev): Human-readable `[tag] message` on stdout
-- **`LOG_FORMAT=json`** (default in Docker): NDJSON on stdout, parseable by `docker logs`, Grafana Loki, ELK, etc.
+- **`LOG_FORMAT=json`** (set by `docker-compose.yml` for Docker): NDJSON on stdout, parseable by `docker logs`, Grafana Loki, ELK, etc.
 
 ## Configuration
 

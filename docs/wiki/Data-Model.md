@@ -76,7 +76,7 @@ Permanent, append-only table with **no foreign keys**. Records survive chat/proj
 | project_name | TEXT | Snapshot of project name at record time (nullable) |
 | chat_id | TEXT | Denormalized chat ID (nullable) |
 | chat_title | TEXT | Snapshot of chat title at record time (nullable) |
-| execution_id | TEXT | Associated execution ID |
+| execution_id | TEXT | Associated execution ID (nullable) |
 | agent_name | TEXT | Agent name |
 | provider | TEXT | anthropic, openai, google |
 | model | TEXT | Exact model ID |

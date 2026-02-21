@@ -67,6 +67,7 @@ Atomic message creation + orchestration trigger. Persists the user message and s
 **Body:** `{ chatId: string, content: string, resume?: boolean }`
 
 **Response (201):** `{ message: object, status: "started" }`
+**Response (200, resume):** `{ message: object, status: "resumed" }`
 
 ## Files
 
@@ -85,6 +86,15 @@ Write file content.
 Delete a file from a project.
 
 **Body:** `{ path: string }`
+
+### GET /files/search/:projectId
+Search file contents within a project.
+
+**Query params:**
+- `q` — Search query (min 2 characters)
+- `maxResults` — Max results to return (default 50, max 100)
+
+**Response:** `Array<{ path: string, line: number, content: string }>`
 
 ### POST /files/preview/:projectId
 Start (or return existing) preview dev server for a project.
@@ -139,7 +149,7 @@ Get usage grouped by agent. Optional chatId filter.
 Get usage grouped by provider and model. Supports optional filters: `projectId`, `chatId`, `from`, `to`.
 
 ### GET /usage/by-provider
-Get usage grouped by provider and model.
+Get usage grouped by provider.
 
 ### GET /usage/by-project
 Get lifetime usage grouped by project (from `billing_ledger`).
@@ -163,17 +173,22 @@ Clear all billing data. Deletes all rows from both `token_usage` and `billing_le
 ### GET /settings
 Get server-side settings, including configurable limits from `app_settings`.
 
-**Response:** `{ maxSnapshotsPerProject: number, defaultTokenLimit: number, warningThreshold: number, limits: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject } }`
+**Response:** `{ maxSnapshotsPerProject: number, defaultTokenLimit: number, warningThreshold: number, limits: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject }, limitDefaults: { maxTokensPerChat, maxAgentCallsPerRun, maxCostPerDay, maxCostPerProject } }`
 
 ### PUT /settings/limits
 Update cost/usage limits. Accepts a partial object — only provided keys are updated.
 
 **Body:** `{ maxTokensPerChat?: number, maxAgentCallsPerRun?: number, maxCostPerDay?: number, maxCostPerProject?: number }`
 
-**Response:** `{ ok: true, limits: { ... } }`
+**Response:** `{ ok: true, limits: { ... }, defaults: { ... } }`
+
+### DELETE /settings/limits
+Reset all limits to defaults.
+
+**Response:** `{ ok: true, limits: { ... }, defaults: { ... } }`
 
 ### GET /settings/agents
-Get all 10 agent configs with DB overrides applied.
+Get all 14 agent configs with DB overrides applied.
 
 **Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
 
@@ -205,7 +220,7 @@ Get tool assignments for all agents.
 ### PUT /settings/agents/:name/tools
 Override tool assignments for an agent.
 
-**Body:** `{ tools: ToolName[] }` — valid values: `"write_file"`, `"read_file"`, `"list_files"`
+**Body:** `{ tools: ToolName[] }` — valid values: `"write_file"`, `"write_files"`, `"read_file"`, `"list_files"`
 
 ### DELETE /settings/agents/:name/tools
 Remove tool override for an agent, reverting to default assignments.
@@ -224,7 +239,7 @@ Get all models with effective pricing (defaults merged with DB overrides).
 ### PUT /settings/pricing/:model
 Upsert pricing override for a model. Required for custom/unknown models before they can be assigned to agents.
 
-**Body:** `{ input: number, output: number }` — per 1M tokens (USD), must be non-negative
+**Body:** `{ input: number, output: number, provider?: string }` — per 1M tokens (USD), must be non-negative
 
 ### DELETE /settings/pricing/:model
 Remove pricing override for a model. Known models revert to default pricing; unknown models lose pricing (cost becomes $0).
@@ -255,7 +270,7 @@ List agent executions for a chat.
 ### GET /agents/status?chatId={id}
 Check orchestration status and get execution history.
 
-**Response:** `{ running: boolean, executions: Array<{ agentName: string, status: string }>, interruptedPipelineId: string | null }`
+**Response:** `{ running: boolean, executions: Array<{ agentName: string, status: string, output: string | null, error: string | null, startedAt: number }>, interruptedPipelineId: string | null }`
 
 `interruptedPipelineId` is present when a pipeline was interrupted by a server restart and can be resumed.
 

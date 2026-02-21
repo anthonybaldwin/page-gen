@@ -75,11 +75,11 @@ Read the full ADRs in `docs/adr/` before modifying any of these systems.
 
 ### Agent Pipeline (ADR-002)
 
-13 agent configs (10 base + 3 orchestrator subtasks) in `src/server/agents/registry.ts`. The orchestrator (`src/server/agents/orchestrator.ts`) classifies each user message as `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
+14 agent configs (10 base + 4 orchestrator subtasks) in `src/server/agents/registry.ts`. The orchestrator (`src/server/agents/orchestrator.ts`) classifies each user message as `build`, `fix`, or `question` via a cheap Haiku call, then routes to the appropriate pipeline.
 
 **Build:** Research → Architect → Frontend Dev → Backend Dev (conditional) → Styling → Code Review + QA + Security (parallel) → Remediation (max 2 cycles) → Summary.
 
-**Fix:** Test Planner → Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary.
+**Fix:** Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary. (`finishPipeline` runs vitest directly; no separate test planner step.)
 
 **Question:** Single Sonnet call with project context, no pipeline.
 
@@ -101,7 +101,7 @@ Pipeline execution uses dependency-aware batch scheduling (`executePipelineSteps
 
 ### Client-Side Security (ADR-004)
 
-**API keys never touch the server database.** They are encrypted client-side (AES-GCM 256-bit, Web Crypto API) and stored in `localStorage`. Sent per-request via `X-Api-Key-{Provider}` headers. Server only stores SHA-256 hashes in billing records.
+**API keys never touch the server database.** They are encrypted client-side (AES-GCM 256-bit, Web Crypto API); ciphertext in `localStorage`, encryption key in IndexedDB. Sent per-request via `X-Api-Key-{Provider}` headers. Server only stores SHA-256 hashes in billing records.
 
 Key files: `src/client/lib/crypto.ts`, `src/client/lib/api.ts`.
 
@@ -109,7 +109,7 @@ Key files: `src/client/lib/crypto.ts`, `src/client/lib/api.ts`.
 
 ### Preview & Isolation (ADR-005)
 
-**Per-project Vite dev servers.** Each project gets its own Vite on ports 3001–3020. Managed by `src/server/preview/vite-server.ts`. Auto-scaffolds `package.json`, `vite.config.ts`, `index.html`, `src/main.tsx` before starting. Per-project mutex prevents concurrent `bun install`.
+**Per-project Vite dev servers.** Each project gets its own Vite on ports 3001–3020. Managed by `src/server/preview/vite-server.ts`. Auto-scaffolds `package.json`, `vite.config.ts`, `index.html`, `src/main.tsx`, `src/index.css`, `tsconfig.json`, and `vitest.config.ts` before starting. Per-project mutex prevents concurrent `bun install`.
 
 **Pipeline-aware preview gating.** `files_changed` events are ignored while the pipeline is running (agents are mid-write). `preview_ready` events always trigger a reload and are only sent after a successful build check.
 

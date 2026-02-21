@@ -26,28 +26,27 @@ API keys are encrypted before being stored in localStorage using AES-GCM (256-bi
 ### Proxy URLs
 - Users can optionally set proxy URLs per provider
 - Proxy URLs override the default API base URL
-- Sent via `X-Proxy-Url-{Provider}` headers
-- Validated as proper URLs on entry
+- Sent via `X-Proxy-Url-Anthropic`, `X-Proxy-Url-OpenAI`, `X-Proxy-Url-Google` headers
 
 ## Generated Code Sandbox
 
 - Each project runs in its own Vite dev server
-- Preview is rendered in an `<iframe>` with `sandbox` attribute
-- iframe has no access to the parent app's localStorage or cookies
-- File operations are scoped to `/projects/{projectId}/` — no parent directory traversal
+- Preview is rendered in an `<iframe>` with `sandbox="allow-scripts allow-same-origin allow-forms"`
+- Because the preview runs on a different port (3001+), the browser's same-origin policy prevents cross-origin storage access despite `allow-same-origin`
+- File operations are scoped to the project directory (e.g., `projects/{projectId}/`) — resolved paths must start with the project root, preventing parent directory traversal
 
 ## Agent Tool Restrictions
 
-- File read/write restricted to project directory
-- Shell commands run in sandboxed context
-- No access to parent app's database or config
+- Agents have no shell or command execution capabilities — tools are limited to `write_file`, `write_files`, `read_file`, and `list_files`
+- File read/write restricted to project directory (enforced by project-scoped path validation)
+- No access to parent app's database or config (enforced by path validation in file tools)
 
 ## Docker Isolation
 
 When running via `bun dev:docker`, all generated code executes inside a Docker container:
 
 - Source code is bind-mounted **read-only** — generated code cannot modify the Page Gen backend or source files
-- Named volumes (`data/`, `logs/`) are writable but scoped; `projects/` is a bind mount so generated files are visible on the host
+- Bind mounts (`data/`, `logs/`) are writable but scoped; `projects/` is a bind mount so generated files are visible on the host
 - Preview servers bind to `0.0.0.0` inside the container but are only accessible via mapped ports on localhost
 - `node_modules` are built inside the container via anonymous volume, isolated from host
 - **Residual risk**: generated code can *read* the Page Gen source code (but not secrets — API keys are in browser localStorage, never on disk)
@@ -55,6 +54,5 @@ When running via `bun dev:docker`, all generated code executes inside a Docker c
 
 ## Network Access
 
-- Backend listens only on localhost (127.0.0.1)
-- No external network exposure
+- Backend listens on `0.0.0.0` by default (all interfaces). In Docker mode, the container's port mapping controls external exposure. For local-only use without Docker, consider binding to `127.0.0.1` explicitly.
 - All communication is local HTTP/WS

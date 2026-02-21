@@ -35,7 +35,7 @@ graph TB
 ## Data Flow
 
 1. User sends a message in the chat UI
-2. Message is persisted and orchestration triggered atomically via `POST /messages/send`
+2. Message is persisted and orchestration triggered atomically via `POST /api/messages/send`
 3. Orchestrator begins execution
 4. Orchestrator creates an execution plan and dispatches specialized agents
 5. Each agent runs via `streamText` (AI SDK); chunks stream in real time
@@ -53,7 +53,7 @@ graph TB
 ## Key Decisions
 
 - See [ADR-001: Tech Stack](https://github.com/anthonybaldwin/page-gen/blob/main/docs/adr/001-tech-stack.md)
-- API keys stored in browser localStorage, sent per-request via headers
+- API keys encrypted client-side (AES-GCM); ciphertext in localStorage, encryption key in IndexedDB; sent per-request via headers
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
 - Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)
@@ -66,10 +66,10 @@ graph TB
 
 The orchestrator minimizes token usage through several strategies:
 
-- **File manifests for tool-using agents:** Dev agent outputs (frontend-dev, backend-dev, styling) are converted to compact file manifests listing files written. Downstream agents have tools to `read_file` if needed.
+- **File manifests for tool-using agents:** Dev agent outputs (frontend-dev, backend-dev, styling) are converted to compact file manifests listing files written. Tool-using downstream agents (e.g., testing) can `read_file` if needed; review agents receive fresh source from disk instead.
 - **Disk-based review:** Review agents (code-review, security, QA) receive fresh project source read from disk via `readProjectSource()` instead of upstream dev outputs, ensuring they see final state.
 - **Targeted remediation filtering:** Remediation dev agents only receive review findings + architect output. Re-review agents get fresh source from disk.
-- **Output truncation:** All upstream outputs are capped (15K chars default, 40K for project-source) with smart truncation (keep first + last, elide middle).
+- **Output truncation:** All upstream outputs are capped (15K chars default, 30–40K for project-source) with smart truncation (keep first + last, elide middle).
 - **Chat history capping:** `buildPrompt()` keeps only the last 6 messages, capped at 3K chars total.
 - **Pre-flight cost estimate:** Before each agent call, estimated input tokens are checked against 95% of the session limit. If exceeded, the agent is skipped.
 - **Capped remediation:** `MAX_REMEDIATION_CYCLES = 2` — with better filtering, focused cycles are more effective than noisy repeats.

@@ -47,6 +47,7 @@ To prevent lost billing data when the server crashes mid-pipeline, all LLM call 
 
 1. **Before the call:** `trackProvisionalUsage()` inserts records with `estimated=1` and estimated input tokens (prompt chars / 4).
 2. **After completion:** `finalizeTokenUsage()` updates the records with actual token counts and sets `estimated=0`.
+3. **On failure:** `voidProvisionalUsage()` deletes the provisional records so failed calls leave no phantom billing.
 
 If the server crashes between steps 1 and 2, the provisional records survive as best-effort billing. On startup, `cleanupStaleExecutions()` logs the count of provisional records. The `/api/usage/summary` endpoint includes `estimatedTokens` showing the total from unfinalized records.
 
@@ -101,12 +102,12 @@ All limits are stored in the `app_settings` table and configurable from Settings
 
 ## API Endpoints
 
-### Operational (from billing_ledger)
+### Query Endpoints (from billing_ledger)
 - `GET /api/usage` — List all records (filterable by chatId, projectId, from, to)
 - `GET /api/usage/chats` — Distinct chats with usage data (for filter dropdowns)
 - `GET /api/usage/by-agent` — Grouped by agent
 - `GET /api/usage/by-model` — Grouped by provider + model (with optional filters)
-- `GET /api/usage/by-provider` — Grouped by provider + model
+- `GET /api/usage/by-provider` — Grouped by provider
 
 ### Lifetime (from billing_ledger, includes deleted)
 - `GET /api/usage/summary` — Aggregate totals (reads from billing_ledger)

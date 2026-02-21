@@ -8,7 +8,7 @@ Snapshots capture the complete file state of a project at a point in time. They 
 
 ### Creation
 - **Auto-snapshot (planned, not yet implemented):** Intended to be created automatically after each orchestration run completes. `finishPipeline()` does not currently call `createSnapshot()`.
-- **Manual snapshot (API only):** The `POST /api/snapshots` endpoint works, but the UI is not wired up. `SnapshotList.tsx` and `SnapshotDiff.tsx` exist as orphaned components — no panel or sidebar entry exposes them yet.
+- **Manual snapshot (API only):** The `POST /api/snapshots` endpoint works. `SnapshotList.tsx` is rendered in the sidebar; `SnapshotDiff.tsx` exists as an orphaned component not yet wired up.
 - Each snapshot stores a complete file manifest (JSON mapping of path → content)
 
 ### Rollback
@@ -18,7 +18,7 @@ Snapshots capture the complete file state of a project at a point in time. They 
 - Vite HMR will detect the file changes and update the preview
 
 ### Pruning
-- Maximum 10 snapshots per project (configurable)
+- Maximum 10 snapshots per project (hardcoded `MAX_SNAPSHOTS`)
 - When the limit is exceeded, the oldest snapshots are automatically deleted
 - Pruning happens on every new snapshot creation
 
@@ -46,7 +46,7 @@ GET /api/snapshots/{id}
 ```
 Returns full snapshot including file manifest.
 
-## Safety Rules (from CLAUDE.md)
+## Safety Rules (from AGENTS.md)
 
 Any change touching snapshot/version logic must:
 - Preserve rollback behavior

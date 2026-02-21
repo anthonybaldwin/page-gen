@@ -28,11 +28,14 @@ graph TD
 
 When preview is triggered (by the orchestrator after first file extraction, or when the preview component mounts for an active project), the system ensures:
 
-1. **`package.json`** exists with `react`, `react-dom`, `vite`, `@vitejs/plugin-react`
-2. **`vite.config.ts`** includes the React plugin for JSX/TSX transformation
+1. **`package.json`** exists with `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, `hono`, `zod`, `tailwindcss`, `@tailwindcss/vite`, type definitions, and testing deps (`vitest`, `happy-dom`, `@testing-library/react`, `@testing-library/user-event`)
+2. **`vite.config.ts`** includes the React plugin and Tailwind CSS plugin
 3. **`index.html`** entry point exists pointing to `./src/main.tsx`
 4. **`src/main.tsx`** exists as the React entry point (auto-detects App component)
-5. **`bun install`** is run to install dependencies into `node_modules`
+5. **`src/index.css`** exists with Tailwind CSS v4 import (`@import "tailwindcss"`)
+6. **`tsconfig.json`** is scaffolded for TypeScript support
+7. **`vitest.config.ts`** is scaffolded for testing support
+8. **`bun install`** is run to install dependencies into `node_modules`
 
 Agent-generated `package.json` is merged — any deps the agent specifies are preserved, and core React deps are added if missing.
 

@@ -21,7 +21,7 @@ The dev Docker setup bind-mounts your project source into the container. Inside 
 
 Your source code edits on the host are immediately visible inside the container. Vite's file watcher picks up changes and pushes HMR updates to the browser — the same experience as running locally, but all generated code executes inside the container.
 
-The source bind mount is **read-only** (`:ro`). Generated project code running inside the container cannot modify your Page Gen source files or tamper with the backend. Named volumes for `data/`, `logs/`, and `projects/` override the read-only flag at those paths, so the backend can still write where it needs to.
+The source bind mount is **read-only** (`:ro`). Generated project code running inside the container cannot modify your Page Gen source files or tamper with the backend. Bind mounts for `data/`, `logs/`, and `projects/` override the read-only flag at those paths, so the backend can still write where it needs to.
 
 An anonymous volume (`/app/node_modules`) keeps the container's dependencies separate from any host `node_modules/`, avoiding platform mismatches. When `package.json` changes, run `docker compose down -v && docker compose up --build` to rebuild with fresh dependencies (the `-v` flag removes the stale anonymous volume).
 
@@ -44,7 +44,7 @@ docker run -p 3000:3000 -p 3001-3020:3001-3020 -p 4001-4020:4001-4020 pagegen
 | Bind mount (`./logs`) | `/app/logs` | Structured logs (NDJSON) and LLM I/O logs |
 | Bind mount (`./projects`) | `/app/projects` | Generated project files — visible on host |
 
-Named volumes persist across container restarts.
+Bind mounts persist data on the host filesystem across container restarts.
 
 ## Ports
 
@@ -62,7 +62,7 @@ Named volumes persist across container restarts.
 | `PREVIEW_HOST` | `localhost` | Host for Vite preview servers. Set to `0.0.0.0` in Docker so servers are reachable from the host. |
 | `LOG_FORMAT` | `text` | Set to `json` for NDJSON stdout (used in Docker for `docker logs` parsing). |
 | `LOG_DIR` | `./logs` | Directory for log files. |
-| `DB_PATH` | `./data/pagegen.db` | SQLite database path. |
+| `DB_PATH` | `./data/app.db` | SQLite database path. |
 | `PORT` | `3000` | Backend server port. |
 
 ## Structured Logging
@@ -70,11 +70,11 @@ Named volumes persist across container restarts.
 All log output uses NDJSON format (one JSON object per line) in `logs/app.jsonl`:
 
 ```json
-{"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"orchestrator","msg":"Pipeline started","projectId":"abc123"}
-{"ts":"2026-02-20T15:30:01.000Z","level":"error","tag":"preview","msg":"Vite server crashed","error":"EADDRINUSE","port":3005}
+{"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"orchestrator","msg":"Intent classified","intent":"build","scope":"full"}
+{"ts":"2026-02-20T15:30:01.000Z","level":"error","tag":"preview","msg":"Vite server death reason","error":"EADDRINUSE: address already in use"}
 ```
 
-Every line has `ts`, `level`, `tag`, and `msg` fields. Optional fields include `projectId`, `agent`, `error`, `data`, `file`, `chars`, `port`, and `duration`.
+Every line has `ts`, `level`, `tag`, and `msg` fields. Optional fields include `projectId`, `agent`, `error`, `data`, `file`, `chars`, `ms`, and `elapsed`.
 
 LLM prompt/response logs are separate text files in `logs/llm/` (too large for NDJSON lines), with index entries in `app.jsonl` pointing to them.
 

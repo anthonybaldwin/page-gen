@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coordinated by an orchestrator. Each agent has a specific role, model, and set of tools. All models are configurable via **Settings → Models**.
+The system uses 14 agent configs (10 base agents + 4 orchestrator subtasks), coordinated by an orchestrator. Each agent has a specific role, model, and set of tools. All models are configurable via **Settings → Models**.
 
 ## Agents
 
@@ -10,6 +10,7 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 - **Model:** Claude Sonnet 4.6 (Anthropic) for agent dispatch
 - **Subtask models** (configurable via Settings → Models):
   - **Intent Classifier** (`orchestrator:classify`) → default Haiku ($1/$5 per MTok)
+  - **Chat Titler** (`orchestrator:title`) → default Haiku ($1/$5 per MTok)
   - **Summary Writer** (`orchestrator:summary`) → default Sonnet 4.6 ($3/$15 per MTok)
   - **Question Answerer** (`orchestrator:question`) → default Sonnet 4.6 ($3/$15 per MTok)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
@@ -49,13 +50,13 @@ The system uses 13 agent configs (10 base agents + 3 orchestrator subtasks), coo
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 
-### 7. Test Planner (fix mode only)
+### 7. Test Planner
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Creates a JSON test plan that defines expected behavior — dev agents use this to write test files alongside their code
 - **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code
 - **Output:** Structured JSON test plan with component-to-test mapping, behavior descriptions, and setup notes
 - **Position (build mode):** Not used as a separate step — the architect includes a `test_plan` section in its output, saving one API call and one pipeline stage
-- **Position (fix mode):** First step — creates test plan that defines expected behavior for the fix (no architect in fix mode, so test planner runs independently)
+- **Position (fix mode):** Not currently dispatched by the orchestrator. The `finishPipeline()` function runs vitest directly instead.
 - **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
 - **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
 
@@ -89,7 +90,7 @@ Before running the pipeline, the orchestrator classifies the user's message into
 | **fix** | Changing/fixing something in an existing project | Skip research/architect → route to relevant dev agent(s) → reviewers |
 | **question** | Asking about the project or non-code request | Direct Sonnet answer with project context, no pipeline |
 
-Classification uses a ~50-token Haiku call (cheap, fast) with 5 few-shot examples and a tie-breaking rule (prefer "fix" when project has files). Fast-path: empty projects always get "build" (no API call needed).
+Classification uses a ~100-token Haiku call (cheap, fast) with 5 few-shot examples and a tie-breaking rule (prefer "fix" when project has files). Fast-path: empty projects always get "build" (no API call needed).
 
 | Intent | When | Pipeline |
 |--------|------|----------|
@@ -132,8 +133,7 @@ graph TD
 graph TD
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
   Classify -->|fix| Read["Read existing<br>project source"]
-  Read --> TP["Test Planner"]
-  TP --> Route{"Route by scope"}
+  Read --> Route{"Route by scope"}
 
   Route -->|frontend| FD["frontend-dev"]
   Route -->|backend| BD["backend-dev"]
@@ -221,7 +221,7 @@ After the initial code-review, security, and QA agents run, the orchestrator che
 Each cycle checks the cost limit before proceeding. The loop exits early if:
 - All issues are resolved (code-review passes + security passes + QA passes)
 - Issues are not improving between cycles (prevents ping-pong loops)
-- Total agent call limit reached (MAX_TOTAL_AGENT_CALLS = 30)
+- Total agent call limit reached (configurable via Settings → Limits, default 30)
 - Cost limit is reached
 - The pipeline is aborted by the user
 - A remediation or re-review agent fails
@@ -325,15 +325,15 @@ Each agent's provider, model, and system prompt can be overridden via **Settings
 
 ### Tool Assignments
 
-Each agent's native tool access can be configured via **Settings → Tools**. The three available tools are `write_file`, `read_file`, and `list_files`.
+Each agent's native tool access can be configured via **Settings → Tools**. The four available tools are `write_file`, `write_files`, `read_file`, and `list_files`.
 
 **Defaults:**
-| Agent | write_file | read_file | list_files |
-|-------|-----------|-----------|------------|
-| frontend-dev, backend-dev, styling | Yes | Yes | Yes |
-| testing | No | Yes | Yes |
-| research, architect, code-review, qa, security | No | No | No |
-| orchestrator, orchestrator:classify, orchestrator:question, orchestrator:summary | No | No | No |
+| Agent | write_file | write_files | read_file | list_files |
+|-------|-----------|-------------|-----------|------------|
+| frontend-dev, backend-dev, styling | Yes | Yes | Yes | Yes |
+| testing | No | No | Yes | Yes |
+| research, architect, code-review, qa, security | No | No | No | No |
+| orchestrator, orchestrator:classify, orchestrator:title, orchestrator:question, orchestrator:summary | No | No | No | No |
 
 - Tool overrides are stored in `app_settings` (key: `agent.{name}.tools`, value: JSON array)
 - The orchestrator reads tool config at runtime via `getAgentTools()` and only passes enabled tools to each agent

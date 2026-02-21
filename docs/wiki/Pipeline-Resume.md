@@ -57,14 +57,14 @@ On server startup, `cleanupStaleExecutions()` now also marks all `running` pipel
 - **Research not completed (build mode):** Cannot resume — falls back to a fresh start
 - **No interrupted pipeline found:** Falls back to a fresh start (same as `resume: false`)
 - **All agents completed:** Skips straight to the finish pipeline (remediation + summary)
-- **Cost limit still exceeded on resume:** Aborts immediately with `errorType: "cost_limit"` message telling user to increase limits first
+- **Cost limit still exceeded on resume:** The resume pre-check validates the per-chat token limit; daily and project cost limits are re-checked during pipeline step execution. If still over, aborts with `errorType: "cost_limit"` telling the user to increase limits.
 
 ### Cost Limit Resume Flow
 
 When the token limit is reached mid-pipeline:
 
 1. `executePipelineSteps()` broadcasts an `agent_error` with `errorType: "cost_limit"`
-2. Pipeline is marked as `"interrupted"` (not `"failed"`) so it's resumable
+2. The caller marks the pipeline as `"interrupted"` (not `"failed"`) so it's resumable
 3. Client shows an **amber banner** (not red error) with "Token limit reached. Pipeline paused."
 4. User clicks **"Increase limit & resume"** → inline `LimitsSettings` panel appears
 5. After adjusting limits and clicking **"Resume pipeline"**, the existing resume flow kicks in
@@ -101,7 +101,11 @@ Now accepts an optional `resume` flag:
 ```
 
 - `resume: true` — Look for an interrupted pipeline and resume it
-- `resume: false` or omitted — Start a fresh pipeline
+- `resume: false` or omitted — Start a fresh pipeline (but see auto-resume below)
+
+**Auto-resume:** `runOrchestration()` checks for interrupted pipelines before classifying intent. If one is found, it auto-resumes regardless of the `resume` flag. This prevents follow-up messages from being classified as new build requests.
+
+**Alternative endpoint:** `POST /messages/send` also accepts the `resume` flag with identical behavior (combines message persistence + orchestration in a single call).
 
 ### GET /agents/status
 
