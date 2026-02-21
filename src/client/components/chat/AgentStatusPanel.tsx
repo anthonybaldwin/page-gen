@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
-import { getAgentActivity, getBestMultiActivity } from "../../lib/agentActivityPhrases.ts";
 import { Badge } from "../ui/badge.tsx";
 import {
   Circle,
@@ -91,7 +90,6 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineAgents, setPipelineAgents] = useState(DEFAULT_PIPELINE_AGENTS);
   const [, setTick] = useState(0);
-  const [phraseIndex, setPhraseIndex] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickCountRef = useRef(0);
 
@@ -101,9 +99,6 @@ export function AgentStatusPanel({ chatId }: Props) {
       tickRef.current = setInterval(() => {
         setTick((t) => t + 1);
         tickCountRef.current += 1;
-        if (tickCountRef.current % 3 === 0) {
-          setPhraseIndex((i) => i + 1);
-        }
       }, 1000);
     } else if (tickRef.current) {
       clearInterval(tickRef.current);
@@ -319,27 +314,6 @@ export function AgentStatusPanel({ chatId }: Props) {
           );
         })}
       </div>
-
-      {/* Current activity label */}
-      {runningAgents.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
-          <span>
-            <span className="text-foreground font-medium">
-              {runningAgents.map((a) => a.displayName).join(", ")}
-            </span>
-            {" — "}
-            {runningAgents.length === 1
-              ? runningAgents[0]!.phase === "remediation"
-                ? "Fixing issues..."
-                : getAgentActivity(runningAgents[0]!.name, runningAgents[0]!.lastToolCall, phraseIndex)
-              : getBestMultiActivity(
-                  runningAgents.map((a) => ({ name: a.name, lastToolCall: a.lastToolCall })),
-                  phraseIndex,
-                )}
-          </span>
-        </div>
-      )}
 
       {/* Error display */}
       {Object.values(agents)
