@@ -80,10 +80,10 @@ function searchFiles(
       const matches: ContentSearchMatch[] = [];
 
       for (let i = 0; i < lines.length && matches.length < 3; i++) {
-        if (lines[i].toLowerCase().includes(lowerQuery)) {
+        if (lines[i]!.toLowerCase().includes(lowerQuery)) {
           matches.push({
             line: i + 1,
-            content: lines[i].substring(0, 200),
+            content: lines[i]!.substring(0, 200),
           });
         }
       }

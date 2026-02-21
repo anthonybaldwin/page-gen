@@ -18,7 +18,7 @@ import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
-import { autoCommit, ensureGitRepo } from "../services/versioning.ts";
+import { autoCommit, ensureGitRepo, isInPreview, exitPreview } from "../services/versioning.ts";
 import { STAGE_HOOKS_ENABLED } from "../config/versioning.ts";
 import {
   MAX_RETRIES,
@@ -654,6 +654,9 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (signal.aborted) break;
 
+    // Write-ahead: provisional usage IDs (hoisted so catch block can void them)
+    let provisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+
     try {
       const agentInput: AgentInput = {
         userMessage: step.input,
@@ -682,7 +685,6 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
       // Write-ahead: track provisional usage before the LLM call
       const providerKey = apiKeys[config.provider];
-      let provisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
       if (providerKey) {
         provisionalIds = trackProvisionalUsage({
           executionId, chatId,
@@ -902,6 +904,13 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const controller = new AbortController();
   abortControllers.set(chatId, controller);
   const { signal } = controller;
+
+  // Auto-exit version preview before running the pipeline
+  if (isInPreview(projectPath)) {
+    exitPreview(projectPath);
+    broadcastFilesChanged(projectId, ["__checkout__"]);
+    broadcast({ type: "preview_exited", payload: { projectId } });
+  }
 
   // Check cost limits before starting
   const costCheck = checkCostLimit(chatId);

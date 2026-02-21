@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/api.ts";
 
-type ActiveTab = "preview" | "editor" | "versions";
+type ActiveTab = "preview" | "editor";
 
 interface OpenFile {
   path: string;
@@ -175,9 +175,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         const allPaths = Object.keys(openFiles);
         const idx = allPaths.indexOf(path);
         if (idx < allPaths.length - 1) {
-          newActive = allPaths[idx + 1]; // prefer right neighbor
+          newActive = allPaths[idx + 1] ?? null; // prefer right neighbor
         } else {
-          newActive = allPaths[idx - 1]; // fall back to left
+          newActive = allPaths[idx - 1] ?? null; // fall back to left
         }
       }
     } else {

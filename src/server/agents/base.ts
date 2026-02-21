@@ -22,7 +22,7 @@ import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION }
  */
 function sanitizeErrorForLog(err: unknown): Record<string, unknown> {
   if (!(err instanceof Error)) return { message: String(err) };
-  const e = err as Record<string, unknown>;
+  const e = err as unknown as Record<string, unknown>;
   const safe: Record<string, unknown> = { name: err.name, message: err.message.slice(0, ERROR_MSG_TRUNCATION) };
   if (typeof e.statusCode === "number") safe.statusCode = e.statusCode;
   if (typeof e.url === "string") safe.url = redactUrlKeys(e.url);
@@ -49,7 +49,7 @@ function redactUrlKeys(url: string): string {
  */
 function formatUserFacingError(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const e = err as Record<string, unknown>;
+  const e = err as unknown as Record<string, unknown>;
 
   // AI SDK APICallError has statusCode and responseBody
   const statusCode = typeof e.statusCode === "number" ? e.statusCode : undefined;
