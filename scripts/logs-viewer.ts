@@ -73,6 +73,10 @@ const HTML = `<!DOCTYPE html>
   .extra-row td { padding: 0 10px 6px 10px; border-bottom: 1px solid #313244; }
   .extra-content { background: #11111b; border-radius: 4px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; color: #bac2de; max-height: 400px; overflow: auto; }
   .highlight { background: #f9e2af33; border-radius: 2px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 8px; padding: 10px 18px; font-size: 12px; display: flex; align-items: center; gap: 10px; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .toast.visible { opacity: 1; pointer-events: auto; }
+  .toast button { background: #89b4fa; color: #1e1e2e; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; }
+  .toast button:hover { background: #b4d0fb; }
 </style>
 </head>
 <body>
@@ -97,6 +101,7 @@ const HTML = `<!DOCTYPE html>
   <button id="btn-refresh" title="Reload logs">Refresh</button>
   <span class="count" id="count"></span>
 </div>
+<div class="toast" id="toast">Tailing paused — you scrolled away <button id="toast-resume">Resume</button></div>
 <table>
   <thead><tr><th class="ts">Time</th><th class="level">Level</th><th class="tag">Tag</th><th class="msg">Message</th></tr></thead>
   <tbody id="log-body"></tbody>
@@ -117,6 +122,10 @@ const dateTo = document.getElementById('date-to');
 const btnSort = document.getElementById('btn-sort');
 const btnTail = document.getElementById('btn-tail');
 const btnRefresh = document.getElementById('btn-refresh');
+const toast = document.getElementById('toast');
+const toastResume = document.getElementById('toast-resume');
+let toastTimer = null;
+let scrolledByRender = false;
 
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -193,8 +202,40 @@ function render() {
   }
   body.innerHTML = rows.join('');
 
-  if (tailing) window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
+  if (tailing) {
+    scrolledByRender = true;
+    window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
+  }
 }
+
+function showToast() {
+  clearTimeout(toastTimer);
+  toast.classList.add('visible');
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), 4000);
+}
+
+function pauseTailing() {
+  tailing = false;
+  btnTail.classList.remove('active');
+  showToast();
+}
+
+function resumeTailing() {
+  clearTimeout(toastTimer);
+  toast.classList.remove('visible');
+  tailing = true;
+  btnTail.classList.add('active');
+  window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
+}
+
+window.addEventListener('scroll', () => {
+  if (scrolledByRender) { scrolledByRender = false; return; }
+  if (!tailing) return;
+  const atTailPos = sortNewest
+    ? window.scrollY < 5
+    : (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 5;
+  if (!atTailPos) pauseTailing();
+}, { passive: true });
 
 function populateTags() {
   const tags = [...new Set(allLogs.map(e => e.tag))].sort();
@@ -233,11 +274,11 @@ btnSort.addEventListener('click', () => {
 });
 
 btnTail.addEventListener('click', () => {
-  tailing = !tailing;
-  btnTail.classList.toggle('active', tailing);
-  if (tailing) window.scrollTo(0, sortNewest ? 0 : document.body.scrollHeight);
+  if (tailing) { pauseTailing(); } else { resumeTailing(); }
 });
 btnTail.classList.add('active');
+
+toastResume.addEventListener('click', resumeTailing);
 
 btnRefresh.addEventListener('click', fetchLogs);
 
