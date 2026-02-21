@@ -2877,7 +2877,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
   }
 
   // Wait for any pending preview prep (which includes bun install)
-  await prepareProjectForPreview(projectPath);
+  await prepareProjectForPreview(projectPath, chatId);
 
   if (chatId) {
     broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "\nRunning build check..." });
@@ -2938,7 +2938,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
     const errors = (deduped || combined.slice(0, 2000)).trim();
     log("build", "Build failed", { exitCode, errorLines: errorLines.length, chars: errors.length });
     logBlock("build", "Build errors", errors);
-    if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed", { error: "Build errors found" });
+    if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed", { error: errors });
     return errors;
   } catch (err) {
     logError("build", "Build check process error", err);

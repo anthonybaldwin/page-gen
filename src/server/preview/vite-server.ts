@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { log, logError } from "../services/logger.ts";
+import { broadcastAgentThinking } from "../ws.ts";
 
 // Read versions from our own package.json so Dependabot keeps them current
 const OUR_PKG = JSON.parse(readFileSync(join(import.meta.dirname, "../../../package.json"), "utf-8"));
@@ -236,7 +237,7 @@ function ensureProjectHasTailwindCss(projectPath: string) {
  * Run bun install in the project directory.
  * Returns a promise that resolves when install is complete.
  */
-async function installProjectDependencies(projectPath: string): Promise<void> {
+async function installProjectDependencies(projectPath: string, chatId?: string): Promise<void> {
   if (installedProjects.has(projectPath)) return;
 
   // If an install is already running for this path, wait for it instead of starting another
@@ -256,6 +257,11 @@ async function installProjectDependencies(projectPath: string): Promise<void> {
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
       logError("preview", `bun install failed (exit ${exitCode})`, stderr);
+      if (chatId) {
+        broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", {
+          chunk: "\n\nDependency install failed:\n" + stderr.slice(0, 1500),
+        });
+      }
       // Don't throw — preview might still partially work
     } else {
       log("preview", "Dependencies installed successfully");
@@ -275,7 +281,7 @@ async function installProjectDependencies(projectPath: string): Promise<void> {
  * Prepare a project for preview: scaffold config, install deps.
  * Called by orchestrator after first file extraction, and as a safety net by startPreviewServer.
  */
-export async function prepareProjectForPreview(projectPath: string): Promise<void> {
+export async function prepareProjectForPreview(projectPath: string, chatId?: string): Promise<void> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -291,7 +297,7 @@ export async function prepareProjectForPreview(projectPath: string): Promise<voi
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);
   ensureProjectHasMainEntry(fullPath);
-  await installProjectDependencies(fullPath);
+  await installProjectDependencies(fullPath, chatId);
 }
 
 export async function startPreviewServer(projectId: string, projectPath: string): Promise<{ url: string; port: number }> {
