@@ -25,28 +25,47 @@ Every line in `app.jsonl` has these required fields:
 | `tag` | string | Source component (see table below) |
 | `msg` | string | Human-readable message |
 
-Optional fields (included when relevant):
+Additional fields are spread to the top level of the JSON object (not nested under a `data` key). Any key beyond `ts`, `level`, `tag`, and `msg` is a data field whose presence varies by tag. Common examples:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `error` | string | Error message |
-| `data` | object | Structured payload (e.g., truncated log blocks) |
-| `agent` | string | Agent name (for LLM/pipeline events) |
-| `file` | string | Path to referenced LLM log file |
-| `chars` | number | Size of referenced content |
+| Field | Type | Appears in |
+|-------|------|------------|
+| `error` | string | Error events — the error message |
+| `agent` | string | `pipeline`, `billing`, `tool` — agent name |
+| `file` | string | `pipeline` — path to referenced LLM log file |
+| `chars` | number | `pipeline` — size of referenced content |
+| `method` | string | `http` — HTTP method |
+| `path` | string | `http` — request path |
+| `status` | number | `http`, `llm-http` — HTTP status code |
+| `ms` | number | `http` — request duration |
+| `bytes` | number | `http` — Content-Length of request body |
+| `provider` | string | `llm-http`, `billing` — AI provider name |
+| `model` | string | `llm-http`, `billing` — model ID |
+| `tool` | string | `tool` — tool name (write_file, read_file, etc.) |
+| `inputTokens` | number | `billing` — prompt tokens |
+| `outputTokens` | number | `billing` — completion tokens |
+| `cost` | number | `billing` — estimated cost in USD |
+| `data` | object | `logBlock` output only — `{ block, truncated, totalChars }` |
 
 ## Tags
 
 | Tag | Source | What it logs |
 |-----|--------|-------------|
-| `server` | `src/server/index.ts` | Server startup, stale execution cleanup errors |
+| `server` | `src/server/index.ts` | Server startup, shutdown, stale execution cleanup errors |
+| `http` | `src/server/index.ts` | All HTTP requests (method, path, status, duration, bytes) |
 | `ws` | `src/server/index.ts` | Incoming WebSocket messages |
 | `db` | `src/server/db/migrate.ts` | Migration completion |
 | `routes` | `src/server/routes/messages.ts`, `agents.ts` | Orchestration trigger errors |
+| `user` | `src/server/routes/messages.ts` | User message creation |
+| `project` | `src/server/routes/projects.ts` | Project CRUD (create, rename, delete) |
+| `chat` | `src/server/routes/chats.ts` | Chat CRUD (create, rename, delete) |
+| `settings` | `src/server/routes/settings.ts` | Settings changes (limits, agent overrides, pricing, API key validation) |
 | `preview` | `src/server/preview/vite-server.ts`, `backend-server.ts` | Vite and backend server lifecycle, dependency installation, port allocation |
 | `backend` | `src/server/preview/backend-server.ts` | Backend server stdout/stderr streams (per-project, real-time) |
 | `orchestrator` | `src/server/agents/orchestrator.ts` | Pipeline execution, agent dispatch, build checks, test runs, file extraction, cost limits, remediation |
 | `pipeline` | `src/server/agents/base.ts` | Individual agent calls — model, prompt size, token usage, stream events, cache tokens |
+| `llm-http` | `src/server/providers/registry.ts` | Outbound LLM API calls (request model/messages/maxTokens, response status/elapsed/requestId/rateLimits/errors) |
+| `billing` | `src/server/services/token-tracker.ts` | Per-call token counts and cost estimates (actual, provisional, finalized) |
+| `tool` | `src/server/agents/base.ts` | Agent tool invocations (write_file, read_file, etc.) and results |
 | `extractFiles` | `src/server/agents/orchestrator.ts` | File extraction warnings (malformed blocks, JSON repair, regex fallback) |
 
 ## Examples by Tag
@@ -55,13 +74,54 @@ Optional fields (included when relevant):
 
 ```json
 {"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"server","msg":"Started on http://localhost:3000"}
+{"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"server","msg":"Shutting down (SIGINT)..."}
 {"ts":"2026-02-20T15:30:00.000Z","level":"error","tag":"server","msg":"Failed to clean up stale executions","error":"SQLITE_BUSY"}
+```
+
+### `http`
+
+```json
+{"ts":"2026-02-20T15:30:00.100Z","level":"info","tag":"http","msg":"GET /api/health 200 2ms","method":"GET","path":"/api/health","status":200,"ms":2}
+{"ts":"2026-02-20T15:30:00.200Z","level":"info","tag":"http","msg":"POST /api/messages/send 201 15ms","method":"POST","path":"/api/messages/send","status":201,"ms":15,"bytes":342}
+{"ts":"2026-02-20T15:30:00.300Z","level":"warn","tag":"http","msg":"POST /api/agents/run 500 120ms","method":"POST","path":"/api/agents/run","status":500,"ms":120,"bytes":512}
 ```
 
 ### `db`
 
 ```json
 {"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"db","msg":"Migrations complete"}
+```
+
+### `user`
+
+```json
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"user","msg":"New message in chat abc123","chatId":"abc123","messageId":"msg_456","contentLength":85}
+```
+
+### `project`
+
+```json
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"project","msg":"Created project \"My App\"","projectId":"proj_789"}
+{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"project","msg":"Renamed project proj_789 to \"My New App\""}
+{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"project","msg":"Deleted project proj_789","chats":2}
+```
+
+### `chat`
+
+```json
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"chat","msg":"Created chat \"Build landing page\"","chatId":"chat_abc","projectId":"proj_789"}
+{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"chat","msg":"Renamed chat chat_abc to \"Build hero section\""}
+{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"chat","msg":"Deleted chat chat_abc"}
+```
+
+### `settings`
+
+```json
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"settings","msg":"Limits updated","updated":{"maxTokensPerChat":1000000,"maxCostPerDay":5}}
+{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"settings","msg":"Agent config overridden: frontend-dev","agent":"frontend-dev","provider":"openai","model":"gpt-5.2"}
+{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"settings","msg":"Pricing overridden: gpt-5.2","model":"gpt-5.2","input":2.5,"output":10}
+{"ts":"2026-02-20T15:30:04.000Z","level":"info","tag":"settings","msg":"API key validated: anthropic"}
+{"ts":"2026-02-20T15:30:05.000Z","level":"warn","tag":"settings","msg":"API key validation failed: openai — API authentication failed"}
 ```
 
 ### `preview`
@@ -92,7 +152,6 @@ Optional fields (included when relevant):
 {"ts":"2026-02-20T15:30:32.000Z","level":"info","tag":"orchestrator","msg":"Build check passed"}
 {"ts":"2026-02-20T15:30:32.000Z","level":"info","tag":"orchestrator","msg":"Running tests in /app/projects/abc123..."}
 {"ts":"2026-02-20T15:30:35.000Z","level":"info","tag":"orchestrator","msg":"Tests: 5/5 passed, 0 failed"}
-{"ts":"2026-02-20T15:30:36.000Z","level":"info","tag":"orchestrator","msg":"Project abc123 scaffolded for preview (waiting for build check)"}
 {"ts":"2026-02-20T15:30:40.000Z","level":"warn","tag":"orchestrator","msg":"Build check timed out after 30s — killing process"}
 {"ts":"2026-02-20T15:30:41.000Z","level":"info","tag":"orchestrator","msg":"Build check failed","data":{"block":"error: Module not found...","truncated":true,"totalChars":5200}}
 {"ts":"2026-02-20T15:30:45.000Z","level":"info","tag":"orchestrator","msg":"Pre-flight skip: frontend-dev estimated 150,000 tokens would exceed 95% of limit (142,500/150,000)"}
@@ -102,14 +161,39 @@ Optional fields (included when relevant):
 ### `pipeline`
 
 ```json
-{"ts":"2026-02-20T15:30:15.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev model=claude-sonnet-4-20250514 prompt=12,450chars system=3,200chars tools=2"}
-{"ts":"2026-02-20T15:30:15.000Z","level":"info","tag":"pipeline","msg":"prompt total=15,650chars prefix=3,200chars chatHistory=2,100 upstream:architect=8,150"}
-{"ts":"2026-02-20T15:30:18.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev step-finish: reason=tool-calls tokens={\"promptTokens\":4200,\"completionTokens\":1800}"}
-{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev response: finishReason=end-turn streamParts=145"}
-{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev completed","data":{"input":4200,"output":1800,"total":6000,"cost":"$0.0420","model":"claude-sonnet-4-20250514"}}
+{"ts":"2026-02-20T15:30:15.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev starting","agent":"frontend-dev","model":"claude-sonnet-4-20250514","promptChars":12450,"systemChars":3200,"toolCount":2}
+{"ts":"2026-02-20T15:30:15.000Z","level":"info","tag":"pipeline","msg":"prompt size breakdown","totalChars":15650,"prefixChars":3200,"chatHistory":2100,"upstream:architect":8150}
+{"ts":"2026-02-20T15:30:18.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev step-finish","agent":"frontend-dev","finishReason":"tool-calls","inputTokens":4200,"outputTokens":1800}
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev response","agent":"frontend-dev","finishReason":"end-turn","status":200,"streamPartCount":145}
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev completed","outputChars":8200,"filesWritten":3,"tokens":{"input":4200,"output":1800,"cacheCreate":1200,"cacheRead":3000,"total":6000}}
 {"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"agent=frontend-dev output","data":{"block":"<tool_call>write_file...","truncated":true,"totalChars":15000}}
-{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"pipeline","msg":"cache tokens step: creation=1200 read=3000"}
 {"ts":"2026-02-20T15:30:20.000Z","level":"warn","tag":"pipeline","msg":"agent=frontend-dev truncated (finishReason=length) but 3 files written — accepting"}
+```
+
+### `llm-http`
+
+```json
+{"ts":"2026-02-20T15:30:14.000Z","level":"info","tag":"llm-http","msg":"→ POST anthropic","method":"POST","url":"https://api.anthropic.com/v1/messages","provider":"anthropic","model":"claude-sonnet-4-20250514","messages":3,"maxTokens":8192,"stream":true}
+{"ts":"2026-02-20T15:30:18.000Z","level":"info","tag":"llm-http","msg":"← 200 anthropic","status":200,"provider":"anthropic","elapsed":3800,"requestId":"req_abc123","reqRemaining":"95","tokRemaining":"80000"}
+{"ts":"2026-02-20T15:30:18.000Z","level":"warn","tag":"llm-http","msg":"← 429 anthropic","status":429,"provider":"anthropic","elapsed":120,"requestId":"req_def456","retryAfter":"30","reqRemaining":"0","body":"{\"error\":{\"type\":\"rate_limit_error\",...}}"}
+{"ts":"2026-02-20T15:30:18.000Z","level":"warn","tag":"llm-http","msg":"anthropic tool_use.input is invalid JSON — model likely hit output token limit","provider":"anthropic","tool":"write_file","inputChars":4500}
+```
+
+### `billing`
+
+```json
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"billing","msg":"frontend-dev usage: claude-sonnet-4-20250514","agent":"frontend-dev","provider":"anthropic","model":"claude-sonnet-4-20250514","inputTokens":4200,"outputTokens":1800,"cacheCreate":1200,"cacheRead":3000,"cost":0.042}
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"billing","msg":"frontend-dev provisional: claude-sonnet-4-20250514 ~6000 tokens ~$0.0420","agent":"frontend-dev","provider":"anthropic","model":"claude-sonnet-4-20250514","estimatedTokens":6000,"estimatedCost":0.042}
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"billing","msg":"Finalized: claude-sonnet-4-20250514 6000 tokens $0.0420","provider":"anthropic","model":"claude-sonnet-4-20250514","inputTokens":4200,"outputTokens":1800,"cacheCreate":1200,"cacheRead":3000,"totalTokens":6000,"cost":0.042}
+{"ts":"2026-02-20T15:30:20.000Z","level":"info","tag":"billing","msg":"Provisional voided","tokenUsageId":"tok_abc","billingLedgerId":"bill_def"}
+```
+
+### `tool`
+
+```json
+{"ts":"2026-02-20T15:30:16.000Z","level":"info","tag":"tool","msg":"frontend-dev called write_file","tool":"write_file","path":"src/App.tsx"}
+{"ts":"2026-02-20T15:30:16.000Z","level":"info","tag":"tool","msg":"frontend-dev called read_file","tool":"read_file","input":"{\"path\":\"src/App.tsx\"}"}
+{"ts":"2026-02-20T15:30:17.000Z","level":"info","tag":"tool","msg":"frontend-dev tool result: write_file","tool":"write_file","success":true}
 ```
 
 ### `routes`
@@ -135,6 +219,25 @@ Optional fields (included when relevant):
 {"ts":"2026-02-20T15:30:30.000Z","level":"info","tag":"orchestrator","msg":"LLM input logged","agent":"orchestrator-classify","file":"llm/2026-02-20T15-30-30-000Z_orchestrator-classify.in.txt","chars":2400}
 {"ts":"2026-02-20T15:30:31.000Z","level":"info","tag":"orchestrator","msg":"LLM output logged","agent":"orchestrator-summary","file":"llm/2026-02-20T15-30-31-000Z_orchestrator-summary.out.txt","chars":1800}
 ```
+
+## Log Viewer
+
+A built-in web UI for browsing logs is available at `scripts/logs-viewer.ts`.
+
+```bash
+bun --hot scripts/logs-viewer.ts
+```
+
+Opens at `http://localhost:3200` (configurable via `LOGS_PORT` env var). Features:
+
+- **Filter** by level, tag, date range, and free-text search
+- **Sort** newest-first or oldest-first
+- **Tail** mode — auto-scrolls to newest entries, polls every 2 seconds
+- **Expand** extra fields inline (click `+data` to toggle)
+- **Highlight** rows by clicking — marked rows persist across re-renders
+- **Keyboard shortcuts** — `j` / `k` to jump between highlighted rows
+
+The viewer reads `logs/app.jsonl` directly and serves a single-page app with no dependencies.
 
 ## Console Output
 
@@ -165,6 +268,12 @@ cat logs/app.jsonl | jq 'select(.level == "error")'
 # Find LLM logs for a specific agent
 cat logs/app.jsonl | jq 'select(.agent == "frontend-dev" and .file)'
 
+# Show HTTP requests slower than 100ms
+cat logs/app.jsonl | jq 'select(.tag == "http" and .ms > 100)'
+
+# Show LLM API errors
+cat logs/app.jsonl | jq 'select(.tag == "llm-http" and .level == "warn")'
+
 # Docker logs (when LOG_FORMAT=json)
 docker logs pagegen-pagegen-1 | jq 'select(.level == "error")'
 ```
@@ -175,9 +284,9 @@ The logger exports these functions from `src/server/services/logger.ts`:
 
 | Function | Signature | When to use |
 |----------|-----------|-------------|
-| `log` | `(tag, msg, data?)` | General info events |
-| `logError` | `(tag, msg, error?)` | Error events |
-| `logWarn` | `(tag, msg)` | Warning events |
-| `logBlock` | `(tag, msg, block)` | Large text blocks (auto-truncated to 2000 chars in `data` field) |
+| `log` | `(tag, msg, data?)` | General info events — `data` fields are spread to top level |
+| `logWarn` | `(tag, msg, data?)` | Warning events — `data` fields are spread to top level |
+| `logError` | `(tag, msg, error?, data?)` | Error events — `error` is coerced to string, `data` fields are spread to top level |
+| `logBlock` | `(tag, msg, block)` | Large text blocks (auto-truncated to 2000 chars in nested `data` field) |
 | `logLLMInput` | `(tag, agent, system, user)` | Full LLM input to separate file + index entry |
 | `logLLMOutput` | `(tag, agent, output)` | Full LLM output to separate file + index entry |

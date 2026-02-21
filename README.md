@@ -4,7 +4,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 
 ## Features
 
-- **Multi-agent pipeline** — 13 specialized agents (research, architect, frontend, backend, styling, testing, code review, QA, security) orchestrated automatically
+- **Multi-agent pipeline** — 14 specialized agents (research, architect, frontend, backend, styling, testing, code review, QA, security) orchestrated automatically
 - **Full-stack generation** — Frontend (React + Tailwind) and backend (Hono + SQLite) with working API routes and data persistence
 - **Live preview** — Side-by-side HMR preview updates as agents write code, with `/api` proxy for full-stack projects
 - **Built-in editor** — CodeMirror editor with syntax highlighting for direct file editing
@@ -15,36 +15,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Local-first** — All data in SQLite, API keys encrypted client-side, no cloud dependency
 - **Docker support** — Optional containerization for sandboxed execution
 
-## Quick Start
-
-```bash
-git clone https://github.com/anthonybaldwin/page-gen.git
-cd page-gen
-bun install
-
-# Terminal 1: backend
-bun dev
-
-# Terminal 2: frontend
-bun dev:client
-```
-
-Open `http://localhost:5173`. You'll be prompted to enter API keys on first visit.
-
-**Docker alternative:** `bun dev:docker` — opens at `http://localhost:3000`.
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Runtime | [Bun](https://bun.sh) 1.3+ |
-| Backend | Hono |
-| Frontend | React 19 + Vite 7 |
-| Database | Drizzle ORM + SQLite |
-| AI | AI SDK 6.x (Anthropic, OpenAI, Google) |
-| Styling | Tailwind CSS 4 |
-| Editor | CodeMirror 6 |
-| State | Zustand |
+See the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)** for quick-start instructions, tech stack details, and full documentation.
 
 ## Documentation
 
