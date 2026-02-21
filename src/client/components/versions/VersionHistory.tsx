@@ -3,23 +3,15 @@ import { useProjectStore } from "../../stores/projectStore.ts";
 import { useVersionStore } from "../../stores/versionStore.ts";
 import { useFileStore } from "../../stores/fileStore.ts";
 import { api } from "../../lib/api.ts";
+import type { VersionEntry } from "../../stores/versionStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
 import { RotateCcw, Bookmark, Loader2, GitCommit, ArrowRight, Trash2 } from "lucide-react";
 
-interface VersionEntry {
-  sha: string;
-  email: string;
-  message: string;
-  timestamp: number;
-  isUserVersion: boolean;
-  isInitial: boolean;
-}
-
 export function VersionHistory() {
   const activeProject = useProjectStore((s) => s.activeProject);
-  const { activeVersionSha, openVersion } = useVersionStore();
+  const { activeVersionSha, startPreview, isPreviewing } = useVersionStore();
   const setActiveTab = useFileStore((s) => s.setActiveTab);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [rolling, setRolling] = useState<string | null>(null);
@@ -104,8 +96,8 @@ export function VersionHistory() {
 
   function handleViewDiff(sha: string) {
     if (!activeProject) return;
-    openVersion(sha, activeProject.id, versions);
-    setActiveTab("versions");
+    startPreview(sha, activeProject.id, versions);
+    setActiveTab("preview");
   }
 
   function stripPrefix(message: string): string {

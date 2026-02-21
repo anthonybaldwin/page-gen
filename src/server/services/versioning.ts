@@ -14,6 +14,84 @@ import {
   DEFAULT_GITIGNORE,
 } from "../config/versioning.ts";
 
+// --- Preview state ---
+// Tracks which projects are currently in version-preview mode.
+// Keyed by normalized project path.
+const previewState = new Map<string, { originalHead: string; previewSha: string }>();
+
+function normalizeKey(projectPath: string): string {
+  return normalize(resolve(projectPath));
+}
+
+export function isInPreview(projectPath: string): boolean {
+  return previewState.has(normalizeKey(projectPath));
+}
+
+export function getPreviewInfo(projectPath: string): { originalHead: string; previewSha: string } | null {
+  return previewState.get(normalizeKey(projectPath)) ?? null;
+}
+
+export function enterPreview(
+  projectPath: string,
+  targetSha: string,
+): { ok: boolean; error?: string } {
+  if (!checkGitAvailable()) return { ok: false, error: "Git is not available" };
+  if (!ensureGitRepo(projectPath)) return { ok: false, error: "Could not initialize git repo" };
+
+  // Validate SHA format
+  if (!/^[0-9a-f]{7,40}$/i.test(targetSha)) {
+    return { ok: false, error: `Invalid SHA format: ${targetSha}` };
+  }
+
+  // Verify the SHA exists
+  const verify = runGit(projectPath, ["cat-file", "-t", targetSha]);
+  if (verify.exitCode !== 0 || verify.stdout !== "commit") {
+    return { ok: false, error: "Version not found" };
+  }
+
+  const key = normalizeKey(projectPath);
+
+  // If already in preview, reuse the original HEAD
+  const existing = previewState.get(key);
+  const originalHead = existing?.originalHead ?? runGit(projectPath, ["rev-parse", "HEAD"]).stdout;
+
+  // Checkout files from target commit (does NOT move HEAD)
+  const checkout = runGit(projectPath, ["checkout", targetSha, "--", "."]);
+  if (checkout.exitCode !== 0) {
+    return { ok: false, error: checkout.stderr || "Checkout failed" };
+  }
+
+  // Resolve full SHA for storage
+  const fullSha = runGit(projectPath, ["rev-parse", targetSha]);
+  previewState.set(key, { originalHead, previewSha: fullSha.stdout });
+
+  log("versioning", `Entered preview at ${targetSha.slice(0, 7)}`, { projectPath });
+  return { ok: true };
+}
+
+export function exitPreview(projectPath: string, opts?: { clean?: boolean }): { ok: boolean; error?: string } {
+  const key = normalizeKey(projectPath);
+  const state = previewState.get(key);
+  if (!state) return { ok: true }; // Not in preview — no-op
+
+  // Restore working tree to original HEAD
+  const checkout = runGit(projectPath, ["checkout", state.originalHead, "--", "."]);
+  if (checkout.exitCode !== 0) {
+    logError("versioning", `exitPreview checkout failed`, checkout.stderr);
+    return { ok: false, error: checkout.stderr || "Restore failed" };
+  }
+
+  // Only clean untracked files when explicitly requested (user-initiated exit).
+  // Internal guards (autoCommit, orchestrator) skip this to preserve agent-written files.
+  if (opts?.clean) {
+    runGit(projectPath, ["clean", "-fd"]);
+  }
+
+  previewState.delete(key);
+  log("versioning", `Exited preview, restored HEAD`, { projectPath });
+  return { ok: true };
+}
+
 // --- Git availability cache ---
 
 let gitAvailable: boolean | null = null;
@@ -230,6 +308,11 @@ export function autoCommit(
   if (!checkGitAvailable()) return null;
   if (!ensureGitRepo(projectPath)) return null;
 
+  // Auto-exit preview before committing
+  if (isInPreview(projectPath)) {
+    exitPreview(projectPath);
+  }
+
   const safeMessage = sanitizeForGit(message);
 
   // Stage all changes
@@ -267,6 +350,11 @@ export function userCommit(
 ): string | null {
   if (!checkGitAvailable()) return null;
   if (!ensureGitRepo(projectPath)) return null;
+
+  // Auto-exit preview before committing
+  if (isInPreview(projectPath)) {
+    exitPreview(projectPath);
+  }
 
   const safeLabel = sanitizeForGit(label);
 

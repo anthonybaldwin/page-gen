@@ -9,8 +9,9 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { useThemeStore } from "../../stores/themeStore.ts";
 import { useFileStore } from "../../stores/fileStore.ts";
+import { useVersionStore } from "../../stores/versionStore.ts";
 import { Button } from "../ui/button.tsx";
-import { Save, Loader2 } from "lucide-react";
+import { Save, Loader2, Lock } from "lucide-react";
 
 // Nord palette
 const nord = {
@@ -147,22 +148,30 @@ function getLanguageExtension(path: string) {
 export function CodeEditor() {
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
   const { openFilePath, currentContent, isDirty, isSaving, saveFile, updateContent } = useFileStore();
+  const isPreviewing = useVersionStore((s) => s.isPreviewing);
 
   const handleSave = useCallback(() => {
+    if (isPreviewing) return;
     saveFile();
-  }, [saveFile]);
+  }, [saveFile, isPreviewing]);
 
   const extensions = useMemo(() => {
     const lang = openFilePath ? getLanguageExtension(openFilePath) : [];
     const isDark = resolvedTheme === "dark";
-    return [
-      keymap.of([{ key: "Mod-s", run: () => { handleSave(); return true; } }]),
+    const exts = [
       isDark ? nordDarkTheme : nordLightTheme,
       syntaxHighlighting(nordHighlight),
       EditorView.lineWrapping,
       ...(Array.isArray(lang) ? lang : [lang]),
     ];
-  }, [openFilePath, resolvedTheme, handleSave]);
+    if (!isPreviewing) {
+      exts.unshift(keymap.of([{ key: "Mod-s", run: () => { handleSave(); return true; } }]));
+    }
+    if (isPreviewing) {
+      exts.push(EditorView.editable.of(false));
+    }
+    return exts;
+  }, [openFilePath, resolvedTheme, handleSave, isPreviewing]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -170,39 +179,48 @@ export function CodeEditor() {
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card shrink-0">
         <span className="text-xs text-muted-foreground truncate">
           {openFilePath}
-          {isDirty && <span className="text-primary ml-1">*</span>}
+          {isPreviewing && (
+            <span className="text-amber-600 dark:text-amber-400 ml-1.5 inline-flex items-center gap-0.5">
+              <Lock className="h-2.5 w-2.5 inline" />
+              read-only
+            </span>
+          )}
+          {!isPreviewing && isDirty && <span className="text-primary ml-1">*</span>}
         </span>
-        <div className="ml-auto flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 gap-1"
-            onClick={handleSave}
-            disabled={!isDirty || isSaving}
-          >
-            {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-            <span className="text-xs">Save</span>
-          </Button>
-        </div>
+        {!isPreviewing && (
+          <div className="ml-auto flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 gap-1"
+              onClick={handleSave}
+              disabled={!isDirty || isSaving}
+            >
+              {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              <span className="text-xs">Save</span>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <CodeMirror
           value={currentContent}
-          onChange={updateContent}
+          onChange={isPreviewing ? undefined : updateContent}
           extensions={extensions}
+          readOnly={isPreviewing}
           theme="none"
           basicSetup={{
             lineNumbers: true,
             foldGutter: true,
             bracketMatching: true,
-            closeBrackets: true,
-            indentOnInput: true,
+            closeBrackets: !isPreviewing,
+            indentOnInput: !isPreviewing,
             tabSize: 2,
             highlightActiveLine: true,
             highlightSelectionMatches: true,
-            autocompletion: true,
+            autocompletion: !isPreviewing,
           }}
           className="h-full"
           height="100%"

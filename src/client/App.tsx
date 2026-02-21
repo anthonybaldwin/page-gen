@@ -4,13 +4,15 @@ import { ChatWindow } from "./components/chat/ChatWindow.tsx";
 import { AgentStatusPanel } from "./components/chat/AgentStatusPanel.tsx";
 import { LivePreview } from "./components/preview/LivePreview.tsx";
 import { EditorPanel } from "./components/editor/EditorPanel.tsx";
-import { VersionPanel } from "./components/versions/VersionPanel.tsx";
+import { VersionBanner } from "./components/versions/VersionBanner.tsx";
 import { FileExplorer } from "./components/layout/FileExplorer.tsx";
 import { ApiKeySetup } from "./components/settings/ApiKeySetup.tsx";
 import { useSettingsStore } from "./stores/settingsStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
 import { useProjectStore } from "./stores/projectStore.ts";
 import { useFileStore } from "./stores/fileStore.ts";
+import { useVersionStore } from "./stores/versionStore.ts";
+import { onWsMessage, connectWebSocket } from "./lib/ws.ts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs.tsx";
 import { X } from "lucide-react";
 
@@ -49,6 +51,20 @@ export function App() {
   useEffect(() => {
     if (keysReady && !hasKeys) setShowSetup(true);
   }, [keysReady, hasKeys]);
+
+  // Listen for preview_exited WS events to clear preview state
+  useEffect(() => {
+    connectWebSocket();
+    const unsub = onWsMessage((msg) => {
+      if (msg.type === "preview_exited") {
+        const msgProjectId = (msg.payload as { projectId?: string }).projectId;
+        if (activeProject && msgProjectId === activeProject.id) {
+          useVersionStore.getState().clearPreviewState();
+        }
+      }
+    });
+    return unsub;
+  }, [activeProject?.id]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -114,10 +130,11 @@ export function App() {
       {/* Content column — tabbed Preview / Editor */}
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as "preview" | "editor" | "versions")}
+        onValueChange={(v) => setActiveTab(v as "preview" | "editor")}
         className="flex-1 flex flex-col min-h-0 min-w-0"
       >
         <AgentStatusPanel chatId={activeChat?.id ?? null} />
+        <VersionBanner />
         <div className="flex items-center border-b border-border bg-card shrink-0">
           {Object.keys(openFiles).length > 0 && (
             <div className="flex items-center overflow-x-auto min-w-0 flex-1 pl-1">
@@ -175,9 +192,6 @@ export function App() {
         </TabsContent>
         <TabsContent value="editor" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
           <EditorPanel />
-        </TabsContent>
-        <TabsContent value="versions" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
-          <VersionPanel />
         </TabsContent>
       </Tabs>
 

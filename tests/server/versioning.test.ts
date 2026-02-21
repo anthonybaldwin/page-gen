@@ -13,6 +13,10 @@ import {
   pruneExcessVersions,
   getDiff,
   getFileTreeAtVersion,
+  enterPreview,
+  exitPreview,
+  isInPreview,
+  getPreviewInfo,
 } from "../../src/server/services/versioning.ts";
 
 const TEST_PROJECT_DIR = resolve("projects/test-versioning");
@@ -319,5 +323,94 @@ describe("Git Versioning Service", () => {
     expect(() => {
       ensureGitRepo("projects/../etc/passwd");
     }).toThrow(/sandbox|traversal/i);
+  });
+
+  // --- Preview tests ---
+
+  test("enterPreview checks out files and tracks state", () => {
+    // Create a known state
+    writeFileSync(join(TEST_PROJECT_DIR, "preview-test.txt"), "current", "utf-8");
+    const currentSha = autoCommit(TEST_PROJECT_DIR, "Preview test current");
+    expect(currentSha).toBeTruthy();
+
+    writeFileSync(join(TEST_PROJECT_DIR, "preview-test.txt"), "newer", "utf-8");
+    const newerSha = autoCommit(TEST_PROJECT_DIR, "Preview test newer");
+    expect(newerSha).toBeTruthy();
+
+    // Enter preview at the older commit
+    const result = enterPreview(TEST_PROJECT_DIR, currentSha!);
+    expect(result.ok).toBe(true);
+
+    // State should be tracked
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(true);
+    const info = getPreviewInfo(TEST_PROJECT_DIR);
+    expect(info).toBeTruthy();
+    expect(info!.originalHead).toBe(newerSha!);
+    expect(info!.previewSha).toBe(currentSha!);
+
+    // Files should reflect the older commit
+    const content = readFileSync(join(TEST_PROJECT_DIR, "preview-test.txt"), "utf-8");
+    expect(content).toBe("current");
+
+    // Clean up — exit preview
+    exitPreview(TEST_PROJECT_DIR);
+  });
+
+  test("exitPreview restores HEAD files", () => {
+    const versions = listVersions(TEST_PROJECT_DIR);
+    const head = versions[0]!;
+    const older = versions[1]!;
+
+    // Enter preview at older version
+    enterPreview(TEST_PROJECT_DIR, older.sha);
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(true);
+
+    // Exit preview
+    const result = exitPreview(TEST_PROJECT_DIR);
+    expect(result.ok).toBe(true);
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(false);
+    expect(getPreviewInfo(TEST_PROJECT_DIR)).toBeNull();
+
+    // Files should be restored to HEAD
+    const content = readFileSync(join(TEST_PROJECT_DIR, "preview-test.txt"), "utf-8");
+    expect(content).toBe("newer");
+  });
+
+  test("isInPreview returns correct state", () => {
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(false);
+
+    const versions = listVersions(TEST_PROJECT_DIR);
+    const older = versions[1]!;
+    enterPreview(TEST_PROJECT_DIR, older.sha);
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(true);
+
+    exitPreview(TEST_PROJECT_DIR);
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(false);
+  });
+
+  test("autoCommit auto-exits preview before committing", () => {
+    const versions = listVersions(TEST_PROJECT_DIR);
+    const older = versions[1]!;
+
+    enterPreview(TEST_PROJECT_DIR, older.sha);
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(true);
+
+    // Make a change and auto-commit — should auto-exit preview first
+    writeFileSync(join(TEST_PROJECT_DIR, "auto-exit-test.txt"), "after-preview", "utf-8");
+    const sha = autoCommit(TEST_PROJECT_DIR, "Auto commit during preview");
+    expect(sha).toBeTruthy();
+    expect(isInPreview(TEST_PROJECT_DIR)).toBe(false);
+  });
+
+  test("enterPreview with invalid SHA returns error", () => {
+    const result = enterPreview(TEST_PROJECT_DIR, "0000000000000000000000000000000000000000");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+  });
+
+  test("enterPreview with bad format returns error", () => {
+    const result = enterPreview(TEST_PROJECT_DIR, "not-a-sha");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Invalid SHA");
   });
 });

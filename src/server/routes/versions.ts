@@ -10,7 +10,11 @@ import {
   getDiff,
   getFileTreeAtVersion,
   ensureGitRepo,
+  enterPreview,
+  exitPreview,
+  getPreviewInfo,
 } from "../services/versioning.ts";
+import { broadcastFilesChanged, broadcast } from "../ws.ts";
 
 export const versionRoutes = new Hono();
 
@@ -152,4 +156,67 @@ versionRoutes.get("/:sha/tree", (c) => {
   if (files === null) return c.json({ error: "File tree not available" }, 404);
 
   return c.json({ files });
+});
+
+// --- Version Preview endpoints ---
+
+// Enter preview mode for a specific version
+versionRoutes.post("/:sha/preview", (c) => {
+  const sha = c.req.param("sha");
+  const projectId = c.req.query("projectId");
+  if (!projectId) return c.json({ error: "projectId required" }, 400);
+
+  if (!checkGitAvailable()) {
+    return c.json({ error: "Git is not available", gitUnavailable: true }, 503);
+  }
+
+  const project = db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const result = enterPreview(project.path, sha);
+  if (!result.ok) return c.json({ error: result.error || "Preview failed" }, 400);
+
+  broadcastFilesChanged(projectId, ["__checkout__"]);
+  return c.json({ ok: true, sha });
+});
+
+// Exit preview mode
+versionRoutes.delete("/preview", (c) => {
+  const projectId = c.req.query("projectId");
+  if (!projectId) return c.json({ error: "projectId required" }, 400);
+
+  const project = db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const result = exitPreview(project.path, { clean: true });
+  if (!result.ok) return c.json({ error: result.error || "Exit preview failed" }, 500);
+
+  broadcastFilesChanged(projectId, ["__checkout__"]);
+  return c.json({ ok: true });
+});
+
+// Get current preview status
+versionRoutes.get("/preview", (c) => {
+  const projectId = c.req.query("projectId");
+  if (!projectId) return c.json({ error: "projectId required" }, 400);
+
+  const project = db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const info = getPreviewInfo(project.path);
+  if (!info) return c.json({ previewing: false });
+
+  return c.json({ previewing: true, sha: info.previewSha, originalHead: info.originalHead });
 });
