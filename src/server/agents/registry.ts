@@ -1,5 +1,11 @@
-import type { AgentConfig, AgentName, AgentToolConfig, ResolvedAgentConfig, ToolName } from "../../shared/types.ts";
+import type { AgentConfig, AgentLimitsConfig, AgentName, AgentToolConfig, ResolvedAgentConfig, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS, FILE_TOOLS } from "../../shared/types.ts";
+import {
+  AGENT_MAX_OUTPUT_TOKENS,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  AGENT_MAX_TOOL_STEPS,
+  DEFAULT_MAX_TOOL_STEPS,
+} from "../config/pipeline.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 
@@ -214,4 +220,51 @@ export function getAllAgentToolConfigs(): AgentToolConfig[] {
 /** Remove the tool override for an agent (reverts to default). */
 export function resetAgentToolOverrides(name: AgentName): void {
   db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.tools`)).run();
+}
+
+// --- Execution limits ---
+
+/** Get active limits for an agent (DB override > pipeline.ts > global default). */
+export function getAgentLimits(name: AgentName): { maxOutputTokens: number; maxToolSteps: number } {
+  const tokRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxOutputTokens`)).get();
+  const stepsRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxToolSteps`)).get();
+
+  const maxOutputTokens = tokRow ? Number(tokRow.value) : (AGENT_MAX_OUTPUT_TOKENS[name] ?? DEFAULT_MAX_OUTPUT_TOKENS);
+  const maxToolSteps = stepsRow ? Number(stepsRow.value) : (AGENT_MAX_TOOL_STEPS[name] ?? DEFAULT_MAX_TOOL_STEPS);
+
+  return { maxOutputTokens, maxToolSteps };
+}
+
+/** Get full limits config for a single agent (used by API). */
+export function getAgentLimitsConfig(name: AgentName): AgentLimitsConfig | undefined {
+  const base = AGENT_ROSTER.find((a) => a.name === name);
+  if (!base) return undefined;
+
+  const tokRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxOutputTokens`)).get();
+  const stepsRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxToolSteps`)).get();
+
+  const defaultMaxOutputTokens = AGENT_MAX_OUTPUT_TOKENS[name] ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const defaultMaxToolSteps = AGENT_MAX_TOOL_STEPS[name] ?? DEFAULT_MAX_TOOL_STEPS;
+
+  return {
+    name,
+    displayName: base.displayName,
+    group: base.group,
+    maxOutputTokens: tokRow ? Number(tokRow.value) : defaultMaxOutputTokens,
+    maxToolSteps: stepsRow ? Number(stepsRow.value) : defaultMaxToolSteps,
+    defaultMaxOutputTokens,
+    defaultMaxToolSteps,
+    isOverridden: !!(tokRow || stepsRow),
+  };
+}
+
+/** Get limits configs for all agents. */
+export function getAllAgentLimitsConfigs(): AgentLimitsConfig[] {
+  return AGENT_ROSTER.map((a) => getAgentLimitsConfig(a.name)!);
+}
+
+/** Remove limit overrides for an agent (reverts to defaults). */
+export function resetAgentLimitsOverrides(name: AgentName): void {
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxOutputTokens`)).run();
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.maxToolSteps`)).run();
 }

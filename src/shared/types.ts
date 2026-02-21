@@ -168,3 +168,14 @@ export interface AgentToolConfig {
   isOverridden: boolean;
   isReadOnly: boolean;
 }
+
+export interface AgentLimitsConfig {
+  name: AgentName;
+  displayName: string;
+  group: AgentGroup;
+  maxOutputTokens: number;
+  maxToolSteps: number;
+  defaultMaxOutputTokens: number;
+  defaultMaxToolSteps: number;
+  isOverridden: boolean;
+}

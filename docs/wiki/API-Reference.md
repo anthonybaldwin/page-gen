@@ -223,6 +223,19 @@ Set a custom system prompt for an agent.
 ### DELETE /settings/agents/:name/overrides
 Remove all DB overrides for an agent (provider, model, prompt), reverting to defaults.
 
+### GET /settings/agents/limits
+Get execution limits for all agents.
+
+**Response:** `AgentLimitsConfig[]` — each includes `name`, `displayName`, `group`, `maxOutputTokens`, `maxToolSteps`, `defaultMaxOutputTokens`, `defaultMaxToolSteps`, `isOverridden`
+
+### PUT /settings/agents/:name/limits
+Override execution limits for an agent.
+
+**Body:** `{ maxOutputTokens?: number, maxToolSteps?: number }` — values must be >= 1
+
+### DELETE /settings/agents/:name/limits
+Remove execution limit overrides for an agent, reverting to pipeline defaults.
+
 ### GET /settings/agents/tools
 Get tool assignments for all agents.
 

@@ -11,12 +11,7 @@ import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/l
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
-import {
-  AGENT_MAX_OUTPUT_TOKENS,
-  DEFAULT_MAX_OUTPUT_TOKENS,
-  AGENT_MAX_TOOL_STEPS,
-  DEFAULT_MAX_TOOL_STEPS,
-} from "../config/pipeline.ts";
+import { getAgentLimits } from "./registry.ts";
 import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION } from "../config/logging.ts";
 
 
@@ -259,8 +254,9 @@ export async function runAgent(
     });
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
-    const maxOutputTokens = overrides?.maxOutputTokens ?? AGENT_MAX_OUTPUT_TOKENS[config.name] ?? DEFAULT_MAX_OUTPUT_TOKENS;
-    const maxToolSteps = overrides?.maxToolSteps ?? AGENT_MAX_TOOL_STEPS[config.name] ?? DEFAULT_MAX_TOOL_STEPS;
+    const dbLimits = getAgentLimits(config.name as AgentName);
+    const maxOutputTokens = overrides?.maxOutputTokens ?? dbLimits.maxOutputTokens;
+    const maxToolSteps = overrides?.maxToolSteps ?? dbLimits.maxToolSteps;
     const isAnthropic = config.provider === "anthropic";
 
     // For Anthropic: use SystemModelMessage with cache_control and split user messages

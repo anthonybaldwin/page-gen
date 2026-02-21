@@ -3,7 +3,7 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
-import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
+import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
@@ -94,6 +94,62 @@ const VALID_AGENT_NAMES = new Set<AgentName>([
   "research", "architect", "frontend-dev", "backend-dev",
   "styling", "code-review", "qa", "security",
 ]);
+
+// --- Execution limits endpoints (registered before /agents/:name to avoid param conflicts) ---
+
+// Get all agent limits configs
+settingsRoutes.get("/agents/limits", (c) => {
+  return c.json(getAllAgentLimitsConfigs());
+});
+
+// Upsert limits override for an agent
+settingsRoutes.put("/agents/:name/limits", async (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const body = await c.req.json<{ maxOutputTokens?: number; maxToolSteps?: number }>();
+
+  if (body.maxOutputTokens !== undefined) {
+    if (typeof body.maxOutputTokens !== "number" || body.maxOutputTokens < 1) {
+      return c.json({ error: "maxOutputTokens must be a number >= 1" }, 400);
+    }
+    const key = `agent.${name}.maxOutputTokens`;
+    const value = String(body.maxOutputTokens);
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value }).run();
+    }
+  }
+
+  if (body.maxToolSteps !== undefined) {
+    if (typeof body.maxToolSteps !== "number" || body.maxToolSteps < 1) {
+      return c.json({ error: "maxToolSteps must be a number >= 1" }, 400);
+    }
+    const key = `agent.${name}.maxToolSteps`;
+    const value = String(body.maxToolSteps);
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
+    } else {
+      db.insert(schema.appSettings).values({ key, value }).run();
+    }
+  }
+
+  log("settings", `Agent limits overridden: ${name}`, { agent: name, maxOutputTokens: body.maxOutputTokens, maxToolSteps: body.maxToolSteps });
+  return c.json({ ok: true });
+});
+
+// Reset limits override for an agent (reverts to defaults)
+settingsRoutes.delete("/agents/:name/limits", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  resetAgentLimitsOverrides(name);
+  log("settings", `Agent limits reset to default: ${name}`, { agent: name });
+  return c.json({ ok: true });
+});
 
 // --- Tool assignment endpoints (registered before /agents/:name to avoid param conflicts) ---
 
