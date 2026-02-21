@@ -3104,7 +3104,13 @@ async function runBuildFix(params: {
     completedAt: null,
   });
 
-  const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the Vite build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Output corrected versions of the files that need changes. The original code is in Previous Agent Outputs. Make sure all exports and imports match correctly.`;
+  // Include project source so the fix agent can go straight to writing
+  // instead of burning tool steps on read_file calls.
+  const projectSource = readProjectSource(projectPath);
+  const sourceSection = projectSource
+    ? `\n\nHere is the current project source:\n\n${projectSource.slice(0, MAX_PROJECT_SOURCE_CHARS)}`
+    : "";
+  const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the Vite build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Do NOT use read_file or list_files — the full source is provided below. Write corrected files immediately.${sourceSection}`;
 
   try {
     const fixInput: AgentInput = {

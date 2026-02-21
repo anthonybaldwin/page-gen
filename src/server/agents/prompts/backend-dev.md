@@ -64,8 +64,8 @@ export default {
 
 You have three tools — call them directly (the system handles execution):
 
-- **write_files(files)** — Write multiple small files at once. **Only use for scaffolding** — stubs, empty files, boilerplate, type definitions, or files under ~30 lines. Large multi-file payloads hit output token limits and cause failures.
-- **write_file(path, content)** — Create or overwrite a single file. **Use this for all real implementation code.** Write one file at a time.
+- **write_files(files)** — Write multiple files in one call. **Batch 3-5 files per call** to conserve tool steps. Do NOT put all files in a single call (hits output token limits) — split into multiple `write_files` calls instead.
+- **write_file(path, content)** — Create or overwrite a single file. Use for very large files (200+ lines) that need a dedicated call.
 - **read_file(path)** — Read an existing file's contents.
 - **list_files(directory?)** — List project files. Omit directory for root.
 
