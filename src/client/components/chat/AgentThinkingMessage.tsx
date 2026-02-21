@@ -339,14 +339,27 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
             {/* Tool call log */}
             {toolCalls && toolCalls.length > 0 && (
               <div className="px-4 pb-2 flex flex-wrap gap-1.5">
-                {toolCalls.map((tc, i) => (
-                  <Badge key={i} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal">
-                    <span className="text-muted-foreground/60 font-mono mr-1">
-                      {tc.toolName === "write_file" ? "W" : tc.toolName === "read_file" ? "R" : "L"}
-                    </span>
-                    {(tc.input as Record<string, string>).path || (tc.input as Record<string, string>).directory || tc.toolName}
-                  </Badge>
-                ))}
+                {toolCalls.flatMap((tc, i) => {
+                  if (tc.toolName === "write_files") {
+                    const paths = (tc.input as { paths?: string[] }).paths || [];
+                    return paths.map((p, j) => (
+                      <Badge key={`${i}-${j}`} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+                        <span className="text-muted-foreground/60 font-mono mr-1">W</span>
+                        {p}
+                      </Badge>
+                    ));
+                  }
+                  const letter = tc.toolName === "write_file" ? "W" : tc.toolName === "read_file" ? "R" : "L";
+                  const label = (tc.input as Record<string, string>).path
+                    || (tc.input as Record<string, string>).directory
+                    || tc.toolName;
+                  return [(
+                    <Badge key={i} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-normal">
+                      <span className="text-muted-foreground/60 font-mono mr-1">{letter}</span>
+                      {label}
+                    </Badge>
+                  )];
+                })}
               </div>
             )}
             {/* Toggle raw output */}

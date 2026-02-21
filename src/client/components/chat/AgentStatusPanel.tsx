@@ -313,6 +313,8 @@ export function AgentStatusPanel({ chatId }: Props) {
                 <span className={status === "running" ? "text-foreground" : "text-muted-foreground"}>
                   {agent.displayName}
                   {state?.phase === "remediation" && " (fixing)"}
+                  {state?.phase === "build-fix" && " (build fix)"}
+                  {state?.phase === "re-review" && " (re-review)"}
                   {(status === "running" || status === "completed" || status === "failed") && state?.startedAt && (
                     <span className="ml-1 text-muted-foreground/50 font-normal">
                       ({formatElapsed(state.startedAt, status === "running" ? undefined : state?.completedAt)})

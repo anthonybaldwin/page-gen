@@ -252,7 +252,11 @@ export async function runAgent(
               status: "streaming",
               toolCall: {
                 toolName,
-                input: toolName === "write_file" ? { path: (part.input as { path: string }).path } : part.input,
+                input: toolName === "write_file"
+                  ? { path: (part.input as { path: string }).path }
+                  : toolName === "write_files"
+                  ? { paths: (part.input as { files: Array<{ path: string }> }).files.map(f => f.path) }
+                  : part.input,
               },
             },
           });

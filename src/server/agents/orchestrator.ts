@@ -758,7 +758,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
       if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted && !skipPostProcessing) {
         // All file-producing agents get build check (skipped for parallel batches — caller handles it)
-        const buildErrors = await checkProjectBuild(projectPath);
+        const buildErrors = await checkProjectBuild(projectPath, chatId);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
@@ -1611,11 +1611,8 @@ async function executePipelineSteps(ctx: {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
         log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
-        broadcastAgentThinking(chatId, "orchestrator", "Build System", "started");
-        broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Checking build..." });
-        const buildErrors = await checkProjectBuild(projectPath);
+        const buildErrors = await checkProjectBuild(projectPath, chatId);
         if (buildErrors && !signal.aborted) {
-          broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Build errors found — attempting fix..." });
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
             userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
@@ -1626,18 +1623,14 @@ async function executePipelineSteps(ctx: {
           }
           const recheckErrors = await checkProjectBuild(projectPath);
           if (!recheckErrors) {
-            broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
             broadcast({ type: "preview_ready", payload: { projectId } });
             maybeStartBackend(projectId, projectPath);
-          } else {
-            broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed");
           }
         } else if (!buildErrors) {
-          broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
           broadcast({ type: "preview_ready", payload: { projectId } });
           maybeStartBackend(projectId, projectPath);
         } else {
-          broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed");
+          // Build failed but pipeline aborted — send preview_ready with whatever state exists
           broadcast({ type: "preview_ready", payload: { projectId } });
           maybeStartBackend(projectId, projectPath);
         }
@@ -1722,9 +1715,10 @@ async function finishPipeline(ctx: {
     });
   }
 
-  // Final build check
+  // Final build check — track outcome for honest summary
+  let buildOk = true;
   if (!signal.aborted) {
-    const finalBuildErrors = await checkProjectBuild(projectPath);
+    const finalBuildErrors = await checkProjectBuild(projectPath, chatId);
     if (finalBuildErrors && !signal.aborted) {
       const fixResult = await runBuildFix({
         buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
@@ -1738,16 +1732,19 @@ async function finishPipeline(ctx: {
       if (!finalRecheck) {
         broadcast({ type: "preview_ready", payload: { projectId } });
         maybeStartBackend(projectId, projectPath);
+      } else {
+        buildOk = false; // Build still broken after all fix attempts
       }
-    } else {
+    } else if (!finalBuildErrors) {
       broadcast({ type: "preview_ready", payload: { projectId } });
       maybeStartBackend(projectId, projectPath);
     }
   }
 
-  // Generate summary
+  // Generate summary — use honest failure prompt when build is broken
   const summary = await generateSummary({
     userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys,
+    buildFailed: !buildOk,
   });
 
   await db.insert(schema.messages).values({
@@ -1756,13 +1753,13 @@ async function finishPipeline(ctx: {
     agentName: "orchestrator", metadata: null, createdAt: Date.now(),
   });
 
-  log("orchestrator", `Final summary sent to user`, { chatId, chars: summary.length });
+  log("orchestrator", `Final summary sent to user`, { chatId, chars: summary.length, buildOk });
   broadcast({
     type: "chat_message",
     payload: { chatId, agentName: "orchestrator", content: summary },
   });
 
-  broadcastAgentStatus(chatId, "orchestrator", "completed");
+  broadcastAgentStatus(chatId, "orchestrator", buildOk ? "completed" : "failed");
 }
 
 const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a React + TypeScript + Tailwind CSS page builder.
@@ -1914,6 +1911,14 @@ Key files: \`src/components/Hero.tsx\`, \`src/components/Features.tsx\`, \`src/c
 Try clicking the signup button or submitting the contact form to see it in action!
 ---`;
 
+const SUMMARY_SYSTEM_PROMPT_FAILED = `You are the orchestrator for a page builder. The build has unresolved errors.
+Write a clean, honest markdown response. Include:
+- What was attempted and which files were created
+- That the build has errors that could not be automatically resolved
+- A brief mention of what the errors were (from agent outputs)
+Keep it concise — 2-3 short paragraphs. Be direct but not alarming.
+The tone: "We made progress but hit some issues that need attention."`;
+
 interface SummaryInput {
   userMessage: string;
   agentResults: Map<string, string>;
@@ -1923,10 +1928,12 @@ interface SummaryInput {
   chatTitle: string;
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
+  buildFailed?: boolean;
 }
 
 async function generateSummary(input: SummaryInput): Promise<string> {
-  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys } = input;
+  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed } = input;
+  const systemPrompt = buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT;
 
   const fallback = () => Array.from(agentResults.entries())
     .map(([agent, output]) => `**${agent}:** ${output}`)
@@ -1947,10 +1954,10 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
   const prompt = `## User Request\n${userMessage}\n\n## Agent Outputs\n${digest}`;
 
-  logLLMInput("orchestrator", "orchestrator-summary", SUMMARY_SYSTEM_PROMPT, prompt);
+  logLLMInput("orchestrator", "orchestrator-summary", systemPrompt, prompt);
   const result = await generateText({
     model: summaryModel,
-    system: SUMMARY_SYSTEM_PROMPT,
+    system: systemPrompt,
     prompt,
     maxOutputTokens: 1024,
   });
@@ -2750,13 +2757,11 @@ export function agentHasFileTools(name: string): boolean {
   return tools.includes("write_file") || tools.includes("write_files");
 }
 
-/** Check if the project has any test files on disk (.test./.spec. in src/, up to 3 levels deep) */
+/** Check if the project has any test files on disk (.test./.spec. in src/ or server/, up to 3 levels deep) */
 function testFilesExist(projectPath: string): boolean {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
-  const srcDir = join(fullPath, "src");
-  if (!existsSync(srcDir)) return false;
 
   const testPattern = /\.(test|spec)\.(tsx?|jsx?)$/;
 
@@ -2776,7 +2781,8 @@ function testFilesExist(projectPath: string): boolean {
     return false;
   }
 
-  return searchDir(srcDir, 0);
+  const dirsToSearch = [join(fullPath, "src"), join(fullPath, "server")];
+  return dirsToSearch.some(dir => existsSync(dir) && searchDir(dir, 0));
 }
 
 /**
@@ -2944,13 +2950,23 @@ function extractAndWriteFiles(
  * Run a Vite build check on the project to detect compile errors.
  * Returns error output string if there are errors, null if build succeeds.
  */
-async function checkProjectBuild(projectPath: string): Promise<string | null> {
+async function checkProjectBuild(projectPath: string, chatId?: string): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
 
+  // Broadcast install phase so the UI isn't silent during bun install (~57s)
+  if (chatId) {
+    broadcastAgentThinking(chatId, "orchestrator", "Build System", "started");
+    broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "Installing dependencies..." });
+  }
+
   // Wait for any pending preview prep (which includes bun install)
   await prepareProjectForPreview(projectPath);
+
+  if (chatId) {
+    broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "\nRunning build check..." });
+  }
 
   log("build", "Running build check", { path: fullPath });
 
@@ -2972,12 +2988,14 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     if (result === "timeout") {
       logWarn("build", `Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
       proc.kill();
+      if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build check timed out (continuing)" });
       return null; // Don't block pipeline on timeout
     }
 
     const exitCode = result;
     if (exitCode === 0) {
       log("build", "Build check passed");
+      if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build passed" });
       return null;
     }
 
@@ -3005,9 +3023,11 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     const errors = (deduped || combined.slice(0, 2000)).trim();
     log("build", "Build failed", { exitCode, errorLines: errorLines.length, chars: errors.length });
     logBlock("build", "Build errors", errors);
+    if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed", { error: "Build errors found" });
     return errors;
   } catch (err) {
     logError("build", "Build check process error", err);
+    if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "completed", { summary: "Build check skipped" });
     return null; // Don't block pipeline on check failure
   }
 }
