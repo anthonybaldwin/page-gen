@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { api } from "../../lib/api.ts";
+import { getAgentActivity, getBestMultiActivity } from "../../lib/agentActivityPhrases.ts";
 import { Badge } from "../ui/badge.tsx";
 import {
   Circle,
@@ -21,6 +22,7 @@ interface AgentState {
   testBadge?: { passed: number; total: number };
   startedAt?: number;
   completedAt?: number;
+  lastToolCall?: { toolName: string; input: Record<string, unknown> } | null;
 }
 
 function formatElapsed(startedAt?: number, completedAt?: number): string {
@@ -90,11 +92,20 @@ export function AgentStatusPanel({ chatId }: Props) {
   const [pipelineActive, setPipelineActive] = useState(false);
   const [pipelineAgents, setPipelineAgents] = useState(DEFAULT_PIPELINE_AGENTS);
   const [, setTick] = useState(0);
+  const [phraseIndex, setPhraseIndex] = useState(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickCountRef = useRef(0);
 
   useEffect(() => {
     if (pipelineActive) {
-      tickRef.current = setInterval(() => setTick((t) => t + 1), 1000);
+      tickCountRef.current = 0;
+      tickRef.current = setInterval(() => {
+        setTick((t) => t + 1);
+        tickCountRef.current += 1;
+        if (tickCountRef.current % 3 === 0) {
+          setPhraseIndex((i) => i + 1);
+        }
+      }, 1000);
     } else if (tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
@@ -190,9 +201,27 @@ export function AgentStatusPanel({ chatId }: Props) {
               phase,
               startedAt: status === "running" ? Date.now() : existing?.startedAt,
               completedAt: (status === "completed" || status === "failed") ? Date.now() : existing?.completedAt,
+              lastToolCall: status === "running" ? null : existing?.lastToolCall,
             },
           };
         });
+      }
+
+      if (msg.type === "agent_thinking") {
+        const { agentName, toolCall } = msg.payload as {
+          agentName: string;
+          toolCall?: { toolName: string; input: Record<string, unknown> };
+        };
+        if (toolCall) {
+          setAgents((prev) => {
+            const existing = prev[agentName];
+            if (!existing) return prev;
+            return {
+              ...prev,
+              [agentName]: { ...existing, lastToolCall: toolCall },
+            };
+          });
+        }
       }
 
       if (msg.type === "agent_stream") {
@@ -309,19 +338,18 @@ export function AgentStatusPanel({ chatId }: Props) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
           <span>
-            {runningAgents.length === 1 ? (
-              <>
-                <span className="text-foreground font-medium">{runningAgents[0]!.displayName}</span>
-                {runningAgents[0]!.phase === "remediation" ? " is fixing issues..." : " is working..."}
-              </>
-            ) : (
-              <>
-                <span className="text-foreground font-medium">
-                  {runningAgents.map((a) => a.displayName).join(", ")}
-                </span>
-                {" are working in parallel..."}
-              </>
-            )}
+            <span className="text-foreground font-medium">
+              {runningAgents.map((a) => a.displayName).join(", ")}
+            </span>
+            {" — "}
+            {runningAgents.length === 1
+              ? runningAgents[0]!.phase === "remediation"
+                ? "Fixing issues..."
+                : getAgentActivity(runningAgents[0]!.name, runningAgents[0]!.lastToolCall, phraseIndex)
+              : getBestMultiActivity(
+                  runningAgents.map((a) => ({ name: a.name, lastToolCall: a.lastToolCall })),
+                  phraseIndex,
+                )}
           </span>
         </div>
       )}

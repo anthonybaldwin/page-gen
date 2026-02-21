@@ -5,6 +5,7 @@ import { Badge } from "../ui/badge.tsx";
 import { Button } from "../ui/button.tsx";
 import { Loader2, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
 import type { ThinkingBlock, ToolCallEntry } from "../../stores/agentThinkingStore.ts";
+import { getAgentActivity } from "../../lib/agentActivityPhrases.ts";
 
 interface Props {
   block: ThinkingBlock;
@@ -219,11 +220,12 @@ function sanitizeThinking(raw: string): string {
 
 function formatToolCall(tc: ToolCallEntry): string {
   const input = tc.input as Record<string, string>;
+  const filename = input.path ? input.path.split("/").pop() || input.path : undefined;
   switch (tc.toolName) {
-    case "write_file": return `Writing ${input.path || "file"}`;
-    case "read_file": return `Reading ${input.path || "file"}`;
+    case "write_file": return `Writing ${filename || "file"}`;
+    case "read_file": return `Reading ${filename || "file"}`;
     case "list_files": return `Listing ${input.directory || "."}`;
-    default: return `${tc.toolName}(${input.path || ""})`;
+    default: return `${tc.toolName}(${filename || ""})`;
   }
 }
 
@@ -243,6 +245,13 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
   const lastToolCall = toolCalls?.length ? toolCalls[toolCalls.length - 1] : undefined;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [phraseIdx, setPhraseIdx] = useState(0);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const id = setInterval(() => setPhraseIdx((i) => i + 1), 3000);
+    return () => clearInterval(id);
+  }, [isActive]);
 
   const cleanContent = useMemo(() => sanitizeThinking(content), [content]);
   const hasRawContent = content.length > 0 && content !== cleanContent;
@@ -277,7 +286,11 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
 
           {isActive && (
             <span className="text-xs text-muted-foreground italic truncate">
-              {lastToolCall ? formatToolCall(lastToolCall) : "thinking..."}
+              {getAgentActivity(
+                block.agentName,
+                lastToolCall ? { toolName: lastToolCall.toolName, input: lastToolCall.input } : null,
+                phraseIdx,
+              )}
             </span>
           )}
 
