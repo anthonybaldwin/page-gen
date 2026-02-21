@@ -1,11 +1,11 @@
 /**
  * Minimal JSONL log viewer served via Bun.
- * Usage: bun scripts/logs-viewer.ts
+ * Usage: bun --hot scripts/logs-viewer.ts
  * Opens a web UI at http://localhost:3200
  */
 
 import { join } from "path";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 
 const LOG_DIR = join(import.meta.dir, "../logs");
 const APP_LOG = join(LOG_DIR, "app.jsonl");
@@ -20,9 +20,9 @@ interface LogEntry {
 }
 
 function readLogs(): LogEntry[] {
-  const file = Bun.file(APP_LOG);
-  if (!file.size) return [];
+  if (!existsSync(APP_LOG)) return [];
   const text = readFileSync(APP_LOG, "utf-8");
+  if (!text.trim()) return [];
   const entries: LogEntry[] = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
@@ -68,6 +68,11 @@ const HTML = `<!DOCTYPE html>
   .level-warn { color: #ebcb8b; }
   .level-error { color: #bf616a; }
   .tag { color: #a3be8c; width: 100px; }
+  .status { width: 40px; font-weight: 600; font-size: 11px; text-align: center; }
+  .status-2xx { color: #a3be8c; }
+  .status-3xx { color: #81a1c1; }
+  .status-4xx { color: #ebcb8b; }
+  .status-5xx { color: #bf616a; }
   .msg { color: #d8dee9; white-space: pre-wrap; word-break: break-word; max-width: 0; width: 100%; }
   .extra-toggle { color: #81a1c1; cursor: pointer; font-size: 11px; margin-left: 6px; user-select: none; }
   .extra-row td { padding: 0 10px 6px 10px; border-bottom: 1px solid #434c5e; }
@@ -117,7 +122,7 @@ const HTML = `<!DOCTYPE html>
 </div>
 <div class="toast" id="toast">Tailing paused <button id="toast-resume">Resume</button></div>
 <table>
-  <thead><tr><th class="ts">Time</th><th class="level">Level</th><th class="tag">Tag</th><th class="msg">Message</th></tr></thead>
+  <thead><tr><th class="ts">Time</th><th class="level">Level</th><th class="tag">Tag</th><th class="status">Status</th><th class="msg">Message</th></tr></thead>
   <tbody id="log-body"></tbody>
 </table>
 <script>
@@ -126,6 +131,7 @@ let tailing = true;
 let sortNewest = true;
 let pollTimer = null;
 const highlighted = new Set();
+const expanded = new Set();
 
 const body = document.getElementById('log-body');
 const levelFilter = document.getElementById('level-filter');
@@ -165,13 +171,23 @@ function highlightText(text, q) {
 }
 
 function extraFields(entry) {
-  const skip = new Set(['ts','level','tag','msg','_idx']);
+  const skip = new Set(['ts','level','tag','msg','status','_idx']);
   const extra = {};
   let has = false;
   for (const [k,v] of Object.entries(entry)) {
     if (!skip.has(k)) { extra[k] = v; has = true; }
   }
   return has ? extra : null;
+}
+
+function statusClass(code) {
+  if (!code) return '';
+  const n = Number(code);
+  if (n >= 500) return 'status-5xx';
+  if (n >= 400) return 'status-4xx';
+  if (n >= 300) return 'status-3xx';
+  if (n >= 200) return 'status-2xx';
+  return '';
 }
 
 function render() {
@@ -204,20 +220,26 @@ function render() {
     const idx = entry._idx;
     const extra = extraFields(entry);
     const id = 'r' + rows.length;
-    const toggleHtml = extra ? '<span class="extra-toggle" data-id="' + id + '">+data</span>' : '';
+    const isExpanded = expanded.has(idx);
+    const toggleLabel = isExpanded ? '-data' : '+data';
+    const toggleHtml = extra ? '<span class="extra-toggle" data-id="' + id + '">' + toggleLabel + '</span>' : '';
     const hlClass = highlighted.has(idx) ? ' highlighted' : '';
+    const expClass = isExpanded ? ' expanded' : '';
+    const sc = entry.status;
+    const statusHtml = sc ? '<span class="' + statusClass(sc) + '">' + sc + '</span>' : '';
     rows.push(
-      '<tr data-idx="' + idx + '" class="' + hlClass.trim() + '">' +
+      '<tr data-idx="' + idx + '" class="' + (hlClass + expClass).trim() + '">' +
         '<td class="ts">' + fmtTime(entry.ts) + '</td>' +
         '<td class="level level-' + entry.level + '">' + entry.level + '</td>' +
         '<td class="tag">' + escHtml(entry.tag) + '</td>' +
+        '<td class="status">' + statusHtml + '</td>' +
         '<td class="msg">' + highlightText(entry.msg, escHtml(q)) + toggleHtml + '</td>' +
       '</tr>'
     );
     if (extra) {
       rows.push(
-        '<tr class="extra-row" id="' + id + '" style="display:none">' +
-          '<td colspan="4"><div class="extra-content">' + escHtml(JSON.stringify(extra, null, 2)) + '</div></td>' +
+        '<tr class="extra-row" id="' + id + '"' + (isExpanded ? '' : ' style="display:none"') + '>' +
+          '<td colspan="5"><div class="extra-content">' + escHtml(JSON.stringify(extra, null, 2)) + '</div></td>' +
         '</tr>'
       );
     }
@@ -279,10 +301,13 @@ body.addEventListener('click', e => {
   if (toggle) {
     const row = document.getElementById(toggle.dataset.id);
     if (!row) return;
+    const parentTr = toggle.closest('tr[data-idx]');
+    const idx = parentTr ? Number(parentTr.dataset.idx) : null;
     const visible = row.style.display !== 'none';
     row.style.display = visible ? 'none' : '';
     toggle.textContent = visible ? '+data' : '-data';
-    toggle.closest('tr')?.classList.toggle('expanded', !visible);
+    parentTr?.classList.toggle('expanded', !visible);
+    if (idx !== null) { visible ? expanded.delete(idx) : expanded.add(idx); }
     return;
   }
   const tr = e.target.closest('tr[data-idx]');
@@ -363,7 +388,7 @@ fetchLogs();
 </body>
 </html>`;
 
-Bun.serve({
+const server = Bun.serve({
   port: PORT,
   fetch(req) {
     const url = new URL(req.url);
@@ -380,4 +405,12 @@ Bun.serve({
   },
 });
 
-console.log(`Log viewer running at http://localhost:${PORT}`);
+const viewerUrl = `http://localhost:${server.port}`;
+console.log(`Log viewer running at ${viewerUrl}`);
+
+// Auto-open browser (best-effort, cross-platform)
+const openCmd =
+  process.platform === "win32" ? ["cmd", "/c", "start", viewerUrl] :
+  process.platform === "darwin" ? ["open", viewerUrl] :
+  ["xdg-open", viewerUrl];
+Bun.spawn(openCmd, { stdout: "ignore", stderr: "ignore" });
