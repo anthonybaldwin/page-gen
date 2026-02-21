@@ -36,6 +36,7 @@ interface UsageState {
     cacheReadInputTokens?: number;
     costEstimate: number;
   }) => void;
+  reset: () => void;
 }
 
 export const useUsageStore = create<UsageState>((set) => ({
@@ -119,4 +120,22 @@ export const useUsageStore = create<UsageState>((set) => ({
           : {};
       return { ...newTotal, ...chatUpdate, ...projectUpdate };
     }),
+
+  reset: () =>
+    set((state) => ({
+      records: [],
+      totalTokens: 0,
+      totalCost: 0,
+      chatTokens: 0,
+      chatCost: 0,
+      projectTokens: 0,
+      projectCost: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      chatWsDelta: 0,
+      projectWsDelta: 0,
+      totalWsDelta: 0,
+      activeChatId: state.activeChatId,
+      activeProjectId: state.activeProjectId,
+    })),
 }));

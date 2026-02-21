@@ -11,6 +11,7 @@ import { Button } from "../ui/button.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
 import { X, RotateCcw } from "lucide-react";
 import { ConfirmDialog } from "../ui/confirm-dialog.tsx";
+import { useUsageStore } from "../../stores/usageStore.ts";
 
 interface UsageSummary {
   totalInputTokens: number;
@@ -254,6 +255,7 @@ export function UsageDashboard({ onClose }: UsageDashboardProps) {
           setResetting(true);
           try {
             await api.delete("/usage/reset");
+            useUsageStore.getState().reset();
             const freshSummary = await api.get<UsageSummary>(`/usage/summary${filterQuery}`);
             setSummary(freshSummary);
             setRefreshKey((k) => k + 1);
