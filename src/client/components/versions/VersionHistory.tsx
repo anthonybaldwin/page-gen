@@ -6,7 +6,7 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
-import { RotateCcw, Save, Loader2, GitCommit, ArrowRight, Trash2 } from "lucide-react";
+import { RotateCcw, Bookmark, Loader2, GitCommit, ArrowRight, Trash2 } from "lucide-react";
 
 interface VersionEntry {
   sha: string;
@@ -141,6 +141,10 @@ export function VersionHistory() {
       )}
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-foreground/80">Versions</h3>
+      </div>
+
+      {/* Bookmark current state */}
+      <div className="mb-3">
         {showLabelInput ? (
           <div className="flex gap-1">
             <Input
@@ -151,14 +155,14 @@ export function VersionHistory() {
                 if (e.key === "Enter") handleSaveVersion();
                 if (e.key === "Escape") setShowLabelInput(false);
               }}
-              placeholder="Label..."
-              className="h-6 text-xs w-32"
+              placeholder="Name this version..."
+              className="h-7 text-xs flex-1"
               autoFocus
             />
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="h-6 px-2 text-xs"
+              className="h-7 px-2 text-xs"
               onClick={handleSaveVersion}
               disabled={saving}
             >
@@ -167,13 +171,13 @@ export function VersionHistory() {
           </div>
         ) : (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className="h-6 px-2 text-xs"
+            className="h-7 w-full text-xs text-muted-foreground"
             onClick={() => setShowLabelInput(true)}
           >
-            <Save className="h-3 w-3 mr-1" />
-            Save
+            <Bookmark className="h-3 w-3 mr-1.5" />
+            Bookmark current version
           </Button>
         )}
       </div>

@@ -251,15 +251,13 @@ export function autoCommit(
     return null;
   }
 
-  // Extract SHA
-  const sha = runGit(projectPath, ["rev-parse", "HEAD"]);
-  log("versioning", `Auto-committed: ${safeMessage}`, {
-    sha: sha.stdout.slice(0, 7),
-  });
+  log("versioning", `Auto-committed: ${safeMessage}`);
 
   // Auto-rotate: prune oldest versions if over cap
+  // Must re-read HEAD after pruning — deleteVersion rebuilds all SHAs
   pruneExcessVersions(projectPath);
 
+  const sha = runGit(projectPath, ["rev-parse", "HEAD"]);
   return sha.stdout;
 }
 
@@ -291,14 +289,13 @@ export function userCommit(
     return null;
   }
 
-  const sha = runGit(projectPath, ["rev-parse", "HEAD"]);
-  log("versioning", `User committed: ${safeLabel}`, {
-    sha: sha.stdout.slice(0, 7),
-  });
+  log("versioning", `User committed: ${safeLabel}`);
 
   // Auto-rotate: prune oldest versions if over cap
+  // Must re-read HEAD after pruning — deleteVersion rebuilds all SHAs
   pruneExcessVersions(projectPath);
 
+  const sha = runGit(projectPath, ["rev-parse", "HEAD"]);
   return sha.stdout;
 }
 
