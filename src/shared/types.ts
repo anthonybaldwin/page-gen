@@ -149,6 +149,16 @@ export interface FileNode {
   children?: FileNode[];
 }
 
+export interface ContentSearchMatch {
+  line: number;
+  content: string;
+}
+
+export interface ContentSearchResult {
+  path: string;
+  matches: ContentSearchMatch[];
+}
+
 export type ToolName = "write_file" | "write_files" | "read_file" | "list_files";
 export const ALL_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", "list_files"];
 

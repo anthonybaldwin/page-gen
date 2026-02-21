@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname, relative } from "path";
 import { zipSync, strToU8 } from "fflate";
-import type { FileNode } from "../../shared/types.ts";
+import type { FileNode, ContentSearchMatch, ContentSearchResult } from "../../shared/types.ts";
 import { startPreviewServer, getPreviewUrl, stopPreviewServer } from "../preview/vite-server.ts";
 import { stopBackendServer } from "../preview/backend-server.ts";
 import { broadcastFilesChanged } from "../ws.ts";
@@ -28,6 +28,102 @@ function buildFileTree(dir: string, basePath: string = ""): FileNode[] {
       return { name: entry.name, path: relPath, type: "file" as const };
     });
 }
+
+const BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "svg",
+  "woff", "woff2", "ttf", "eot", "otf",
+  "mp3", "mp4", "wav", "ogg", "webm", "avi",
+  "pdf", "zip", "tar", "gz", "rar", "7z",
+  "exe", "dll", "so", "dylib", "bin",
+  "lock",
+]);
+
+const MAX_SEARCH_FILE_SIZE = 512 * 1024; // 512KB
+
+function searchFiles(
+  dir: string,
+  query: string,
+  basePath: string,
+  results: ContentSearchResult[],
+  maxResults: number,
+): void {
+  if (results.length >= maxResults) return;
+  if (!existsSync(dir)) return;
+
+  const entries = readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (results.length >= maxResults) return;
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+
+    const fullPath = join(dir, entry.name);
+    const relPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+
+    if (entry.isDirectory()) {
+      searchFiles(fullPath, query, relPath, results, maxResults);
+      continue;
+    }
+
+    const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
+    if (BINARY_EXTENSIONS.has(ext)) continue;
+
+    try {
+      const stat = statSync(fullPath);
+      if (stat.size > MAX_SEARCH_FILE_SIZE) continue;
+    } catch {
+      continue;
+    }
+
+    try {
+      const content = readFileSync(fullPath, "utf-8");
+      const lines = content.split("\n");
+      const lowerQuery = query.toLowerCase();
+      const matches: ContentSearchMatch[] = [];
+
+      for (let i = 0; i < lines.length && matches.length < 3; i++) {
+        if (lines[i].toLowerCase().includes(lowerQuery)) {
+          matches.push({
+            line: i + 1,
+            content: lines[i].substring(0, 200),
+          });
+        }
+      }
+
+      if (matches.length > 0) {
+        results.push({ path: relPath, matches });
+      }
+    } catch {
+      // skip unreadable files
+    }
+  }
+}
+
+// Search file contents in a project
+fileRoutes.get("/search/:projectId", (c) => {
+  const projectId = c.req.param("projectId");
+  const query = c.req.query("q") ?? "";
+  const maxResults = Math.min(Number(c.req.query("maxResults")) || 50, 100);
+
+  if (query.length < 2) {
+    return c.json({ error: "Query must be at least 2 characters" }, 400);
+  }
+
+  const projectPath = join("./projects", projectId);
+
+  // Security: ensure path stays within project directory
+  const resolved = join(process.cwd(), projectPath);
+  const projectRoot = join(process.cwd(), "projects", projectId);
+  if (!resolved.startsWith(projectRoot)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  if (!existsSync(projectPath)) {
+    return c.json({ error: "Project not found" }, 404);
+  }
+
+  const results: ContentSearchResult[] = [];
+  searchFiles(projectPath, query, "", results, maxResults);
+  return c.json(results);
+});
 
 // List file tree for a project
 fileRoutes.get("/tree/:projectId", (c) => {

@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { useFileStore } from "../../stores/fileStore.ts";
 import { api } from "../../lib/api.ts";
 import { onWsMessage, connectWebSocket } from "../../lib/ws.ts";
 import { Button } from "../ui/button.tsx";
-import { Folder, File, FileCode, ChevronRight, Download, RefreshCw } from "lucide-react";
-import type { FileNode } from "../../../shared/types.ts";
+import { Input } from "../ui/input.tsx";
+import { Folder, File, FileCode, ChevronRight, Download, RefreshCw, Search, X, Loader2 } from "lucide-react";
+import type { FileNode, ContentSearchResult } from "../../../shared/types.ts";
 
 function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase();
@@ -15,18 +16,59 @@ function getFileIcon(name: string) {
   return <File className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />;
 }
 
+function filterTree(nodes: FileNode[], query: string): FileNode[] {
+  const lower = query.toLowerCase();
+  const result: FileNode[] = [];
+  for (const node of nodes) {
+    if (node.type === "directory") {
+      const filteredChildren = filterTree(node.children ?? [], query);
+      const nameMatches = node.name.toLowerCase().includes(lower);
+      if (nameMatches || filteredChildren.length > 0) {
+        result.push({ ...node, children: filteredChildren });
+      }
+    } else {
+      if (node.name.toLowerCase().includes(lower)) {
+        result.push(node);
+      }
+    }
+  }
+  return result;
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lower.indexOf(lowerQuery);
+  if (idx === -1) return <>{text}</>;
+
+  return (
+    <>
+      {text.substring(0, idx)}
+      <span className="text-primary font-medium">{text.substring(idx, idx + query.length)}</span>
+      {text.substring(idx + query.length)}
+    </>
+  );
+}
+
 function FileTreeNode({
   node,
   depth,
   onSelect,
   selectedPath,
+  forceExpanded,
 }: {
   node: FileNode;
   depth: number;
   onSelect: (path: string) => void;
   selectedPath: string | null;
+  forceExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(depth < 2);
+  const [expanded, setExpanded] = useState(forceExpanded || depth < 2);
+
+  useEffect(() => {
+    if (forceExpanded) setExpanded(true);
+  }, [forceExpanded]);
 
   if (node.type === "directory") {
     return (
@@ -48,6 +90,7 @@ function FileTreeNode({
               depth={depth + 1}
               onSelect={onSelect}
               selectedPath={selectedPath}
+              forceExpanded={forceExpanded}
             />
           ))}
       </div>
@@ -72,6 +115,11 @@ export function FileExplorer() {
   const activeProject = useProjectStore((s) => s.activeProject);
   const { openFilePath, openFile, handleExternalChange } = useFileStore();
   const [tree, setTree] = useState<FileNode[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"files" | "content">("files");
+  const [contentResults, setContentResults] = useState<ContentSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!activeProject) {
@@ -96,6 +144,52 @@ export function FileExplorer() {
     });
     return unsub;
   }, [activeProject, handleExternalChange]);
+
+  // File name search: debounced filtering
+  const [debouncedFileQuery, setDebouncedFileQuery] = useState("");
+  useEffect(() => {
+    if (searchMode !== "files") return;
+    const timer = setTimeout(() => setDebouncedFileQuery(searchQuery), 150);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchMode]);
+
+  const filteredTree = useMemo(() => {
+    if (!debouncedFileQuery) return tree;
+    return filterTree(tree, debouncedFileQuery);
+  }, [tree, debouncedFileQuery]);
+
+  // Content search: debounced API call
+  const searchContent = useCallback(async (query: string, projectId: string) => {
+    if (query.length < 2) {
+      setContentResults([]);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const results = await api.get<ContentSearchResult[]>(
+        `/files/search/${projectId}?q=${encodeURIComponent(query)}`
+      );
+      setContentResults(results);
+    } catch {
+      setContentResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (searchMode !== "content" || !activeProject) return;
+    if (searchQuery.length < 2) {
+      setContentResults([]);
+      return;
+    }
+    setIsSearching(true);
+    const timer = setTimeout(() => {
+      searchContent(searchQuery, activeProject.id);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchMode, activeProject, searchContent]);
 
   async function loadTree() {
     if (!activeProject) return;
@@ -129,6 +223,22 @@ export function FileExplorer() {
     openFile(activeProject.id, path);
   }
 
+  function clearSearch() {
+    setSearchQuery("");
+    setContentResults([]);
+    searchInputRef.current?.blur();
+  }
+
+  function handleSearchKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      clearSearch();
+    }
+  }
+
+  const hasQuery = searchQuery.length > 0;
+  const showFileTree = searchMode === "files";
+  const displayTree = hasQuery && showFileTree ? filteredTree : tree;
+
   return (
     <aside className="w-72 border-l border-border bg-card flex flex-col">
       <div className="p-3 border-b border-border flex items-center justify-between">
@@ -145,23 +255,117 @@ export function FileExplorer() {
         )}
       </div>
 
+      {activeProject && (
+        <div className="px-2 pt-2 pb-1 space-y-1.5 border-b border-border">
+          <div className="flex items-center gap-1">
+            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder={searchMode === "files" ? "Filter files..." : "Search content..."}
+              className="h-7 text-xs border-none shadow-none focus-visible:ring-0 px-1"
+            />
+            {hasQuery && (
+              <button
+                onClick={clearSearch}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSearchMode("files")}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                searchMode === "files"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Files
+            </button>
+            <button
+              onClick={() => setSearchMode("content")}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                searchMode === "content"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Content
+            </button>
+          </div>
+        </div>
+      )}
+
       {!activeProject ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-muted-foreground/60 p-2">No project selected</p>
         </div>
-      ) : tree.length === 0 ? (
+      ) : searchMode === "content" && hasQuery ? (
+        <div className="flex-1 overflow-y-auto py-1">
+          {isSearching ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : searchQuery.length < 2 ? null : contentResults.length === 0 ? (
+            <p className="text-xs text-muted-foreground/60 p-3 text-center">
+              No results for &lsquo;{searchQuery}&rsquo;
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {contentResults.map((result) => (
+                <div key={result.path}>
+                  <button
+                    onClick={() => handleSelectFile(result.path)}
+                    className={`flex items-center gap-1.5 w-full text-left py-1 px-2 rounded text-xs transition-colors ${
+                      openFilePath === result.path
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    {getFileIcon(result.path.split("/").pop() ?? "")}
+                    <span className="truncate">{result.path}</span>
+                  </button>
+                  <div className="ml-6 space-y-0.5">
+                    {result.matches.map((match) => (
+                      <button
+                        key={`${result.path}:${match.line}`}
+                        onClick={() => handleSelectFile(result.path)}
+                        className="flex items-start gap-1.5 w-full text-left py-0.5 px-1 rounded text-xs hover:bg-accent/30 transition-colors"
+                      >
+                        <span className="text-muted-foreground/50 shrink-0 tabular-nums">{match.line}</span>
+                        <span className="text-muted-foreground truncate">
+                          <HighlightedText text={match.content} query={searchQuery} />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : displayTree.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-muted-foreground/60 p-2">No files yet</p>
+          <p className="text-xs text-muted-foreground/60 p-2">
+            {hasQuery ? `No files matching '${searchQuery}'` : "No files yet"}
+          </p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto py-1">
-          {tree.map((node) => (
+          {displayTree.map((node) => (
             <FileTreeNode
               key={node.path}
               node={node}
               depth={0}
               onSelect={handleSelectFile}
               selectedPath={openFilePath}
+              forceExpanded={hasQuery && showFileTree}
             />
           ))}
         </div>
