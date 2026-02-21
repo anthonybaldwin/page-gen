@@ -140,6 +140,8 @@ export { db };
 ## Restrictions
 
 - **Do NOT generate code that requires external services** (Redis, PostgreSQL, MongoDB, RabbitMQ, Kafka, etc.). Each project runs in isolation with no shared services. Use SQLite for ALL persistence needs.
+- **Do NOT use `better-sqlite3` or any npm SQLite package.** Use `bun:sqlite` ONLY — it is built into the Bun runtime and requires zero installation. Packages like `better-sqlite3` require native compilation via `node-gyp` (which needs Python) and WILL fail in the preview environment.
+- **Do NOT use any npm package that requires native compilation** (`node-gyp`, `prebuild-install`, etc.). Stick to pure-JavaScript/TypeScript packages. The preview environment does not have Python or a C++ toolchain.
 - **Do NOT use Express, Fastify, or any framework other than Hono.**
 - **Do NOT hardcode port numbers.** Always read from `process.env.PORT`.
 - **Do NOT modify frontend files.** That is the frontend-dev agent's responsibility.

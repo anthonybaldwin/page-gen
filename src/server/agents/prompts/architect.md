@@ -153,7 +153,8 @@ When the project requires a backend (API routes, data persistence, server logic)
 - **Entry point**: `server/index.ts` — Hono server with `process.env.PORT`, health check at `GET /api/health`.
 - **Routes**: `server/routes/<resource>.ts` — one file per resource, mounted under `/api`.
 - **Database**: `server/db.ts` — SQLite schema and setup via `bun:sqlite`. Data file at `server/data.sqlite`.
-- **Persistence**: SQLite ONLY. Do NOT specify Redis, PostgreSQL, MongoDB, or any external service. Each project runs in isolation with no shared services.
+- **Persistence**: SQLite ONLY via `bun:sqlite` (built-in, zero-install). Do NOT specify Redis, PostgreSQL, MongoDB, or any external service. Each project runs in isolation with no shared services.
+- **NEVER use `better-sqlite3`** or any npm SQLite package. `bun:sqlite` is built into the runtime and requires no native compilation. Packages like `better-sqlite3` require `node-gyp` and Python to compile, which are not available in the preview environment.
 
 ### Backend file_plan example
 
