@@ -2948,7 +2948,7 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
   // Wait for any pending preview prep (which includes bun install)
   await prepareProjectForPreview(projectPath);
 
-  log("orchestrator", `Running build check in ${fullPath}...`);
+  log("build", `Running build check in ${fullPath}...`);
 
   const BUILD_TIMEOUT_MS = 30_000;
 
@@ -2966,14 +2966,14 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     const result = await Promise.race([proc.exited, timeout]);
 
     if (result === "timeout") {
-      logWarn("orchestrator", `Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("build", `Build check timed out after ${BUILD_TIMEOUT_MS / 1000}s — killing process`);
       proc.kill();
       return null; // Don't block pipeline on timeout
     }
 
     const exitCode = result;
     if (exitCode === 0) {
-      log("orchestrator", "Build check passed");
+      log("build", "Build check passed");
       return null;
     }
 
@@ -2999,10 +2999,11 @@ async function checkProjectBuild(projectPath: string): Promise<string | null> {
     // Deduplicate by core error pattern (strip file paths, keep error type + message)
     const deduped = deduplicateErrors(errorLines);
     const errors = (deduped || combined.slice(0, 2000)).trim();
-    logBlock("orchestrator", "Build check failed", errors);
+    log("build", `Build failed (exit ${exitCode})`, { errorLines: errorLines.length, chars: errors.length });
+    logBlock("build", "Build errors", errors);
     return errors;
   } catch (err) {
-    logError("orchestrator", "Build check process error", err);
+    logError("build", "Build check process error", err);
     return null; // Don't block pipeline on check failure
   }
 }
@@ -3295,7 +3296,7 @@ export async function runProjectTests(
   // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath);
 
-  log("orchestrator", `Running tests in ${fullPath}...`);
+  log("test", `Running tests in ${fullPath}...`);
 
   const TEST_TIMEOUT_MS = 60_000;
 
@@ -3305,7 +3306,7 @@ export async function runProjectTests(
     // Smart re-run: only run specific failed test files instead of full suite
     if (failedTestFiles && failedTestFiles.length > 0) {
       vitestArgs.push(...failedTestFiles);
-      log("orchestrator", `Smart test re-run: only running ${failedTestFiles.length} failed file(s)`);
+      log("test", `Smart re-run: only running ${failedTestFiles.length} failed file(s)`);
     }
     const proc = Bun.spawn(
       vitestArgs,
@@ -3349,7 +3350,7 @@ export async function runProjectTests(
     const exitResult = await Promise.race([proc.exited, timeout]);
 
     if (exitResult === "timeout") {
-      logWarn("orchestrator", `Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
+      logWarn("test", `Test run timed out after ${TEST_TIMEOUT_MS / 1000}s — killing process`);
       proc.kill();
       return null;
     }
@@ -3358,7 +3359,7 @@ export async function runProjectTests(
     const stderr = await new Response(proc.stderr).text();
 
     if (stderr.trim()) {
-      logBlock("orchestrator", "Test stderr", stderr.trim().slice(0, 2000));
+      logBlock("test", "Test stderr", stderr.trim().slice(0, 2000));
     }
 
     // Read JSON output from file (json reporter writes to outputFile)
@@ -3392,10 +3393,10 @@ export async function runProjectTests(
       completedAt: Date.now(),
     });
 
-    log("orchestrator", `Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
+    log("test", `Tests: ${result.passed}/${result.total} passed, ${result.failed} failed`);
     return result;
   } catch (err) {
-    logError("orchestrator", "Test runner error", err);
+    logError("test", "Test runner error", err);
     return null;
   }
 }
