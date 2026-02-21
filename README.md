@@ -37,7 +37,7 @@ Open `http://localhost:5173`, configure an API key in Settings, and describe wha
 
 ## Documentation
 
-Full docs live in the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)**:
+Full docs live in the **Wiki**:
 
 - [Home](https://github.com/anthonybaldwin/page-gen/wiki) — Quick start, tech stack overview
 - [Architecture](https://github.com/anthonybaldwin/page-gen/wiki/Architecture) — System overview, agent pipeline, layout
