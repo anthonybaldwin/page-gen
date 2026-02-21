@@ -73,7 +73,7 @@ const HTML = `<!DOCTYPE html>
   .extra-row td { padding: 0 10px 6px 10px; border-bottom: 1px solid #313244; }
   .extra-content { background: #11111b; border-radius: 4px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; color: #bac2de; max-height: 400px; overflow: auto; }
   .highlight { background: #f9e2af33; border-radius: 2px; }
-  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 8px; padding: 10px 18px; font-size: 12px; display: flex; align-items: center; gap: 10px; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #45475a; color: #f5f5f5; border: 1px solid #6c7086; border-radius: 8px; padding: 10px 18px; font-size: 12px; display: flex; align-items: center; gap: 10px; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
   .toast.visible { opacity: 1; pointer-events: auto; }
   .toast button { background: #89b4fa; color: #1e1e2e; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; }
   .toast button:hover { background: #b4d0fb; }
@@ -101,7 +101,7 @@ const HTML = `<!DOCTYPE html>
   <button id="btn-refresh" title="Reload logs">Refresh</button>
   <span class="count" id="count"></span>
 </div>
-<div class="toast" id="toast">Tailing paused — you scrolled away <button id="toast-resume">Resume</button></div>
+<div class="toast" id="toast">Tailing paused <button id="toast-resume">Resume</button></div>
 <table>
   <thead><tr><th class="ts">Time</th><th class="level">Level</th><th class="tag">Tag</th><th class="msg">Message</th></tr></thead>
   <tbody id="log-body"></tbody>
@@ -211,7 +211,7 @@ function render() {
 function showToast() {
   clearTimeout(toastTimer);
   toast.classList.add('visible');
-  toastTimer = setTimeout(() => toast.classList.remove('visible'), 4000);
+  toastTimer = setTimeout(() => toast.classList.remove('visible'), 6000);
 }
 
 function pauseTailing() {
