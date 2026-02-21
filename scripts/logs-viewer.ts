@@ -73,6 +73,14 @@ const HTML = `<!DOCTYPE html>
   .extra-row td { padding: 0 10px 6px 10px; border-bottom: 1px solid #313244; }
   .extra-content { background: #11111b; border-radius: 4px; padding: 8px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; color: #bac2de; max-height: 400px; overflow: auto; }
   .highlight { background: #f9e2af33; border-radius: 2px; }
+  tr.highlighted { border-left: 3px solid #f9e2af; background: #f9e2af0d; }
+  tr.highlighted:hover { background: #f9e2af1a; }
+  tr.highlighted.expanded { background: #f9e2af1a; }
+  .hl-controls { display: flex; align-items: center; gap: 6px; border-left: 1px solid #45475a; padding-left: 8px; margin-left: 4px; }
+  .hl-controls .hl-count { color: #f9e2af; font-size: 11px; font-weight: 600; }
+  .hl-controls button { background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 11px; }
+  .hl-controls button:hover { background: #45475a; }
+  .hl-controls .hl-clear { color: #f38ba8; }
   .toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #45475a; color: #f5f5f5; border: 1px solid #6c7086; border-radius: 8px; padding: 10px 18px; font-size: 12px; display: flex; align-items: center; gap: 10px; z-index: 100; box-shadow: 0 4px 16px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
   .toast.visible { opacity: 1; pointer-events: auto; }
   .toast button { background: #89b4fa; color: #1e1e2e; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; }
@@ -99,6 +107,12 @@ const HTML = `<!DOCTYPE html>
   <button id="btn-sort" title="Toggle sort direction">Newest first</button>
   <button id="btn-tail" title="Auto-scroll to newest">Tail</button>
   <button id="btn-refresh" title="Reload logs">Refresh</button>
+  <span class="hl-controls" id="hl-controls" style="display:none">
+    <span class="hl-count" id="hl-count"></span>
+    <button id="hl-prev" title="Previous highlight (k)">&#9650; Prev</button>
+    <button id="hl-next" title="Next highlight (j)">&#9660; Next</button>
+    <button id="hl-clear" class="hl-clear" title="Clear all highlights">Clear</button>
+  </span>
   <span class="count" id="count"></span>
 </div>
 <div class="toast" id="toast">Tailing paused <button id="toast-resume">Resume</button></div>
@@ -111,6 +125,7 @@ let allLogs = [];
 let tailing = true;
 let sortNewest = true;
 let pollTimer = null;
+const highlighted = new Set();
 
 const body = document.getElementById('log-body');
 const levelFilter = document.getElementById('level-filter');
@@ -124,6 +139,11 @@ const btnTail = document.getElementById('btn-tail');
 const btnRefresh = document.getElementById('btn-refresh');
 const toast = document.getElementById('toast');
 const toastResume = document.getElementById('toast-resume');
+const hlControls = document.getElementById('hl-controls');
+const hlCount = document.getElementById('hl-count');
+const hlPrev = document.getElementById('hl-prev');
+const hlNext = document.getElementById('hl-next');
+const hlClear = document.getElementById('hl-clear');
 let toastTimer = null;
 let scrolledByRender = false;
 
@@ -145,7 +165,7 @@ function highlightText(text, q) {
 }
 
 function extraFields(entry) {
-  const skip = new Set(['ts','level','tag','msg']);
+  const skip = new Set(['ts','level','tag','msg','_idx']);
   const extra = {};
   let has = false;
   for (const [k,v] of Object.entries(entry)) {
@@ -181,11 +201,13 @@ function render() {
 
   const rows = [];
   for (const entry of filtered) {
+    const idx = entry._idx;
     const extra = extraFields(entry);
     const id = 'r' + rows.length;
     const toggleHtml = extra ? '<span class="extra-toggle" data-id="' + id + '">+data</span>' : '';
+    const hlClass = highlighted.has(idx) ? ' highlighted' : '';
     rows.push(
-      '<tr>' +
+      '<tr data-idx="' + idx + '" class="' + hlClass.trim() + '">' +
         '<td class="ts">' + fmtTime(entry.ts) + '</td>' +
         '<td class="level level-' + entry.level + '">' + entry.level + '</td>' +
         '<td class="tag">' + escHtml(entry.tag) + '</td>' +
@@ -201,6 +223,7 @@ function render() {
     }
   }
   body.innerHTML = rows.join('');
+  updateHlControls();
 
   if (tailing) {
     scrolledByRender = true;
@@ -246,19 +269,69 @@ function populateTags() {
 async function fetchLogs() {
   const res = await fetch('/api/logs');
   allLogs = await res.json();
+  allLogs.forEach((e, i) => e._idx = i);
   populateTags();
   render();
 }
 
 body.addEventListener('click', e => {
   const toggle = e.target.closest('.extra-toggle');
-  if (!toggle) return;
-  const row = document.getElementById(toggle.dataset.id);
-  if (!row) return;
-  const visible = row.style.display !== 'none';
-  row.style.display = visible ? 'none' : '';
-  toggle.textContent = visible ? '+data' : '-data';
-  toggle.closest('tr')?.classList.toggle('expanded', !visible);
+  if (toggle) {
+    const row = document.getElementById(toggle.dataset.id);
+    if (!row) return;
+    const visible = row.style.display !== 'none';
+    row.style.display = visible ? 'none' : '';
+    toggle.textContent = visible ? '+data' : '-data';
+    toggle.closest('tr')?.classList.toggle('expanded', !visible);
+    return;
+  }
+  const tr = e.target.closest('tr[data-idx]');
+  if (!tr) return;
+  const idx = Number(tr.dataset.idx);
+  if (highlighted.has(idx)) { highlighted.delete(idx); } else { highlighted.add(idx); }
+  tr.classList.toggle('highlighted', highlighted.has(idx));
+  updateHlControls();
+});
+
+function updateHlControls() {
+  if (highlighted.size > 0) {
+    hlControls.style.display = 'flex';
+    hlCount.textContent = highlighted.size + ' marked';
+  } else {
+    hlControls.style.display = 'none';
+  }
+}
+
+function getVisibleHighlightedRows() {
+  return [...body.querySelectorAll('tr.highlighted[data-idx]')];
+}
+
+function scrollToHighlight(dir) {
+  const rows = getVisibleHighlightedRows();
+  if (!rows.length) return;
+  const scrollY = window.scrollY;
+  const viewMid = scrollY + window.innerHeight / 2;
+  if (dir === 'next') {
+    const next = rows.find(r => r.getBoundingClientRect().top + scrollY > viewMid + 5);
+    (next || rows[0]).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    const prev = [...rows].reverse().find(r => r.getBoundingClientRect().top + scrollY < viewMid - 5);
+    (prev || rows[rows.length - 1]).scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+hlPrev.addEventListener('click', () => scrollToHighlight('prev'));
+hlNext.addEventListener('click', () => scrollToHighlight('next'));
+hlClear.addEventListener('click', () => {
+  highlighted.clear();
+  body.querySelectorAll('tr.highlighted').forEach(r => r.classList.remove('highlighted'));
+  updateHlControls();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'j') scrollToHighlight('next');
+  if (e.key === 'k') scrollToHighlight('prev');
 });
 
 levelFilter.addEventListener('change', render);
