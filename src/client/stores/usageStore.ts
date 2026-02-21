@@ -13,6 +13,9 @@ interface UsageState {
   activeProjectId: string | null;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  chatWsDelta: number;
+  projectWsDelta: number;
+  totalWsDelta: number;
   setRecords: (records: TokenUsage[]) => void;
   addRecord: (record: TokenUsage) => void;
   setActiveChatId: (chatId: string | null) => void;
@@ -47,6 +50,9 @@ export const useUsageStore = create<UsageState>((set) => ({
   activeProjectId: null,
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
+  chatWsDelta: 0,
+  projectWsDelta: 0,
+  totalWsDelta: 0,
 
   setRecords: (records) =>
     set({
@@ -66,25 +72,32 @@ export const useUsageStore = create<UsageState>((set) => ({
     }),
 
   setActiveChatId: (chatId) =>
-    set({ activeChatId: chatId, chatTokens: 0, chatCost: 0 }),
+    set((state) => {
+      if (state.activeChatId === chatId) return {};
+      return { activeChatId: chatId, chatTokens: 0, chatCost: 0, chatWsDelta: 0 };
+    }),
 
   setActiveProjectId: (projectId) =>
-    set({ activeProjectId: projectId, projectTokens: 0, projectCost: 0 }),
+    set((state) => {
+      if (state.activeProjectId === projectId) return {};
+      return { activeProjectId: projectId, projectTokens: 0, projectCost: 0, projectWsDelta: 0 };
+    }),
 
   setLifetimeCost: (cost) =>
-    set({ totalCost: cost }),
+    set((state) => ({ totalCost: cost + state.totalWsDelta })),
 
   seedChatCost: (cost) =>
-    set({ chatCost: cost }),
+    set((state) => ({ chatCost: cost + state.chatWsDelta })),
 
   seedProjectCost: (cost) =>
-    set({ projectCost: cost }),
+    set((state) => ({ projectCost: cost + state.projectWsDelta })),
 
   addFromWs: (payload) =>
     set((state) => {
       const newTotal = {
         totalTokens: state.totalTokens + payload.totalTokens,
         totalCost: state.totalCost + payload.costEstimate,
+        totalWsDelta: state.totalWsDelta + payload.costEstimate,
         cacheCreationTokens: state.cacheCreationTokens + (payload.cacheCreationInputTokens || 0),
         cacheReadTokens: state.cacheReadTokens + (payload.cacheReadInputTokens || 0),
       };
@@ -93,6 +106,7 @@ export const useUsageStore = create<UsageState>((set) => ({
           ? {
               chatTokens: state.chatTokens + payload.totalTokens,
               chatCost: state.chatCost + payload.costEstimate,
+              chatWsDelta: state.chatWsDelta + payload.costEstimate,
             }
           : {};
       const projectUpdate =
@@ -100,6 +114,7 @@ export const useUsageStore = create<UsageState>((set) => ({
           ? {
               projectTokens: state.projectTokens + payload.totalTokens,
               projectCost: state.projectCost + payload.costEstimate,
+              projectWsDelta: state.projectWsDelta + payload.costEstimate,
             }
           : {};
       return { ...newTotal, ...chatUpdate, ...projectUpdate };

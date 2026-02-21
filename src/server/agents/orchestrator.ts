@@ -1037,6 +1037,8 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         error: null, retryCount: 0,
         startedAt: Date.now(), completedAt: Date.now(),
       });
+      const classifyCacheCreate = classification.tokenUsage.cacheCreationInputTokens || 0;
+      const classifyCacheRead = classification.tokenUsage.cacheReadInputTokens || 0;
       trackTokenUsage({
         executionId: classifyExecId,
         chatId,
@@ -1046,9 +1048,29 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         apiKey: providerKey,
         inputTokens: classification.tokenUsage.inputTokens,
         outputTokens: classification.tokenUsage.outputTokens,
-        cacheCreationInputTokens: classification.tokenUsage.cacheCreationInputTokens || 0,
-        cacheReadInputTokens: classification.tokenUsage.cacheReadInputTokens || 0,
+        cacheCreationInputTokens: classifyCacheCreate,
+        cacheReadInputTokens: classifyCacheRead,
         projectId, projectName, chatTitle,
+      });
+      const classifyTotalTokens = classification.tokenUsage.inputTokens + classification.tokenUsage.outputTokens
+        + classifyCacheCreate + classifyCacheRead;
+      const classifyCostEst = estimateCost(
+        classification.tokenUsage.provider, classification.tokenUsage.model,
+        classification.tokenUsage.inputTokens, classification.tokenUsage.outputTokens,
+        classifyCacheCreate, classifyCacheRead,
+      );
+      broadcastTokenUsage({
+        chatId,
+        projectId,
+        agentName: "orchestrator:classify",
+        provider: classification.tokenUsage.provider,
+        model: classification.tokenUsage.model,
+        inputTokens: classification.tokenUsage.inputTokens,
+        outputTokens: classification.tokenUsage.outputTokens,
+        totalTokens: classifyTotalTokens,
+        cacheCreationInputTokens: classifyCacheCreate,
+        cacheReadInputTokens: classifyCacheRead,
+        costEstimate: classifyCostEst,
       });
     }
   }

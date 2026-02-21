@@ -226,6 +226,8 @@ export function ChatWindow() {
           inputTokens: number;
           outputTokens: number;
           totalTokens: number;
+          cacheCreationInputTokens?: number;
+          cacheReadInputTokens?: number;
           costEstimate: number;
         };
         useUsageStore.getState().addFromWs(payload);
