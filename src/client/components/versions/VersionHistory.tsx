@@ -7,7 +7,7 @@ import type { VersionEntry } from "../../stores/versionStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
-import { RotateCcw, Bookmark, Loader2, GitCommit, ArrowRight, Trash2 } from "lucide-react";
+import { RotateCcw, Bookmark, Loader2, GitCommit, ArrowRight, Trash2, Check, AlertCircle } from "lucide-react";
 
 export function VersionHistory() {
   const activeProject = useProjectStore((s) => s.activeProject);
@@ -18,6 +18,7 @@ export function VersionHistory() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [showLabelInput, setShowLabelInput] = useState(false);
   const [label, setLabel] = useState("");
   const [gitUnavailable, setGitUnavailable] = useState(false);
@@ -65,6 +66,7 @@ export function VersionHistory() {
     if (!activeProject) return;
     setSaving(true);
     setError(null);
+    setSaveSuccess(false);
     try {
       const result = await api.post<{ sha: string | null; note?: string }>("/versions", {
         projectId: activeProject.id,
@@ -75,6 +77,8 @@ export function VersionHistory() {
       } else {
         setLabel("");
         setShowLabelInput(false);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2500);
       }
       await loadVersions();
     } catch {
@@ -134,7 +138,16 @@ export function VersionHistory() {
   return (
     <div className="p-4">
       {error && (
-        <p className="text-xs text-destructive mb-2">{error}</p>
+        <div className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded bg-destructive/10 border border-destructive/20">
+          <AlertCircle className="h-3 w-3 text-destructive shrink-0" />
+          <p className="text-xs text-destructive">{error}</p>
+        </div>
+      )}
+      {saveSuccess && (
+        <div className="flex items-center gap-1.5 px-2 py-1.5 mb-2 rounded bg-emerald-500/10 border border-emerald-500/20">
+          <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">Version saved</p>
+        </div>
       )}
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-foreground/80">Versions</h3>
