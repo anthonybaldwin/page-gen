@@ -846,11 +846,15 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} failed`, err, { agent: stepKey, attempt });
 
-      // Void provisional token records when retrying (next attempt creates fresh ones).
-      // On the final attempt, keep the estimate so the cost isn't silently lost —
-      // Anthropic already charged for the tokens even though the call failed.
+      // Decide whether to void or keep the provisional billing record.
+      // - Retrying: always void (next attempt creates a fresh provisional)
+      // - Final attempt: keep the estimate ONLY if Anthropic likely charged
+      //   (stream/response errors). Void if the request never reached the API
+      //   (connection refused, DNS failure, etc.) since no tokens were consumed.
       if (provisionalIds) {
-        if (attempt < MAX_RETRIES) {
+        const errMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+        const likelyNoCharge = /connect|econnrefused|dns|etimedout|enotfound|socket hang up/i.test(errMsg);
+        if (attempt < MAX_RETRIES || likelyNoCharge) {
           voidProvisionalUsage(provisionalIds);
         }
         provisionalIds = null;
