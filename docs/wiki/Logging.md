@@ -65,7 +65,7 @@ Additional fields are spread to the top level of the JSON object (not nested und
 | `orchestrator:classify` | `src/server/agents/orchestrator.ts` | Intent classification results (intent, scope, reasoning) |
 | `build` | `src/server/agents/orchestrator.ts` | Build check execution (run, pass, fail, timeout) |
 | `test` | `src/server/agents/orchestrator.ts` | Test runner execution (run, results, timeout, smart re-run) |
-| `snapshot` | `src/server/services/snapshot.ts` | Snapshot create, rollback, pruning |
+| `versioning` | `src/server/services/versioning.ts` | Version create, rollback, delete, pruning |
 | `pipeline` | `src/server/agents/base.ts` | Individual agent calls — model, prompt size, token usage, stream events, cache tokens |
 | `llm-http` | `src/server/providers/registry.ts` | Outbound LLM API calls (request model/messages/maxTokens, response status/elapsed/requestId/rateLimits/errors) |
 | `billing` | `src/server/services/token-tracker.ts`, `cost-limiter.ts`, `src/server/agents/base.ts`, `src/server/routes/usage.ts` | Per-call token counts and cost estimates (actual, provisional, finalized, voided), cost limit warnings, and usage resets |
@@ -232,12 +232,13 @@ Additional fields are spread to the top level of the JSON object (not nested und
 {"ts":"2026-02-20T15:30:60.000Z","level":"warn","tag":"test","msg":"Test run timed out after 60s — killing process"}
 ```
 
-### `snapshot`
+### `versioning`
 
 ```json
-{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"snapshot","msg":"Created snapshot \"v1\"","snapshotId":"snap_abc","projectId":"proj_789","files":5}
-{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"snapshot","msg":"Rolled back to snapshot snap_abc","projectId":"proj_789","files":5}
-{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"snapshot","msg":"Pruned 3 old snapshots","projectId":"proj_789","pruned":3}
+{"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"versioning","msg":"Auto-committed: Added hero section","sha":"abc1234"}
+{"ts":"2026-02-20T15:30:02.000Z","level":"info","tag":"versioning","msg":"Rolled back to abc1234","projectPath":"projects/proj_789"}
+{"ts":"2026-02-20T15:30:03.000Z","level":"info","tag":"versioning","msg":"Deleted version def5678","projectPath":"projects/proj_789"}
+{"ts":"2026-02-20T15:30:04.000Z","level":"info","tag":"versioning","msg":"Pruned version abc1234 (auto-rotation)","projectPath":"projects/proj_789"}
 ```
 
 ### LLM Log References

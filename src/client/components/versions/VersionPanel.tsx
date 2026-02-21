@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Trash2,
   X,
   Loader2,
   FileText,
@@ -113,6 +114,8 @@ export function VersionPanel() {
   const [viewMode, setViewMode] = useState<ViewMode>("changes");
   const [rolling, setRolling] = useState(false);
   const [rollbackError, setRollbackError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -125,6 +128,10 @@ export function VersionPanel() {
   const currentIndex = versions.findIndex((v) => v.sha === activeVersionSha);
   const hasPrev = currentIndex < versions.length - 1;
   const hasNext = currentIndex > 0;
+  const isHead = currentIndex === 0;
+  const isInitial = currentVersion?.isInitial ?? false;
+  const canRollback = !isInitial && !isHead;
+  const canDelete = !isInitial && !isHead;
 
   // Load diff when sha changes
   useEffect(() => {
@@ -179,6 +186,30 @@ export function VersionPanel() {
       setRollbackError(errObj?.error || "Rollback failed");
     } finally {
       setRolling(false);
+    }
+  }
+
+  async function handleDeleteVersion() {
+    if (!activeVersionSha || !projectId) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await api.delete(`/versions/${activeVersionSha}?projectId=${projectId}`);
+      // Navigate to nearest version or close
+      if (hasPrev) {
+        const prev = versions[currentIndex + 1];
+        if (prev) setActiveVersionSha(prev.sha);
+      } else if (hasNext) {
+        const next = versions[currentIndex - 1];
+        if (next) setActiveVersionSha(next.sha);
+      } else {
+        handleClose();
+      }
+    } catch (err: unknown) {
+      const errObj = err as { error?: string };
+      setDeleteError(errObj?.error || "Delete failed");
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -245,20 +276,39 @@ export function VersionPanel() {
 
           <div className="w-px h-5 bg-border mx-1" />
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500"
-            onClick={handleRollback}
-            disabled={rolling}
-          >
-            {rolling ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-            ) : (
-              <RotateCcw className="h-3.5 w-3.5 mr-1" />
-            )}
-            Rollback
-          </Button>
+          {canRollback && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-500"
+              onClick={handleRollback}
+              disabled={rolling}
+            >
+              {rolling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+              )}
+              Rollback
+            </Button>
+          )}
+
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-destructive/70 hover:text-destructive"
+              onClick={handleDeleteVersion}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Delete
+            </Button>
+          )}
 
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={handleClose}>
             <X className="h-3.5 w-3.5" />
@@ -266,10 +316,10 @@ export function VersionPanel() {
         </div>
       </div>
 
-      {/* Rollback error */}
-      {rollbackError && (
+      {/* Rollback/Delete error */}
+      {(rollbackError || deleteError) && (
         <div className="px-4 py-1.5 bg-destructive/10 text-destructive text-xs border-b border-border">
-          {rollbackError}
+          {rollbackError || deleteError}
         </div>
       )}
 

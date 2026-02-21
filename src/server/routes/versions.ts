@@ -6,6 +6,7 @@ import {
   listVersions,
   userCommit,
   rollbackToVersion,
+  deleteVersion,
   getDiff,
   getFileTreeAtVersion,
   ensureGitRepo,
@@ -82,6 +83,29 @@ versionRoutes.post("/:sha/rollback", async (c) => {
   if (!result.ok) return c.json({ error: result.error || "Rollback failed" }, 500);
 
   return c.json({ ok: true, restoredTo: sha });
+});
+
+// Delete a specific version (squash it out of history)
+versionRoutes.delete("/:sha", (c) => {
+  const sha = c.req.param("sha");
+  const projectId = c.req.query("projectId");
+  if (!projectId) return c.json({ error: "projectId required" }, 400);
+
+  if (!checkGitAvailable()) {
+    return c.json({ error: "Git is not available", gitUnavailable: true }, 503);
+  }
+
+  const project = db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (!project) return c.json({ error: "Project not found" }, 404);
+
+  const result = deleteVersion(project.path, sha);
+  if (!result.ok) return c.json({ error: result.error || "Delete failed" }, 400);
+
+  return c.json({ ok: true });
 });
 
 // Get diff for a specific version

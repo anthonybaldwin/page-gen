@@ -8,6 +8,7 @@ import {
   USER_COMMIT_PREFIX,
   MAX_AUTO_VERSIONS_DISPLAY,
   MAX_USER_VERSIONS_DISPLAY,
+  MAX_VERSIONS_RETAINED,
   DEFAULT_GIT_NAME,
   DEFAULT_GIT_EMAIL,
   DEFAULT_GITIGNORE,
@@ -255,6 +256,10 @@ export function autoCommit(
   log("versioning", `Auto-committed: ${safeMessage}`, {
     sha: sha.stdout.slice(0, 7),
   });
+
+  // Auto-rotate: prune oldest versions if over cap
+  pruneExcessVersions(projectPath);
+
   return sha.stdout;
 }
 
@@ -290,6 +295,10 @@ export function userCommit(
   log("versioning", `User committed: ${safeLabel}`, {
     sha: sha.stdout.slice(0, 7),
   });
+
+  // Auto-rotate: prune oldest versions if over cap
+  pruneExcessVersions(projectPath);
+
   return sha.stdout;
 }
 
@@ -299,6 +308,7 @@ export interface VersionEntry {
   message: string;
   timestamp: number;
   isUserVersion: boolean;
+  isInitial: boolean;
 }
 
 export function listVersions(projectPath: string): VersionEntry[] {
@@ -310,6 +320,10 @@ export function listVersions(projectPath: string): VersionEntry[] {
     logError("versioning", `listVersions skipped: repo init failed`, { projectPath });
     return [];
   }
+
+  // Find root commit SHA
+  const rootResult = runGit(projectPath, ["rev-list", "--max-parents=0", "HEAD"]);
+  const rootSha = rootResult.exitCode === 0 ? rootResult.stdout.split("\n")[0]?.trim() : "";
 
   const result = runGit(projectPath, [
     "log",
@@ -333,6 +347,7 @@ export function listVersions(projectPath: string): VersionEntry[] {
       message,
       timestamp: parseInt(timestampStr || "0", 10),
       isUserVersion: isUser,
+      isInitial: sha === rootSha,
     };
 
     if (isUser) {
@@ -378,6 +393,19 @@ export function rollbackToVersion(
   if (verify.exitCode !== 0 || verify.stdout !== "commit") {
     logError("versioning", `SHA not found or not a commit: ${sha}`);
     return { ok: false, error: "Version not found" };
+  }
+
+  // Reject rollback to initial commit (no parent to diff against)
+  const rootResult = runGit(projectPath, ["rev-list", "--max-parents=0", "HEAD"]);
+  if (rootResult.exitCode === 0) {
+    const rootSha = rootResult.stdout.split("\n")[0]?.trim();
+    if (rootSha && sha.startsWith(rootSha.slice(0, sha.length))) {
+      // Resolve short SHA to full for accurate comparison
+      const fullSha = runGit(projectPath, ["rev-parse", sha]);
+      if (fullSha.exitCode === 0 && fullSha.stdout === rootSha) {
+        return { ok: false, error: "Cannot roll back to the initial version" };
+      }
+    }
   }
 
   // Checkout files from that commit
@@ -491,6 +519,146 @@ export function getFileTreeAtVersion(
   if (!result.stdout) return [];
 
   return result.stdout.split("\n").filter(Boolean).sort();
+}
+
+export function deleteVersion(
+  projectPath: string,
+  sha: string,
+): { ok: boolean; error?: string } {
+  if (!checkGitAvailable()) return { ok: false, error: "Git is not available" };
+  if (!ensureGitRepo(projectPath)) return { ok: false, error: "Could not initialize git repo" };
+
+  // Validate SHA format
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) {
+    return { ok: false, error: `Invalid SHA format: ${sha}` };
+  }
+
+  // Resolve to full SHA
+  const resolvedSha = runGit(projectPath, ["rev-parse", sha]);
+  if (resolvedSha.exitCode !== 0) {
+    return { ok: false, error: "Version not found" };
+  }
+  const fullSha = resolvedSha.stdout;
+
+  // Count total commits
+  const countResult = runGit(projectPath, ["rev-list", "--count", "HEAD"]);
+  const totalCommits = parseInt(countResult.stdout || "0", 10);
+  if (totalCommits <= 1) {
+    return { ok: false, error: "Cannot delete the only version" };
+  }
+
+  // Reject deleting HEAD
+  const headResult = runGit(projectPath, ["rev-parse", "HEAD"]);
+  if (headResult.exitCode === 0 && headResult.stdout === fullSha) {
+    return { ok: false, error: "Cannot delete the latest version" };
+  }
+
+  // Reconstruct history using commit-tree, skipping the deleted commit.
+  // Each commit's tree (full snapshot) is preserved — no diffs/rebasing needed.
+  const logResult = runGit(projectPath, ["log", "--reverse", "--format=%H"]);
+  if (logResult.exitCode !== 0 || !logResult.stdout) {
+    return { ok: false, error: "Failed to read commit history" };
+  }
+
+  const allShas = logResult.stdout.split("\n").filter(Boolean);
+  const kept = allShas.filter((s) => s !== fullSha);
+  if (kept.length === 0) {
+    return { ok: false, error: "Cannot delete all commits" };
+  }
+
+  // Rebuild chain: for each kept commit, create a new commit with same tree+message
+  let prevNewSha: string | null = null;
+  for (const oldSha of kept) {
+    const tree = runGit(projectPath, ["rev-parse", `${oldSha}^{tree}`]);
+    if (tree.exitCode !== 0) {
+      return { ok: false, error: `Failed to read tree for ${oldSha.slice(0, 7)}` };
+    }
+
+    const msg = runGit(projectPath, ["log", "-1", "--format=%B", oldSha]);
+    if (msg.exitCode !== 0) {
+      return { ok: false, error: `Failed to read message for ${oldSha.slice(0, 7)}` };
+    }
+
+    const commitArgs = ["commit-tree", tree.stdout, "-m", msg.stdout];
+    if (prevNewSha) {
+      commitArgs.push("-p", prevNewSha);
+    }
+
+    const newCommit = runGit(projectPath, commitArgs);
+    if (newCommit.exitCode !== 0) {
+      return { ok: false, error: `Failed to create commit: ${newCommit.stderr}` };
+    }
+    prevNewSha = newCommit.stdout;
+  }
+
+  // Point HEAD at the new chain
+  const reset = runGit(projectPath, ["reset", "--hard", prevNewSha!]);
+  if (reset.exitCode !== 0) {
+    return { ok: false, error: `Reset failed: ${reset.stderr}` };
+  }
+
+  // Reclaim disk space
+  runGit(projectPath, ["reflog", "expire", "--expire=now", "--all"]);
+  runGit(projectPath, ["gc", "--prune=now"]);
+
+  log("versioning", `Deleted version ${fullSha.slice(0, 7)}`, { projectPath });
+  return { ok: true };
+}
+
+export function pruneExcessVersions(projectPath: string): void {
+  if (!checkGitAvailable()) return;
+
+  const countResult = runGit(projectPath, ["rev-list", "--count", "HEAD"]);
+  let totalCommits = parseInt(countResult.stdout || "0", 10);
+
+  while (totalCommits > MAX_VERSIONS_RETAINED) {
+    // Walk oldest-first, find first auto-commit to prune
+    const logResult = runGit(projectPath, ["log", "--reverse", "--format=%H|%s"]);
+    if (logResult.exitCode !== 0 || !logResult.stdout) break;
+
+    const lines = logResult.stdout.split("\n").filter(Boolean);
+    const headResult = runGit(projectPath, ["rev-parse", "HEAD"]);
+    const headSha = headResult.exitCode === 0 ? headResult.stdout : "";
+
+    let targetSha: string | null = null;
+
+    // First pass: find oldest auto-commit (not HEAD)
+    for (const line of lines) {
+      const pipeIdx = line.indexOf("|");
+      const sha = line.slice(0, pipeIdx);
+      const msg = line.slice(pipeIdx + 1);
+      if (sha === headSha) continue; // Never prune HEAD
+      if (msg.startsWith(AUTO_COMMIT_PREFIX)) {
+        targetSha = sha;
+        break;
+      }
+    }
+
+    // Fallback: if all versions are user-saved, prune absolute oldest (not HEAD)
+    if (!targetSha) {
+      for (const line of lines) {
+        const pipeIdx = line.indexOf("|");
+        const sha = line.slice(0, pipeIdx);
+        if (sha === headSha) continue;
+        targetSha = sha;
+        break;
+      }
+    }
+
+    if (!targetSha) break; // Nothing prunable
+
+    const result = deleteVersion(projectPath, targetSha);
+    if (!result.ok) {
+      logWarn("versioning", `Pruning failed for ${targetSha.slice(0, 7)}: ${result.error}`);
+      break;
+    }
+
+    log("versioning", `Pruned version ${targetSha.slice(0, 7)} (auto-rotation)`, { projectPath });
+
+    // Recount
+    const recount = runGit(projectPath, ["rev-list", "--count", "HEAD"]);
+    totalCommits = parseInt(recount.stdout || "0", 10);
+  }
 }
 
 export function applyGitConfig(projectPath: string): void {

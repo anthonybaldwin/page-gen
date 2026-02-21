@@ -14,7 +14,7 @@ The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coor
   - **Summary Writer** (`orchestrator:summary`) → default Sonnet 4.6 ($3/$15 per MTok)
   - **Question Answerer** (`orchestrator:question`) → default Sonnet 4.6 ($3/$15 per MTok)
 - **Role:** Creates execution plan, dispatches agents, synthesizes a single summary, handles errors/retries
-- **Tools:** Agent dispatch, snapshot creation
+- **Tools:** Agent dispatch, version creation
 - **Key behaviors:** Halts on error, supports retry, resumes from existing state
 - **Output:** After all agents complete, the orchestrator generates a clean markdown summary of what was built. This is the only message the user sees — individual agent outputs are collected internally and never shown directly in chat.
 

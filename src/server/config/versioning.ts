@@ -11,6 +11,9 @@ export const USER_COMMIT_PREFIX = "user:";
 // Per-pipeline caps
 export const MAX_AGENT_VERSIONS_PER_RUN = 3;
 
+// Auto-rotation: max total git commits to retain per project
+export const MAX_VERSIONS_RETAINED = 50;
+
 // Stage hook toggle
 export const STAGE_HOOKS_ENABLED = true;
 

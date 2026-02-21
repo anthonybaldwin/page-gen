@@ -107,5 +107,3 @@ export const pipelineRuns = sqliteTable("pipeline_runs", {
   startedAt: integer("started_at").notNull(),
   completedAt: integer("completed_at"),
 });
-
-// snapshots table removed — versioning is now git-based (see services/versioning.ts)

@@ -6,6 +6,7 @@ export interface VersionEntry {
   message: string;
   timestamp: number;
   isUserVersion: boolean;
+  isInitial: boolean;
 }
 
 interface VersionViewState {

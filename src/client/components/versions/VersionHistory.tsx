@@ -6,7 +6,7 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
 import { Input } from "../ui/input.tsx";
-import { RotateCcw, Save, Loader2, GitCommit, ArrowRight } from "lucide-react";
+import { RotateCcw, Save, Loader2, GitCommit, ArrowRight, Trash2 } from "lucide-react";
 
 interface VersionEntry {
   sha: string;
@@ -14,6 +14,7 @@ interface VersionEntry {
   message: string;
   timestamp: number;
   isUserVersion: boolean;
+  isInitial: boolean;
 }
 
 export function VersionHistory() {
@@ -22,6 +23,7 @@ export function VersionHistory() {
   const setActiveTab = useFileStore((s) => s.setActiveTab);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
   const [rolling, setRolling] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showLabelInput, setShowLabelInput] = useState(false);
@@ -82,6 +84,21 @@ export function VersionHistory() {
       setError("Failed to save version");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(sha: string) {
+    if (!activeProject) return;
+    setDeleting(sha);
+    setError(null);
+    try {
+      await api.delete(`/versions/${sha}?projectId=${activeProject.id}`);
+      await loadVersions();
+    } catch (err: unknown) {
+      const errObj = err as { error?: string };
+      setError(errObj?.error || "Delete failed");
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -165,60 +182,82 @@ export function VersionHistory() {
         <p className="text-xs text-muted-foreground/60">No versions yet</p>
       ) : (
         <div className="space-y-2">
-          {versions.map((v) => (
-            <Card
-              key={v.sha}
-              className={`px-3 py-2 shadow-none transition-colors ${
-                activeVersionSha === v.sha
-                  ? "ring-1 ring-primary/50 bg-primary/5"
-                  : ""
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  <GitCommit className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-xs text-foreground/80 truncate">{stripPrefix(v.message)}</p>
-                      {v.isUserVersion && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-primary/10 text-primary shrink-0">
-                          saved
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
-                      <span className="font-mono">{v.sha.slice(0, 7)}</span>
-                      <span>{formatTime(v.timestamp)}</span>
+          {versions.map((v, idx) => {
+            const isHead = idx === 0;
+            const canRollback = !v.isInitial && !isHead;
+            const canDelete = !v.isInitial && !isHead;
+            return (
+              <Card
+                key={v.sha}
+                className={`px-3 py-2 shadow-none transition-colors ${
+                  activeVersionSha === v.sha
+                    ? "ring-1 ring-primary/50 bg-primary/5"
+                    : ""
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <GitCommit className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs text-foreground/80 truncate">{stripPrefix(v.message)}</p>
+                        {v.isUserVersion && (
+                          <span className="text-[10px] px-1 py-0 rounded bg-primary/10 text-primary shrink-0">
+                            saved
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+                        <span className="font-mono">{v.sha.slice(0, 7)}</span>
+                        <span>{formatTime(v.timestamp)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 ml-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 px-1.5 text-[10px] text-muted-foreground"
-                    onClick={() => handleViewDiff(v.sha)}
-                  >
-                    <ArrowRight className="h-3 w-3 mr-0.5" />
-                    View
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 px-1.5 text-[10px] text-amber-600 dark:text-amber-400 hover:text-amber-500"
-                    onClick={() => handleRollback(v.sha)}
-                    disabled={rolling === v.sha}
-                  >
-                    {rolling === v.sha ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-3 w-3" />
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 px-1.5 text-[10px] text-muted-foreground"
+                      onClick={() => handleViewDiff(v.sha)}
+                    >
+                      <ArrowRight className="h-3 w-3 mr-0.5" />
+                      View
+                    </Button>
+                    {canRollback && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-1.5 text-[10px] text-amber-600 dark:text-amber-400 hover:text-amber-500"
+                        onClick={() => handleRollback(v.sha)}
+                        disabled={rolling === v.sha}
+                      >
+                        {rolling === v.sha ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3 w-3" />
+                        )}
+                      </Button>
                     )}
-                  </Button>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-1.5 text-[10px] text-destructive/70 hover:text-destructive"
+                        onClick={() => handleDelete(v.sha)}
+                        disabled={deleting === v.sha}
+                      >
+                        {deleting === v.sha ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
