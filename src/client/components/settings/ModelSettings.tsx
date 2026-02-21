@@ -137,15 +137,12 @@ function AgentModelCard({
   const [provider, setProvider] = useState(config.provider);
   const [model, setModel] = useState(config.model);
 
-  // Pricing edit state
-  const [editingPricing, setEditingPricing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState("");
   const [editOutput, setEditOutput] = useState("");
-
-  // Limits edit state
-  const [editingLimits, setEditingLimits] = useState(false);
   const [editMaxTokens, setEditMaxTokens] = useState("");
   const [editMaxSteps, setEditMaxSteps] = useState("");
+  const [savingOverrides, setSavingOverrides] = useState(false);
 
   useEffect(() => {
     setProvider(config.provider);
@@ -161,35 +158,46 @@ function AgentModelCard({
   }
 
   const pricingInfo = pricing.find((p) => p.model === model);
+  const hasOverrides = pricingInfo?.isOverridden || limits?.isOverridden;
 
-  async function handlePricingSave() {
-    const inp = parseFloat(editInput);
-    const out = parseFloat(editOutput);
-    if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) return;
-    await api.put(`/settings/pricing/${model}`, { input: inp, output: out });
-    setEditingPricing(false);
-    await onRefresh();
+  function openEdit() {
+    setEditInput(String(pricingInfo?.input ?? ""));
+    setEditOutput(String(pricingInfo?.output ?? ""));
+    setEditMaxTokens(String(limits?.maxOutputTokens ?? ""));
+    setEditMaxSteps(String(limits?.maxToolSteps ?? ""));
+    setEditing(true);
   }
 
-  async function handlePricingReset() {
-    await api.delete(`/settings/pricing/${model}`);
-    setEditingPricing(false);
-    await onRefresh();
+  async function handleSaveOverrides() {
+    setSavingOverrides(true);
+    try {
+      const inp = parseFloat(editInput);
+      const out = parseFloat(editOutput);
+      if (!isNaN(inp) && !isNaN(out) && inp >= 0 && out >= 0) {
+        await api.put(`/settings/pricing/${model}`, { input: inp, output: out });
+      }
+      const tokens = parseInt(editMaxTokens);
+      const steps = parseInt(editMaxSteps);
+      if (!isNaN(tokens) && !isNaN(steps) && tokens >= 1 && steps >= 1) {
+        await api.put(`/settings/agents/${config.name}/limits`, { maxOutputTokens: tokens, maxToolSteps: steps });
+      }
+      setEditing(false);
+      await onRefresh();
+    } finally {
+      setSavingOverrides(false);
+    }
   }
 
-  async function handleLimitsSave() {
-    const tokens = parseInt(editMaxTokens);
-    const steps = parseInt(editMaxSteps);
-    if (isNaN(tokens) || isNaN(steps) || tokens < 1 || steps < 1) return;
-    await api.put(`/settings/agents/${config.name}/limits`, { maxOutputTokens: tokens, maxToolSteps: steps });
-    setEditingLimits(false);
-    await onRefresh();
-  }
-
-  async function handleLimitsReset() {
-    await api.delete(`/settings/agents/${config.name}/limits`);
-    setEditingLimits(false);
-    await onRefresh();
+  async function handleResetOverrides() {
+    setSavingOverrides(true);
+    try {
+      if (pricingInfo?.isOverridden) await api.delete(`/settings/pricing/${model}`);
+      if (limits?.isOverridden) await api.delete(`/settings/agents/${config.name}/limits`);
+      setEditing(false);
+      await onRefresh();
+    } finally {
+      setSavingOverrides(false);
+    }
   }
 
   return (
@@ -258,163 +266,118 @@ function AgentModelCard({
         )}
       </div>
 
-      {/* Pricing line */}
-      {!editingPricing ? (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          {pricingInfo ? (
-            <span className="text-[11px] text-muted-foreground">
-              ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
-            </span>
-          ) : (
-            <span className="text-[11px] text-amber-400">Pricing not configured</span>
+      {!editing ? (
+        <div className="mt-1.5 space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            {pricingInfo ? (
+              <span className="text-[11px] text-muted-foreground">
+                ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
+              </span>
+            ) : (
+              <span className="text-[11px] text-amber-400">Pricing not configured</span>
+            )}
+            {pricingInfo?.isOverridden && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">custom</span>
+            )}
+          </div>
+          {limits && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">
+                {limits.maxOutputTokens.toLocaleString()} max tokens / {limits.maxToolSteps} max steps
+              </span>
+              {limits.isOverridden && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">custom</span>
+              )}
+            </div>
           )}
-          {pricingInfo?.isOverridden && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              custom
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setEditInput(String(pricingInfo?.input ?? ""));
-              setEditOutput(String(pricingInfo?.output ?? ""));
-              setEditingPricing(true);
-            }}
-            className="h-5 w-5 text-muted-foreground hover:text-foreground ml-0.5"
-            title="Edit pricing"
-          >
-            <Pencil className="h-3 w-3" />
-          </Button>
-          {pricingInfo?.isOverridden && (
+          <div className="flex items-center gap-1.5 pt-0.5">
             <Button
               variant="ghost"
               size="sm"
-              onClick={handlePricingReset}
-              className="h-5 px-1.5 text-[10px] text-muted-foreground"
+              onClick={openEdit}
+              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
             >
-              Reset
+              <Pencil className="h-3 w-3" />
+              Edit overrides
             </Button>
-          )}
+            {hasOverrides && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetOverrides}
+                disabled={savingOverrides}
+                className="h-5 px-1.5 text-[10px] text-muted-foreground"
+              >
+                Reset overrides
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="mt-1.5 flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <label className="text-[10px] text-muted-foreground">Input $/1M:</label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={editInput}
-              onChange={(e) => setEditInput(e.target.value)}
-              className="w-16 h-7 text-[11px]"
-            />
+        <div className="mt-2 rounded-md bg-background/50 border border-border/30 p-2.5 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Input $/1M tokens</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editInput}
+                onChange={(e) => setEditInput(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Output $/1M tokens</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editOutput}
+                onChange={(e) => setEditOutput(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Max output tokens</label>
+              <Input
+                type="number"
+                min="1"
+                value={editMaxTokens}
+                onChange={(e) => setEditMaxTokens(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Max tool steps</label>
+              <Input
+                type="number"
+                min="1"
+                value={editMaxSteps}
+                onChange={(e) => setEditMaxSteps(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <label className="text-[10px] text-muted-foreground">Output $/1M:</label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={editOutput}
-              onChange={(e) => setEditOutput(e.target.value)}
-              className="w-16 h-7 text-[11px]"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handlePricingSave}
-            className="h-6 px-2 text-[10px] text-primary"
-          >
-            Save
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditingPricing(false)}
-            className="h-6 px-2 text-[10px] text-muted-foreground"
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
-
-      {/* Limits line */}
-      {limits && !editingLimits && (
-        <div className="mt-1 flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">
-            {limits.maxOutputTokens.toLocaleString()} max tokens / {limits.maxToolSteps} max steps
-          </span>
-          {limits.isOverridden && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              custom
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              setEditMaxTokens(String(limits.maxOutputTokens));
-              setEditMaxSteps(String(limits.maxToolSteps));
-              setEditingLimits(true);
-            }}
-            className="h-5 w-5 text-muted-foreground hover:text-foreground ml-0.5"
-            title="Edit limits"
-          >
-            <Pencil className="h-3 w-3" />
-          </Button>
-          {limits.isOverridden && (
+          <div className="flex items-center gap-2 pt-0.5">
+            <Button
+              size="sm"
+              onClick={handleSaveOverrides}
+              disabled={savingOverrides}
+              className="h-7 text-xs"
+            >
+              {savingOverrides ? "..." : "Save"}
+            </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleLimitsReset}
-              className="h-5 px-1.5 text-[10px] text-muted-foreground"
+              onClick={() => setEditing(false)}
+              disabled={savingOverrides}
+              className="h-7 text-xs text-muted-foreground"
             >
-              Reset
+              Cancel
             </Button>
-          )}
-        </div>
-      )}
-
-      {limits && editingLimits && (
-        <div className="mt-1 flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <label className="text-[10px] text-muted-foreground">Max tokens:</label>
-            <Input
-              type="number"
-              min="1"
-              value={editMaxTokens}
-              onChange={(e) => setEditMaxTokens(e.target.value)}
-              className="w-20 h-7 text-[11px]"
-            />
           </div>
-          <div className="flex items-center gap-1">
-            <label className="text-[10px] text-muted-foreground">Max steps:</label>
-            <Input
-              type="number"
-              min="1"
-              value={editMaxSteps}
-              onChange={(e) => setEditMaxSteps(e.target.value)}
-              className="w-16 h-7 text-[11px]"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLimitsSave}
-            className="h-6 px-2 text-[10px] text-primary"
-          >
-            Save
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditingLimits(false)}
-            className="h-6 px-2 text-[10px] text-muted-foreground"
-          >
-            Cancel
-          </Button>
         </div>
       )}
 
