@@ -17,6 +17,7 @@ import { stopAllPreviewServers } from "./preview/vite-server.ts";
 import { stopAllBackendServers } from "./preview/backend-server.ts";
 import { log, logError, logWarn } from "./services/logger.ts";
 import { createMiddleware } from "hono/factory";
+import { DEFAULT_PORT, CORS_ORIGINS } from "./config/server.ts";
 
 // Run migrations on startup
 runMigrations();
@@ -47,7 +48,7 @@ app.use("*", httpLogger);
 app.use(
   "*",
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: CORS_ORIGINS,
     allowHeaders: [
       "Content-Type",
       "X-Api-Key-Anthropic",
@@ -81,7 +82,7 @@ if (existsSync("./dist/client")) {
   app.get("*", serveStatic({ root: "./dist/client", path: "index.html" }));
 }
 
-const PORT = parseInt(process.env.PORT || "3000", 10);
+const PORT = parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 
 const server = Bun.serve({
   port: PORT,

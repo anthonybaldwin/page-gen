@@ -18,17 +18,26 @@ import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
-
-const MAX_RETRIES = 3;
-const MAX_UNIQUE_ERRORS = 10;
-const MAX_TEST_FAILURES = 5;
-const MAX_OUTPUT_CHARS = 15_000;
-const MAX_PROJECT_SOURCE_CHARS = 40_000;
-const MAX_BUILD_FIX_ATTEMPTS = 3;
-
-/** Build-fix agents get reduced token/step caps to prevent runaway costs */
-const BUILD_FIX_MAX_OUTPUT_TOKENS = 16_000;
-const BUILD_FIX_MAX_TOOL_STEPS = 4;
+import {
+  MAX_RETRIES,
+  MAX_UNIQUE_ERRORS,
+  MAX_TEST_FAILURES,
+  MAX_OUTPUT_CHARS,
+  MAX_PROJECT_SOURCE_CHARS,
+  MAX_BUILD_FIX_ATTEMPTS,
+  BUILD_FIX_MAX_OUTPUT_TOKENS,
+  BUILD_FIX_MAX_TOOL_STEPS,
+  MAX_SOURCE_SIZE,
+  MAX_REMEDIATION_CYCLES,
+  REVIEWER_SOURCE_CAP,
+  STAGGER_MS,
+  BUILD_TIMEOUT_MS,
+  TEST_TIMEOUT_MS,
+  ORCHESTRATOR_CLASSIFY_MAX_TOKENS,
+  SUMMARY_MAX_OUTPUT_TOKENS,
+  QUESTION_MAX_OUTPUT_TOKENS,
+  DATA_DIR_PATTERNS,
+} from "../config/pipeline.ts";
 
 /**
  * Detect non-retriable API errors that should immediately halt the pipeline
@@ -438,7 +447,6 @@ export function filterUpstreamOutputs(
       result["changed-files"] = changedFiles.join("\n\n");
       // Also provide fresh project source for context, but with a tighter cap
       if (projectPath) {
-        const REVIEWER_SOURCE_CAP = 30_000;
         const source = readProjectSource(projectPath);
         result["project-source"] = truncateOutput(source, REVIEWER_SOURCE_CAP);
       }
@@ -979,7 +987,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         model: titleModel,
         system: "Generate a short title (3-6 words, no quotes) for a chat based on the user's message. Just output the title, nothing else.",
         prompt: userMessage,
-        maxOutputTokens: 20,
+        maxOutputTokens: ORCHESTRATOR_CLASSIFY_MAX_TOKENS,
         agentName: "orchestrator:title",
         provider: titleConfig.provider,
         modelId: titleConfig.model,
@@ -1566,7 +1574,6 @@ async function executePipelineSteps(ctx: {
     log("orchestrator", `Running batch of ${ready.length} step(s)`, { steps: readyNames, parallel: isParallelBatch });
 
     // Stagger parallel launches to avoid API rate-limit bursts
-    const STAGGER_MS = 1000;
     const results = await Promise.all(
       ready.map((step, i) =>
         new Promise<{ stepKey: string; result: string | null }>((resolve) =>
@@ -1815,7 +1822,7 @@ async function handleQuestion(ctx: {
       model: questionModel,
       system: QUESTION_SYSTEM_PROMPT,
       prompt,
-      maxOutputTokens: 2048,
+      maxOutputTokens: QUESTION_MAX_OUTPUT_TOKENS,
       agentName: "orchestrator:question",
       provider: questionConfig.provider,
       modelId: questionConfig.model,
@@ -1913,7 +1920,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       model: summaryModel,
       system: systemPrompt,
       prompt,
-      maxOutputTokens: 1024,
+      maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
       agentName: "orchestrator:summary",
       provider: summaryConfig.provider,
       modelId: summaryConfig.model,
@@ -2037,8 +2044,6 @@ interface RemediationContext {
   apiKeys: Record<string, string>;
   signal: AbortSignal;
 }
-
-const MAX_REMEDIATION_CYCLES = 2;
 
 /**
  * Iterative remediation loop: detects code-review/QA/security issues,
@@ -2509,8 +2514,6 @@ export async function classifyIntent(
 }
 
 const READ_EXCLUDE_PATTERNS = /node_modules|dist|\.git|bun\.lockb|bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.ico|\.woff|\.ttf|\.eot/;
-const DATA_DIR_PATTERNS = /(?:^|\/)(?:src\/)?data\//;
-const MAX_SOURCE_SIZE = 100_000; // 100KB cap
 
 /**
  * Check if file content is predominantly data (array/object literals).
@@ -2885,8 +2888,6 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
 
   log("build", "Running build check", { path: fullPath });
 
-  const BUILD_TIMEOUT_MS = 30_000;
-
   try {
     const proc = Bun.spawn(["bunx", "vite", "build", "--mode", "development"], {
       cwd: fullPath,
@@ -3236,8 +3237,6 @@ export async function runProjectTests(
   await prepareProjectForPreview(projectPath);
 
   log("test", "Running tests", { path: fullPath });
-
-  const TEST_TIMEOUT_MS = 60_000;
 
   try {
     const jsonOutputFile = join(fullPath, "vitest-results.json");

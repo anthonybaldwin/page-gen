@@ -1,4 +1,5 @@
 import type { WsMessage } from "../../shared/types.ts";
+import { WS_FLUSH_INTERVAL, WS_RECONNECT_DELAY } from "../config.ts";
 
 type WsHandler = (message: WsMessage) => void;
 
@@ -6,10 +7,9 @@ let ws: WebSocket | null = null;
 let handlers: WsHandler[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Message coalescing: buffer messages for 50ms and process in batch
+// Message coalescing: buffer messages and process in batch
 let messageBuffer: WsMessage[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
-const FLUSH_INTERVAL = 50; // ms
 
 function flushMessages() {
   const batch = messageBuffer;
@@ -42,7 +42,7 @@ export function connectWebSocket() {
       const message = JSON.parse(event.data) as WsMessage;
       messageBuffer.push(message);
       if (!flushTimer) {
-        flushTimer = setTimeout(flushMessages, FLUSH_INTERVAL);
+        flushTimer = setTimeout(flushMessages, WS_FLUSH_INTERVAL);
       }
     } catch {
       console.warn("[ws] failed to parse message:", event.data);
@@ -51,7 +51,7 @@ export function connectWebSocket() {
 
   ws.onclose = () => {
     console.log("[ws] disconnected, reconnecting in 3s...");
-    reconnectTimer = setTimeout(connectWebSocket, 3000);
+    reconnectTimer = setTimeout(connectWebSocket, WS_RECONNECT_DELAY);
   };
 
   ws.onerror = (err) => {

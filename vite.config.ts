@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { VITE_DEV_PORT, DEFAULT_PORT } from "./src/server/config/server.ts";
+import { VITE_WATCH_POLL } from "./src/server/config/preview.ts";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -12,15 +14,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: VITE_DEV_PORT,
     host: true,
     watch: {
       usePolling: true,
-      interval: 300,
+      interval: VITE_WATCH_POLL,
     },
     proxy: {
       "/api": {
-        target: "http://localhost:3000",
+        target: `http://localhost:${DEFAULT_PORT}`,
         changeOrigin: true,
       },
     },

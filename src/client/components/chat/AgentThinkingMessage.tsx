@@ -6,6 +6,7 @@ import { Button } from "../ui/button.tsx";
 import { Loader2, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
 import type { ThinkingBlock, ToolCallEntry } from "../../stores/agentThinkingStore.ts";
 import { getAgentActivity } from "../../lib/agentActivityPhrases.ts";
+import { THINKING_ROTATE_INTERVAL } from "../../config.ts";
 
 interface Props {
   block: ThinkingBlock;
@@ -249,7 +250,7 @@ export function AgentThinkingMessage({ block, onToggle }: Props) {
 
   useEffect(() => {
     if (!isActive) return;
-    const id = setInterval(() => setPhraseIdx((i) => i + 1), 3000);
+    const id = setInterval(() => setPhraseIdx((i) => i + 1), THINKING_ROTATE_INTERVAL);
     return () => clearInterval(id);
   }, [isActive]);
 

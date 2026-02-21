@@ -11,13 +11,7 @@ import { OPENAI_MODELS } from "../providers/openai.ts";
 import { GOOGLE_MODELS } from "../providers/google.ts";
 import type { AgentName, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
-
-export const LIMIT_DEFAULTS: Record<string, string> = {
-  maxTokensPerChat: "500000",
-  maxAgentCallsPerRun: "30",
-  maxCostPerDay: "0",
-  maxCostPerProject: "0",
-};
+import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
 
 /** Read a single limit from app_settings, seeding the default if missing. */
 export function getLimit(key: string): number {
@@ -44,9 +38,8 @@ export const settingsRoutes = new Hono();
 settingsRoutes.get("/", (c) => {
   const limits = getAllLimits();
   return c.json({
-    maxSnapshotsPerProject: 10,
     defaultTokenLimit: limits.maxTokensPerChat,
-    warningThreshold: 0.8,
+    warningThreshold: WARNING_THRESHOLD,
     limits,
     limitDefaults: Object.fromEntries(
       Object.entries(LIMIT_DEFAULTS).map(([k, v]) => [k, Number(v)])

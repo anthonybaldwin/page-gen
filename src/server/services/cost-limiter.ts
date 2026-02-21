@@ -3,8 +3,7 @@ import { getLimit } from "../routes/settings.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, sql } from "drizzle-orm";
 import { log, logWarn } from "./logger.ts";
-
-const WARNING_THRESHOLD = 0.8;
+import { WARNING_THRESHOLD } from "../config/limits.ts";
 
 export interface CostCheckResult {
   allowed: boolean;

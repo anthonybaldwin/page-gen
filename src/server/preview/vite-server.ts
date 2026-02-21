@@ -2,6 +2,17 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync, readdirSync, unlink
 import { join } from "path";
 import { log, logError } from "../services/logger.ts";
 import { broadcastAgentThinking } from "../ws.ts";
+import {
+  PREVIEW_PORT_MIN,
+  PREVIEW_PORT_MAX,
+  VITE_READY_TIMEOUT,
+  VITE_FETCH_TIMEOUT,
+  VITE_READY_POLL_INTERVAL,
+  VITE_SHUTDOWN_DEADLINE,
+  VITE_SHUTDOWN_POLL,
+  DEFAULT_PREVIEW_HOST,
+} from "../config/preview.ts";
+import { STDERR_TRUNCATION } from "../config/logging.ts";
 
 // Read versions from our own package.json so Dependabot keeps them current
 const OUR_PKG = JSON.parse(readFileSync(join(import.meta.dirname, "../../../package.json"), "utf-8"));
@@ -11,19 +22,17 @@ const activeServers = new Map<string, { port: number; process: ReturnType<typeof
 
 // --- Port pool ---
 
-const PORT_MIN = 3001;
-const PORT_MAX = 3020;
 const availablePorts: number[] = [];
-let nextPort = PORT_MIN;
+let nextPort = PREVIEW_PORT_MIN;
 
 function allocatePort(): number {
   if (availablePorts.length > 0) return availablePorts.shift()!;
-  if (nextPort > PORT_MAX) throw new Error(`Preview port range exhausted (${PORT_MIN}-${PORT_MAX})`);
+  if (nextPort > PREVIEW_PORT_MAX) throw new Error(`Preview port range exhausted (${PREVIEW_PORT_MIN}-${PREVIEW_PORT_MAX})`);
   return nextPort++;
 }
 
 function releasePort(port: number) {
-  if (port >= PORT_MIN && port <= PORT_MAX) availablePorts.push(port);
+  if (port >= PREVIEW_PORT_MIN && port <= PREVIEW_PORT_MAX) availablePorts.push(port);
 }
 
 // Track which projects have had deps installed to avoid re-running
@@ -259,7 +268,7 @@ async function installProjectDependencies(projectPath: string, chatId?: string):
       logError("preview", `bun install failed (exit ${exitCode})`, stderr);
       if (chatId) {
         broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", {
-          chunk: "\n\nDependency install failed:\n" + stderr.slice(0, 1500),
+          chunk: "\n\nDependency install failed:\n" + stderr.slice(0, STDERR_TRUNCATION),
         });
       }
       // Don't throw — preview might still partially work
@@ -320,7 +329,7 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   await prepareProjectForPreview(projectPath);
 
   const port = allocatePort();
-  const host = process.env.PREVIEW_HOST || "localhost";
+  const host = process.env.PREVIEW_HOST || DEFAULT_PREVIEW_HOST;
   log("preview", `Starting preview server for ${projectId} on port ${port}`);
 
   // Start Vite dev server for this project
@@ -351,15 +360,14 @@ export async function startPreviewServer(projectId: string, projectPath: string)
 
   // Wait for Vite to be ready by polling the port
   const startTime = Date.now();
-  const timeout = 15000; // 15s max wait
-  while (Date.now() - startTime < timeout) {
+  while (Date.now() - startTime < VITE_READY_TIMEOUT) {
     try {
-      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(VITE_FETCH_TIMEOUT) });
       if (res.ok || res.status === 404) break; // Vite is responding
     } catch {
       // Not ready yet
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, VITE_READY_POLL_INTERVAL));
   }
 
   // Always return localhost to the client (browser connects to Docker-mapped ports on localhost)
@@ -394,13 +402,13 @@ export async function stopPreviewServer(projectId: string) {
     proc.kill();
   }
 
-  // Wait for the process to actually exit (max 3s) before releasing the port
-  const deadline = Date.now() + 3000;
+  // Wait for the process to actually exit before releasing the port
+  const deadline = Date.now() + VITE_SHUTDOWN_DEADLINE;
   while (proc.exitCode === null && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, VITE_SHUTDOWN_POLL));
   }
   if (proc.exitCode === null) {
-    log("preview", `Process for ${projectId} didn't exit in 3s — force-killing`);
+    log("preview", `Process for ${projectId} didn't exit in ${VITE_SHUTDOWN_DEADLINE}ms — force-killing`);
     if (process.platform !== "win32" && proc.pid) {
       try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
     } else {

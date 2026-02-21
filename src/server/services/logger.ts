@@ -1,5 +1,6 @@
 import { mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
+import { LOG_BLOCK_TRUNCATION } from "../config/logging.ts";
 
 // --- Configuration ---
 
@@ -65,8 +66,8 @@ export function logWarn(tag: string, message: string, data?: Record<string, unkn
 }
 
 export function logBlock(tag: string, message: string, block: string) {
-  const truncated = block.length > 2000;
-  const text = truncated ? block.slice(0, 2000) : block;
+  const truncated = block.length > LOG_BLOCK_TRUNCATION;
+  const text = truncated ? block.slice(0, LOG_BLOCK_TRUNCATION) : block;
   emit({
     ts: new Date().toISOString(),
     level: "info",

@@ -1,8 +1,7 @@
 import { join } from "path";
+import { SHELL_TIMEOUT_MS, SHELL_MAX_OUTPUT_LENGTH } from "../config/pipeline.ts";
 
 const ALLOWED_COMMANDS = ["bun", "npm", "npx", "bunx", "ls", "cat", "echo", "mkdir"];
-const MAX_OUTPUT_LENGTH = 10000;
-const TIMEOUT_MS = 30000;
 
 export async function runShellCommand(
   projectPath: string,
@@ -23,7 +22,7 @@ export async function runShellCommand(
     stderr: "pipe",
   });
 
-  const timeout = setTimeout(() => proc.kill(), TIMEOUT_MS);
+  const timeout = setTimeout(() => proc.kill(), SHELL_TIMEOUT_MS);
 
   try {
     const [stdout, stderr] = await Promise.all([
@@ -35,8 +34,8 @@ export async function runShellCommand(
     clearTimeout(timeout);
 
     return {
-      stdout: stdout.slice(0, MAX_OUTPUT_LENGTH),
-      stderr: stderr.slice(0, MAX_OUTPUT_LENGTH),
+      stdout: stdout.slice(0, SHELL_MAX_OUTPUT_LENGTH),
+      stderr: stderr.slice(0, SHELL_MAX_OUTPUT_LENGTH),
       exitCode,
     };
   } catch (err) {

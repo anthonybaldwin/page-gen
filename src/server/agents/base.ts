@@ -11,6 +11,13 @@ import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/l
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
+import {
+  AGENT_MAX_OUTPUT_TOKENS,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  AGENT_MAX_TOOL_STEPS,
+  DEFAULT_MAX_TOOL_STEPS,
+} from "../config/pipeline.ts";
+import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION } from "../config/logging.ts";
 
 
 /**
@@ -21,7 +28,7 @@ import { estimateCost } from "../services/pricing.ts";
 function sanitizeErrorForLog(err: unknown): Record<string, unknown> {
   if (!(err instanceof Error)) return { message: String(err) };
   const e = err as Record<string, unknown>;
-  const safe: Record<string, unknown> = { name: err.name, message: err.message.slice(0, 300) };
+  const safe: Record<string, unknown> = { name: err.name, message: err.message.slice(0, ERROR_MSG_TRUNCATION) };
   if (typeof e.statusCode === "number") safe.statusCode = e.statusCode;
   if (typeof e.url === "string") safe.url = redactUrlKeys(e.url);
   if (typeof e.requestBodyValues === "object" && e.requestBodyValues) {
@@ -30,7 +37,7 @@ function sanitizeErrorForLog(err: unknown): Record<string, unknown> {
     safe.requestMaxTokens = body.max_tokens;
   }
   if (typeof e.responseBody === "string") {
-    safe.responseBody = e.responseBody.slice(0, 500);
+    safe.responseBody = e.responseBody.slice(0, RESPONSE_BODY_TRUNCATION);
   }
   return safe;
 }
@@ -78,29 +85,9 @@ function formatUserFacingError(err: unknown): string {
   }
 
   // For non-API errors, use the message but cap length
-  return err.message.length > 200 ? err.message.slice(0, 200) + "..." : err.message;
+  return err.message.length > USER_ERROR_TRUNCATION ? err.message.slice(0, USER_ERROR_TRUNCATION) + "..." : err.message;
 }
 
-/** Per-agent output token caps to reduce chattiness and speed up generation. */
-const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
-  "research": 3000,
-  "architect": 12000,   // large JSON architecture doc — truncation breaks file_plan parsing
-  "frontend-dev": 64000, // large write_files calls with many components need ~40k tokens
-  "backend-dev": 32000,  // multi-file writes can exceed 12k easily
-  "styling": 32000,      // bulk style changes across many files
-  "code-review": 2048,
-  "security": 2048,
-  "qa": 2048,
-};
-const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
-
-/** Per-agent tool step limits — fewer steps = less context resend overhead. */
-const AGENT_MAX_TOOL_STEPS: Record<string, number> = {
-  "frontend-dev": 8,
-  "backend-dev": 8,
-  "styling": 8,
-};
-const DEFAULT_MAX_TOOL_STEPS = 10;
 
 /** Resolve a human-readable display name for an agent instance. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {

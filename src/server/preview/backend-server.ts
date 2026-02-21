@@ -3,8 +3,15 @@ import { join } from "path";
 import { log, logError } from "../services/logger.ts";
 import { enableViteProxy } from "./vite-server.ts";
 import { broadcast } from "../ws.ts";
-
-const BACKEND_PORT_OFFSET = 1000; // backendPort = frontendPort + 1000
+import {
+  BACKEND_PORT_OFFSET,
+  BACKEND_HEALTH_TIMEOUT,
+  BACKEND_READY_POLL,
+  BACKEND_SHUTDOWN_DEADLINE,
+  BACKEND_SHUTDOWN_POLL,
+  BACKEND_ENTRY_PATH,
+  DEFAULT_PREVIEW_HOST,
+} from "../config/preview.ts";
 
 interface BackendEntry {
   port: number;
@@ -22,7 +29,7 @@ export function projectHasBackend(projectPath: string): boolean {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
-  return existsSync(join(fullPath, "server", "index.ts"));
+  return existsSync(join(fullPath, BACKEND_ENTRY_PATH));
 }
 
 /**
@@ -86,13 +93,13 @@ export async function startBackendServer(
     ? projectPath
     : join(process.cwd(), projectPath);
 
-  const entryPoint = join(fullPath, "server", "index.ts");
+  const entryPoint = join(fullPath, BACKEND_ENTRY_PATH);
   if (!existsSync(entryPoint)) {
     throw new Error(`No backend entry point at ${entryPoint}`);
   }
 
   const port = frontendPort + BACKEND_PORT_OFFSET;
-  const host = process.env.PREVIEW_HOST || "localhost";
+  const host = process.env.PREVIEW_HOST || DEFAULT_PREVIEW_HOST;
 
   log("preview", `Starting backend server for ${projectId} on port ${port}`);
 
@@ -143,12 +150,12 @@ export async function startBackendServer(
     }
   });
 
-  // Poll /api/health until ready (10s timeout)
+  // Poll /api/health until ready
   const startTime = Date.now();
-  const timeout = 10_000;
+  const healthTimeout = 10_000;
   let ready = false;
 
-  while (Date.now() - startTime < timeout) {
+  while (Date.now() - startTime < healthTimeout) {
     // If process already exited, capture stderr and bail
     if (proc.exitCode !== null) {
       const reason = entry.stderrChunks.slice(-10).join("\n") || "no output";
@@ -165,7 +172,7 @@ export async function startBackendServer(
     }
     try {
       const res = await fetch(`http://localhost:${port}/api/health`, {
-        signal: AbortSignal.timeout(1000),
+        signal: AbortSignal.timeout(BACKEND_HEALTH_TIMEOUT),
       });
       if (res.ok) {
         ready = true;
@@ -174,7 +181,7 @@ export async function startBackendServer(
     } catch {
       // Not ready yet
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, BACKEND_READY_POLL));
   }
 
   if (ready) {
@@ -188,12 +195,12 @@ export async function startBackendServer(
   } else if (proc.exitCode === null) {
     // Process is still running but health check timed out
     const reason = entry.stderrChunks.slice(-10).join("\n") || "no output";
-    logError("preview", `Backend server for ${projectId} failed to become ready within ${timeout}ms:\n${reason}`);
+    logError("preview", `Backend server for ${projectId} failed to become ready within ${healthTimeout}ms:\n${reason}`);
     broadcast({
       type: "backend_error",
       payload: {
         projectId,
-        error: `Backend server started but health check timed out after ${timeout}ms`,
+        error: `Backend server started but health check timed out after ${healthTimeout}ms`,
         details: reason,
       },
     });
@@ -232,13 +239,13 @@ export async function stopBackendServer(projectId: string): Promise<void> {
     proc.kill();
   }
 
-  // Wait for exit (max 3s)
-  const deadline = Date.now() + 3000;
+  // Wait for exit
+  const deadline = Date.now() + BACKEND_SHUTDOWN_DEADLINE;
   while (proc.exitCode === null && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, BACKEND_SHUTDOWN_POLL));
   }
   if (proc.exitCode === null) {
-    log("preview", `Backend for ${projectId} didn't exit in 3s — force-killing`);
+    log("preview", `Backend for ${projectId} didn't exit in ${BACKEND_SHUTDOWN_DEADLINE}ms — force-killing`);
     if (process.platform !== "win32" && proc.pid) {
       try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
     } else {
