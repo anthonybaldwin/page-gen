@@ -130,6 +130,7 @@ export function App() {
                       : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
                   onClick={() => setActiveFile(file.path)}
+                  onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.path); } }}
                 >
                   {file.path.split("/").pop()}
                   {file.isDirty && (
@@ -146,6 +147,16 @@ export function App() {
                   </span>
                 </button>
               ))}
+              {Object.keys(openFiles).length > 1 && (
+                <button
+                  type="button"
+                  title="Close all tabs"
+                  className="ml-1 mr-1 rounded-sm text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted p-1 shrink-0"
+                  onClick={() => closeFile()}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           )}
           <TabsList className="ml-auto mr-2 h-8 bg-transparent p-0 gap-0 shrink-0">
