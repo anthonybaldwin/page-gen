@@ -125,15 +125,16 @@ export function App() {
             >
               Preview
             </TabsTrigger>
-            {openFilePath && (
-              <TabsTrigger
-                value="editor"
-                className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent gap-1.5"
-              >
-                {openFilePath.split("/").pop()}
-                {isDirty && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
-                )}
+            <TabsTrigger
+              value="editor"
+              disabled={!openFilePath}
+              className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {openFilePath ? openFilePath.split("/").pop() : "Editor"}
+              {isDirty && (
+                <span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" />
+              )}
+              {openFilePath && (
                 <button
                   type="button"
                   className="ml-1 rounded-sm opacity-50 hover:opacity-100 hover:bg-muted p-0.5 -mr-1"
@@ -141,8 +142,8 @@ export function App() {
                 >
                   <X className="h-3 w-3" />
                 </button>
-              </TabsTrigger>
-            )}
+              )}
+            </TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="preview" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
