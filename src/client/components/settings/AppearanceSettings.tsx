@@ -91,7 +91,7 @@ function FontSelector({
 }
 
 export function AppearanceSettings() {
-  const { uiFont, editorFont, customFonts, setUiFont, setEditorFont, removeCustomFont, addCustomFont } =
+  const { uiFont, editorFont, editorItalicFont, customFonts, setUiFont, setEditorFont, setEditorItalicFont, removeCustomFont, addCustomFont } =
     useAppearanceStore();
 
   const [uploading, setUploading] = useState(false);
@@ -183,6 +183,16 @@ export function AppearanceSettings() {
           description="Used for the CodeMirror code editor."
           value={editorFont.name}
           onChange={(f) => setEditorFont({ name: f.name, family: f.family })}
+          systemFonts={SYSTEM_EDITOR_FONTS}
+          bundledFonts={BUNDLED_EDITOR_FONTS}
+          customFonts={customEditorFonts}
+        />
+
+        <FontSelector
+          label="Editor Italic Font"
+          description="Used for comments and emphasis in the editor. Upload a cursive or italic variant for distinct styling."
+          value={editorItalicFont.name}
+          onChange={(f) => setEditorItalicFont({ name: f.name, family: f.family })}
           systemFonts={SYSTEM_EDITOR_FONTS}
           bundledFonts={BUNDLED_EDITOR_FONTS}
           customFonts={customEditorFonts}

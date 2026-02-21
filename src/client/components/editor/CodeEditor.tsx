@@ -10,6 +10,7 @@ import { tags } from "@lezer/highlight";
 import { useThemeStore } from "../../stores/themeStore.ts";
 import { useFileStore } from "../../stores/fileStore.ts";
 import { useVersionStore } from "../../stores/versionStore.ts";
+import { useAppearanceStore } from "../../stores/appearanceStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Save, Loader2, Lock } from "lucide-react";
 
@@ -99,28 +100,30 @@ const nordLightTheme = EditorView.theme(
 
 // --- Shared syntax highlighting (same colors in both modes) ---
 // Frost (nord7–10) for structural tokens, Aurora (nord11–15) for values/literals
-const nordHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: nord.nord9 },
-  { tag: [tags.propertyName], color: nord.nord8 },
-  { tag: [tags.function(tags.variableName), tags.labelName], color: nord.nord8 },
-  { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: nord.nord9 },
-  { tag: [tags.typeName, tags.className, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: nord.nord7 },
-  { tag: tags.number, color: nord.nord15 },
-  { tag: [tags.operator, tags.operatorKeyword], color: nord.nord9 },
-  { tag: [tags.url, tags.escape, tags.regexp, tags.special(tags.string)], color: nord.nord13 },
-  { tag: [tags.meta, tags.comment], color: nord.nord3, fontStyle: "italic" },
-  { tag: tags.strong, fontWeight: "bold" },
-  { tag: tags.emphasis, fontStyle: "italic" },
-  { tag: tags.strikethrough, textDecoration: "line-through" },
-  { tag: tags.link, color: nord.nord8, textDecoration: "underline" },
-  { tag: tags.heading, fontWeight: "bold", color: nord.nord8 },
-  { tag: [tags.atom, tags.bool, tags.special(tags.variableName)], color: nord.nord9 },
-  { tag: [tags.processingInstruction, tags.string, tags.inserted], color: nord.nord14 },
-  { tag: tags.invalid, color: nord.nord11 },
-  { tag: tags.tagName, color: nord.nord9 },
-  { tag: tags.attributeName, color: nord.nord7 },
-  { tag: tags.attributeValue, color: nord.nord14 },
-]);
+function createNordHighlight(italicFontFamily?: string) {
+  return HighlightStyle.define([
+    { tag: tags.keyword, color: nord.nord9 },
+    { tag: [tags.propertyName], color: nord.nord8 },
+    { tag: [tags.function(tags.variableName), tags.labelName], color: nord.nord8 },
+    { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: nord.nord9 },
+    { tag: [tags.typeName, tags.className, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: nord.nord7 },
+    { tag: tags.number, color: nord.nord15 },
+    { tag: [tags.operator, tags.operatorKeyword], color: nord.nord9 },
+    { tag: [tags.url, tags.escape, tags.regexp, tags.special(tags.string)], color: nord.nord13 },
+    { tag: [tags.meta, tags.comment], color: nord.nord3, fontStyle: "italic", ...(italicFontFamily ? { fontFamily: italicFontFamily } : {}) },
+    { tag: tags.strong, fontWeight: "bold" },
+    { tag: tags.emphasis, fontStyle: "italic", ...(italicFontFamily ? { fontFamily: italicFontFamily } : {}) },
+    { tag: tags.strikethrough, textDecoration: "line-through" },
+    { tag: tags.link, color: nord.nord8, textDecoration: "underline" },
+    { tag: tags.heading, fontWeight: "bold", color: nord.nord8 },
+    { tag: [tags.atom, tags.bool, tags.special(tags.variableName)], color: nord.nord9 },
+    { tag: [tags.processingInstruction, tags.string, tags.inserted], color: nord.nord14 },
+    { tag: tags.invalid, color: nord.nord11 },
+    { tag: tags.tagName, color: nord.nord9 },
+    { tag: tags.attributeName, color: nord.nord7 },
+    { tag: tags.attributeValue, color: nord.nord14 },
+  ]);
+}
 
 function getLanguageExtension(path: string) {
   const ext = path.split(".").pop()?.toLowerCase();
@@ -149,6 +152,7 @@ export function CodeEditor() {
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
   const { openFilePath, currentContent, isDirty, isSaving, saveFile, updateContent } = useFileStore();
   const isPreviewing = useVersionStore((s) => s.isPreviewing);
+  const editorItalicFont = useAppearanceStore((s) => s.editorItalicFont);
 
   const handleSave = useCallback(() => {
     if (isPreviewing) return;
@@ -158,6 +162,7 @@ export function CodeEditor() {
   const extensions = useMemo(() => {
     const lang = openFilePath ? getLanguageExtension(openFilePath) : [];
     const isDark = resolvedTheme === "dark";
+    const nordHighlight = createNordHighlight(editorItalicFont.family);
     const exts = [
       isDark ? nordDarkTheme : nordLightTheme,
       syntaxHighlighting(nordHighlight),
@@ -172,7 +177,7 @@ export function CodeEditor() {
       exts.push(EditorView.theme({ ".cm-content, .cm-line": { cursor: "not-allowed" } }));
     }
     return exts;
-  }, [openFilePath, resolvedTheme, handleSave, isPreviewing]);
+  }, [openFilePath, resolvedTheme, handleSave, isPreviewing, editorItalicFont]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

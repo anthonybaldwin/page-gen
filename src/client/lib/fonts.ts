@@ -69,6 +69,13 @@ export function injectCustomFontFaces(fonts: CustomFontMeta[]): void {
       (f) => `@font-face {
   font-family: '${f.name}';
   src: url('/api/fonts/files/${f.id}') format('woff2');
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: '${f.name}';
+  src: url('/api/fonts/files/${f.id}') format('woff2');
+  font-style: italic;
   font-display: swap;
 }`
     )
