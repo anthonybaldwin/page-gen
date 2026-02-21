@@ -36,7 +36,7 @@ const nord = {
   nord15: "#b48ead",
 };
 
-// --- Dark mode: Nord Aurora (warm Aurora accents on Polar Night) ---
+// --- Dark editor chrome (Polar Night background) ---
 const nordDarkTheme = EditorView.theme(
   {
     "&": { backgroundColor: nord.nord0, color: nord.nord4 },
@@ -51,15 +51,9 @@ const nordDarkTheme = EditorView.theme(
     ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: `${nord.nord13}60` },
     ".cm-activeLine": { backgroundColor: `${nord.nord1}80` },
     ".cm-selectionMatch": { backgroundColor: `${nord.nord2}80` },
-    "&.cm-focused .cm-matchingBracket": {
-      backgroundColor: `${nord.nord13}70`,
-      outline: `1px solid ${nord.nord13}`,
-      color: nord.nord6,
-    },
-    "&.cm-focused .cm-nonmatchingBracket": {
-      backgroundColor: `${nord.nord11}70`,
-      outline: `1px solid ${nord.nord11}`,
-      color: nord.nord6,
+    "&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket": {
+      backgroundColor: nord.nord3,
+      outline: `1px solid ${nord.nord9}`,
     },
     ".cm-gutters": { backgroundColor: nord.nord0, color: nord.nord3, borderRight: `1px solid ${nord.nord1}` },
     ".cm-activeLineGutter": { backgroundColor: `${nord.nord1}80` },
@@ -72,91 +66,59 @@ const nordDarkTheme = EditorView.theme(
   { dark: true }
 );
 
-// --- Light mode: Nord Light Brighter (white bg, high-contrast syntax) ---
-// Colors sourced from https://github.com/huytd/vscode-nord-light
+// --- Light editor chrome (Snow Storm background) ---
 const nordLightTheme = EditorView.theme(
   {
-    "&": { backgroundColor: "#ffffff", color: "#24292e" },
-    ".cm-content": { caretColor: "#24292e" },
-    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "#24292e" },
+    "&": { backgroundColor: nord.nord6, color: nord.nord0 },
+    ".cm-content": { caretColor: nord.nord0 },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: nord.nord0 },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-      { backgroundColor: "#d7dce3" },
-    ".cm-panels": { backgroundColor: "#f6f8fa", color: "#24292e" },
-    ".cm-panels.cm-panels-top": { borderBottom: "1px solid #e1e4e8" },
-    ".cm-panels.cm-panels-bottom": { borderTop: "1px solid #e1e4e8" },
-    ".cm-searchMatch": { backgroundColor: "#fff8c5", outline: "1px solid #e8d44d" },
-    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "#ffe58f" },
-    ".cm-activeLine": { backgroundColor: "#f6f8fa" },
-    ".cm-selectionMatch": { backgroundColor: "#e1e8f0" },
-    "&.cm-focused .cm-matchingBracket": {
-      backgroundColor: "#a0c4e8",
-      outline: "1px solid #5a9fd4",
-      color: "#003d7a",
+      { backgroundColor: nord.nord4 },
+    ".cm-panels": { backgroundColor: nord.nord5, color: nord.nord0 },
+    ".cm-panels.cm-panels-top": { borderBottom: `1px solid ${nord.nord4}` },
+    ".cm-panels.cm-panels-bottom": { borderTop: `1px solid ${nord.nord4}` },
+    ".cm-searchMatch": { backgroundColor: `${nord.nord13}40`, outline: `1px solid ${nord.nord13}60` },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: `${nord.nord13}60` },
+    ".cm-activeLine": { backgroundColor: `${nord.nord5}80` },
+    ".cm-selectionMatch": { backgroundColor: `${nord.nord4}80` },
+    "&.cm-focused .cm-matchingBracket, &.cm-focused .cm-nonmatchingBracket": {
+      backgroundColor: nord.nord4,
+      outline: `1px solid ${nord.nord10}`,
     },
-    "&.cm-focused .cm-nonmatchingBracket": {
-      backgroundColor: "#f5b3b9",
-      outline: "1px solid #c9374a",
-      color: "#9e1a2a",
-    },
-    ".cm-gutters": { backgroundColor: "#ffffff", color: "#959da5", borderRight: "1px solid #e1e4e8" },
-    ".cm-activeLineGutter": { backgroundColor: "#f6f8fa" },
-    ".cm-foldPlaceholder": { backgroundColor: "#f1f8ff", border: "none", color: "#586069" },
-    ".cm-tooltip": { backgroundColor: "#f6f8fa", border: "1px solid #e1e4e8", color: "#24292e" },
-    ".cm-tooltip .cm-tooltip-arrow:before": { borderTopColor: "#e1e4e8", borderBottomColor: "#e1e4e8" },
-    ".cm-tooltip .cm-tooltip-arrow:after": { borderTopColor: "#f6f8fa", borderBottomColor: "#f6f8fa" },
-    ".cm-tooltip-autocomplete": { "& > ul > li[aria-selected]": { backgroundColor: "#e1e4e8" } },
+    ".cm-gutters": { backgroundColor: nord.nord6, color: nord.nord3, borderRight: `1px solid ${nord.nord5}` },
+    ".cm-activeLineGutter": { backgroundColor: `${nord.nord5}80` },
+    ".cm-foldPlaceholder": { backgroundColor: nord.nord5, border: "none", color: nord.nord3 },
+    ".cm-tooltip": { backgroundColor: nord.nord5, border: `1px solid ${nord.nord4}`, color: nord.nord0 },
+    ".cm-tooltip .cm-tooltip-arrow:before": { borderTopColor: nord.nord4, borderBottomColor: nord.nord4 },
+    ".cm-tooltip .cm-tooltip-arrow:after": { borderTopColor: nord.nord5, borderBottomColor: nord.nord5 },
+    ".cm-tooltip-autocomplete": { "& > ul > li[aria-selected]": { backgroundColor: nord.nord4 } },
   },
   { dark: false }
 );
 
-// --- Dark syntax: Aurora-themed (warm reds, oranges, greens, purples) ---
-const nordDarkHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: nord.nord11 },
-  { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: nord.nord4 },
+// --- Shared syntax highlighting (same colors in both modes) ---
+// Frost (nord7–10) for structural tokens, Aurora (nord11–15) for values/literals
+const nordHighlight = HighlightStyle.define([
+  { tag: tags.keyword, color: nord.nord9 },
   { tag: [tags.propertyName], color: nord.nord8 },
-  { tag: [tags.function(tags.variableName), tags.labelName], color: nord.nord12 },
-  { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: nord.nord15 },
-  { tag: [tags.definition(tags.name), tags.separator], color: nord.nord4 },
+  { tag: [tags.function(tags.variableName), tags.labelName], color: nord.nord8 },
+  { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: nord.nord9 },
   { tag: [tags.typeName, tags.className, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: nord.nord7 },
   { tag: tags.number, color: nord.nord15 },
-  { tag: [tags.operator, tags.operatorKeyword, tags.url, tags.escape, tags.regexp, tags.link, tags.special(tags.string)], color: nord.nord13 },
+  { tag: [tags.operator, tags.operatorKeyword], color: nord.nord9 },
+  { tag: [tags.url, tags.escape, tags.regexp, tags.special(tags.string)], color: nord.nord13 },
   { tag: [tags.meta, tags.comment], color: nord.nord3, fontStyle: "italic" },
   { tag: tags.strong, fontWeight: "bold" },
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.strikethrough, textDecoration: "line-through" },
   { tag: tags.link, color: nord.nord8, textDecoration: "underline" },
-  { tag: tags.heading, fontWeight: "bold", color: nord.nord12 },
-  { tag: [tags.atom, tags.bool, tags.special(tags.variableName)], color: nord.nord15 },
+  { tag: tags.heading, fontWeight: "bold", color: nord.nord8 },
+  { tag: [tags.atom, tags.bool, tags.special(tags.variableName)], color: nord.nord9 },
   { tag: [tags.processingInstruction, tags.string, tags.inserted], color: nord.nord14 },
   { tag: tags.invalid, color: nord.nord11 },
-  { tag: tags.tagName, color: nord.nord11 },
-  { tag: tags.attributeName, color: nord.nord12 },
+  { tag: tags.tagName, color: nord.nord9 },
+  { tag: tags.attributeName, color: nord.nord7 },
   { tag: tags.attributeValue, color: nord.nord14 },
-]);
-
-// --- Light syntax: Nord Light Brighter (high-contrast on white) ---
-const nordLightHighlight = HighlightStyle.define([
-  { tag: tags.keyword, color: "#2F6F9F" },
-  { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: "#24292e" },
-  { tag: [tags.propertyName], color: "#005CC5" },
-  { tag: [tags.function(tags.variableName), tags.labelName], color: "#5724BB" },
-  { tag: [tags.color, tags.constant(tags.name), tags.standard(tags.name)], color: "#7653C1" },
-  { tag: [tags.definition(tags.name), tags.separator], color: "#24292e" },
-  { tag: [tags.typeName, tags.className, tags.changed, tags.annotation, tags.modifier, tags.self, tags.namespace], color: "#D44950" },
-  { tag: tags.number, color: "#A74047" },
-  { tag: [tags.operator, tags.operatorKeyword, tags.url, tags.escape, tags.regexp, tags.link, tags.special(tags.string)], color: "#CB5C69" },
-  { tag: [tags.meta, tags.comment], color: "#8995A0", fontStyle: "italic" },
-  { tag: tags.strong, fontWeight: "bold" },
-  { tag: tags.emphasis, fontStyle: "italic" },
-  { tag: tags.strikethrough, textDecoration: "line-through" },
-  { tag: tags.link, color: "#032F62", textDecoration: "underline" },
-  { tag: tags.heading, fontWeight: "bold", color: "#005CC5" },
-  { tag: [tags.atom, tags.bool, tags.special(tags.variableName)], color: "#7653C1" },
-  { tag: [tags.processingInstruction, tags.string, tags.inserted], color: "#50750E" },
-  { tag: tags.invalid, color: "#B31D28" },
-  { tag: tags.tagName, color: "#2F6F9F" },
-  { tag: tags.attributeName, color: "#0D7579" },
-  { tag: tags.attributeValue, color: "#50750E" },
 ]);
 
 function getLanguageExtension(path: string) {
@@ -196,7 +158,7 @@ export function CodeEditor() {
     return [
       keymap.of([{ key: "Mod-s", run: () => { handleSave(); return true; } }]),
       isDark ? nordDarkTheme : nordLightTheme,
-      syntaxHighlighting(isDark ? nordDarkHighlight : nordLightHighlight),
+      syntaxHighlighting(nordHighlight),
       EditorView.lineWrapping,
       ...(Array.isArray(lang) ? lang : [lang]),
     ];
