@@ -166,24 +166,6 @@ export function CodeEditor() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card shrink-0">
-        <span className="text-xs text-muted-foreground truncate flex-1">
-          {openFilePath}
-          {isDirty && <span className="text-primary ml-1">*</span>}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 gap-1"
-          onClick={handleSave}
-          disabled={!isDirty || isSaving}
-        >
-          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-          <span className="text-xs">Save</span>
-        </Button>
-      </div>
-
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <CodeMirror
@@ -205,6 +187,24 @@ export function CodeEditor() {
           className="h-full"
           height="100%"
         />
+      </div>
+
+      {/* Status bar */}
+      <div className="flex items-center gap-2 px-3 py-1 border-t border-border bg-card shrink-0">
+        <span className="text-xs text-muted-foreground truncate flex-1">
+          {openFilePath}
+          {isDirty && <span className="text-primary ml-1">(modified)</span>}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-2 gap-1"
+          onClick={handleSave}
+          disabled={!isDirty || isSaving}
+        >
+          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          <span className="text-xs">Save</span>
+        </Button>
       </div>
     </div>
   );
