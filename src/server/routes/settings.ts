@@ -1,13 +1,10 @@
 import { Hono } from "hono";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
-import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
-import { loadSystemPrompt } from "../agents/base.ts";
-import { trackBillingOnly } from "../services/token-tracker.ts";
-import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
+import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
 import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
 import { OPENAI_MODELS } from "../providers/openai.ts";
@@ -101,7 +98,7 @@ settingsRoutes.delete("/limits", (c) => {
 const VALID_AGENT_NAMES = new Set<AgentName>([
   "orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary",
   "research", "architect", "frontend-dev", "backend-dev",
-  "styling", "testing", "code-review", "qa", "security",
+  "styling", "code-review", "qa", "security",
 ]);
 
 // --- Tool assignment endpoints (registered before /agents/:name to avoid param conflicts) ---
@@ -267,60 +264,30 @@ settingsRoutes.post("/validate-key", async (c) => {
   const providers = createProviders(keys);
 
   try {
-    const trackValidation = (
-      provider: string,
-      model: string,
-      apiKey: string,
-      usage: { inputTokens?: number; outputTokens?: number },
-      cacheCreationInputTokens = 0,
-      cacheReadInputTokens = 0,
-    ) => {
-      const rawInputTokens = usage.inputTokens || 0;
-      const nonCachedInputTokens = Math.max(0, rawInputTokens - cacheCreationInputTokens - cacheReadInputTokens);
-      trackBillingOnly({
+    const validate = async (provider: string, modelId: string, apiKey: string, model: TrackedGenerateTextOpts["model"]) => {
+      await trackedGenerateText({
+        model: model!,
+        prompt: "Say hi",
+        maxOutputTokens: 16,
         agentName: "system:validate-key",
-        provider, model, apiKey,
-        inputTokens: nonCachedInputTokens,
-        outputTokens: usage.outputTokens || 0,
-        cacheCreationInputTokens,
-        cacheReadInputTokens,
+        provider, modelId, apiKey,
       });
+      log("settings", `API key validated: ${provider}`);
+      return c.json({ valid: true, provider });
     };
 
     switch (body.provider) {
       case "anthropic": {
         if (!providers.anthropic) return c.json({ error: "No Anthropic key provided" }, 400);
-        const result = await generateText({
-          model: providers.anthropic("claude-haiku-4-5-20251001"),
-          prompt: "Say hi",
-          maxOutputTokens: 16,
-        });
-        const { cacheCreationInputTokens: cacheCreate, cacheReadInputTokens: cacheRead } = extractAnthropicCacheTokens(result);
-        trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage, cacheCreate, cacheRead);
-        log("settings", `API key validated: anthropic`);
-        return c.json({ valid: true, provider: "anthropic" });
+        return validate("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, providers.anthropic("claude-haiku-4-5-20251001"));
       }
       case "openai": {
         if (!providers.openai) return c.json({ error: "No OpenAI key provided" }, 400);
-        const result = await generateText({
-          model: providers.openai("gpt-5.2"),
-          prompt: "Say hi",
-          maxOutputTokens: 16,
-        });
-        trackValidation("openai", "gpt-5.2", keys.openai.apiKey, result.usage);
-        log("settings", `API key validated: openai`);
-        return c.json({ valid: true, provider: "openai" });
+        return validate("openai", "gpt-5.2", keys.openai.apiKey, providers.openai("gpt-5.2"));
       }
       case "google": {
         if (!providers.google) return c.json({ error: "No Google key provided" }, 400);
-        const result = await generateText({
-          model: providers.google("gemini-2.5-flash"),
-          prompt: "Say hi",
-          maxOutputTokens: 16,
-        });
-        trackValidation("google", "gemini-2.5-flash", keys.google.apiKey, result.usage);
-        log("settings", `API key validated: google`);
-        return c.json({ valid: true, provider: "google" });
+        return validate("google", "gemini-2.5-flash", keys.google.apiKey, providers.google("gemini-2.5-flash"));
       }
       default:
         return c.json({ error: "Unknown provider" }, 400);

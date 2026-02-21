@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { serveStatic } from "hono/bun";
 import { existsSync } from "fs";
 import { runMigrations } from "./db/migrate.ts";
@@ -16,7 +15,8 @@ import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
 import { stopAllPreviewServers } from "./preview/vite-server.ts";
 import { stopAllBackendServers } from "./preview/backend-server.ts";
-import { log, logError } from "./services/logger.ts";
+import { log, logError, logWarn } from "./services/logger.ts";
+import { createMiddleware } from "hono/factory";
 
 // Run migrations on startup
 runMigrations();
@@ -28,8 +28,22 @@ cleanupStaleExecutions().catch((err) => {
 
 const app = new Hono();
 
+// HTTP request logger — routes all request logs through our centralized logger
+const httpLogger = createMiddleware(async (c, next) => {
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  const status = c.res.status;
+  const method = c.req.method;
+  const path = c.req.path;
+  const contentLength = c.req.header("content-length");
+  const entry: Record<string, unknown> = { method, path, status, ms, ...(contentLength ? { bytes: Number(contentLength) } : {}) };
+  if (status >= 500) logWarn("http", `${method} ${path} ${status} ${ms}ms`, entry);
+  else log("http", `${method} ${path} ${status} ${ms}ms`, entry);
+});
+
 // Middleware
-app.use("*", logger());
+app.use("*", httpLogger);
 app.use(
   "*",
   cors({

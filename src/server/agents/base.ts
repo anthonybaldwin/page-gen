@@ -1,7 +1,7 @@
-import { streamText, stepCountIs, type ToolSet } from "ai";
+import { generateText, streamText, stepCountIs, type ToolSet, type LanguageModel } from "ai";
 import type { ProviderInstance } from "../providers/registry.ts";
 import type { AgentConfig, AgentName } from "../../shared/types.ts";
-import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking, broadcast } from "../ws.ts";
+import { broadcastAgentStatus, broadcastAgentStream, broadcastAgentThinking, broadcastTokenUsage, broadcast } from "../ws.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
@@ -9,6 +9,9 @@ import { eq } from "drizzle-orm";
 import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
+import { trackBillingOnly } from "../services/token-tracker.ts";
+import { estimateCost } from "../services/pricing.ts";
+
 
 /**
  * Extract safe, structured fields from an error for logging.
@@ -88,7 +91,6 @@ const AGENT_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "code-review": 2048,
   "security": 2048,
   "qa": 2048,
-  "testing": 2048,
 };
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
@@ -103,6 +105,103 @@ const DEFAULT_MAX_TOOL_STEPS = 10;
 /** Resolve a human-readable display name for an agent instance. */
 function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
   return fallback;
+}
+
+/**
+ * Centralized wrapper for one-shot generateText calls with automatic billing.
+ *
+ * All token extraction, cache dedup, cost estimation, billing ledger writes,
+ * and WebSocket broadcasts are handled here — callers just provide the LLM
+ * params and billing identity.
+ *
+ * For multi-step tool-using agents, use `runAgent` instead (which handles
+ * streaming, tools, provisional billing, and the full agent lifecycle).
+ */
+export interface TrackedGenerateTextOpts {
+  model: LanguageModel;
+  system?: string;
+  prompt: string;
+  maxOutputTokens?: number;
+  agentName: string;
+  provider: string;
+  modelId: string;
+  apiKey: string;
+  chatId?: string;
+  projectId?: string;
+  projectName?: string;
+  chatTitle?: string;
+}
+
+export interface TrackedTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  costEstimate: number;
+}
+
+export async function trackedGenerateText(opts: TrackedGenerateTextOpts): Promise<{
+  text: string;
+  tokenUsage: TrackedTokenUsage;
+}> {
+  const result = await generateText({
+    model: opts.model,
+    system: opts.system,
+    prompt: opts.prompt,
+    maxOutputTokens: opts.maxOutputTokens,
+  });
+
+  const { cacheCreationInputTokens, cacheReadInputTokens } = extractAnthropicCacheTokens(result);
+  const rawInput = result.usage.inputTokens || 0;
+  const inputTokens = Math.max(0, rawInput - cacheCreationInputTokens - cacheReadInputTokens);
+  const outputTokens = result.usage.outputTokens || 0;
+  const totalTokens = rawInput + outputTokens;
+
+  // Always track in the permanent billing ledger
+  const { costEstimate } = trackBillingOnly({
+    agentName: opts.agentName,
+    provider: opts.provider,
+    model: opts.modelId,
+    apiKey: opts.apiKey,
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    chatId: opts.chatId,
+    projectId: opts.projectId,
+    projectName: opts.projectName,
+    chatTitle: opts.chatTitle,
+  });
+
+  // Broadcast for real-time UI updates
+  if (opts.chatId) {
+    broadcastTokenUsage({
+      chatId: opts.chatId,
+      projectId: opts.projectId,
+      agentName: opts.agentName,
+      provider: opts.provider,
+      model: opts.modelId,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      costEstimate,
+    });
+  }
+
+  const tokenUsage: TrackedTokenUsage = {
+    inputTokens, outputTokens, totalTokens,
+    cacheCreationInputTokens, cacheReadInputTokens, costEstimate,
+  };
+
+  log("billing", `${opts.agentName}: ${opts.modelId}`, {
+    agent: opts.agentName, provider: opts.provider, model: opts.modelId,
+    ...tokenUsage,
+  });
+
+  return { text: result.text, tokenUsage };
 }
 
 export interface AgentInput {
@@ -356,27 +455,16 @@ export async function runAgent(
     // (last step only) dramatically undercounts actual token consumption.
     const usage = await result.totalUsage;
 
-    // Aggregate Anthropic cache tokens from ALL steps, not just the last response
-    let cacheCreationInputTokens = 0;
-    let cacheReadInputTokens = 0;
-    try {
-      const steps = await result.steps;
-      for (const step of steps) {
-        const { cacheCreationInputTokens: creation, cacheReadInputTokens: read } = extractAnthropicCacheTokens(step);
-        if (creation > 0 || read > 0) {
-          log("pipeline", `agent=${broadcastName} cache tokens step`, { agent: broadcastName, cacheCreation: creation, cacheRead: read });
-        }
-        cacheCreationInputTokens += creation;
-        cacheReadInputTokens += read;
-      }
-    } catch {
-      // Provider metadata not available — continue with base tokens only
-    }
+    // AI SDK v6 provides cache breakdown directly on totalUsage.inputTokenDetails.
+    // This is pre-aggregated across all steps — no need to iterate steps manually.
+    const cacheCreationInputTokens = usage?.inputTokenDetails?.cacheWriteTokens ?? 0;
+    const cacheReadInputTokens = usage?.inputTokenDetails?.cacheReadTokens ?? 0;
 
-    // AI SDK's usage.inputTokens includes cache tokens in the total.
-    // Subtract cache tokens to get the non-cached input count that estimateCost expects.
+    // usage.inputTokens is the total (includes cache). Use noCacheTokens for the
+    // non-cached count, falling back to manual subtraction for older SDK versions.
     const rawInputTokens = usage?.inputTokens || 0;
-    const inputTokens = Math.max(0, rawInputTokens - cacheCreationInputTokens - cacheReadInputTokens);
+    const inputTokens = usage?.inputTokenDetails?.noCacheTokens
+      ?? Math.max(0, rawInputTokens - cacheCreationInputTokens - cacheReadInputTokens);
     const outputTokens = usage?.outputTokens || 0;
     const totalInputTokens = rawInputTokens;
 

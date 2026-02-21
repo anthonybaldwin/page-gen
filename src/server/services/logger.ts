@@ -48,22 +48,19 @@ function emit(entry: LogEntry) {
 // --- Public API (same signatures as before) ---
 
 export function log(tag: string, message: string, data?: Record<string, unknown>) {
-  const entry: LogEntry = { ts: new Date().toISOString(), level: "info", tag, msg: message };
-  if (data) entry.data = data;
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "info", tag, msg: message, ...data };
   emit(entry);
 }
 
 export function logError(tag: string, message: string, error?: unknown, data?: Record<string, unknown>) {
   const errStr = error instanceof Error ? error.message : error !== undefined ? String(error) : undefined;
-  const entry: LogEntry = { ts: new Date().toISOString(), level: "error", tag, msg: message };
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "error", tag, msg: message, ...data };
   if (errStr) entry.error = errStr;
-  if (data) entry.data = data;
   emit(entry);
 }
 
 export function logWarn(tag: string, message: string, data?: Record<string, unknown>) {
-  const entry: LogEntry = { ts: new Date().toISOString(), level: "warn", tag, msg: message };
-  if (data) entry.data = data;
+  const entry: LogEntry = { ts: new Date().toISOString(), level: "warn", tag, msg: message, ...data };
   emit(entry);
 }
 

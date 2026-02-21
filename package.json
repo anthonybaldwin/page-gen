@@ -4,16 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/server/index.ts",
-    "dev:client": "vite",
+    "dev:client": "vite --open",
     "build": "vite build && bun build src/server/index.ts --outdir dist/server --target bun",
     "preview": "vite preview",
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
-    "dev:docker": "docker compose up --build",
-    "dev:docker:d": "docker compose up --build -d",
-    "logs:viewer": "bun scripts/logs-viewer.ts"
+    "dev:docker": "start http://localhost:5173 && docker compose up --build",
+    "dev:docker:d": "docker compose up --build -d && start http://localhost:5173",
+    "logs:viewer": "bun --hot scripts/logs-viewer.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.0",

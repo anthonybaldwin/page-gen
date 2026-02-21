@@ -57,8 +57,8 @@ graph TD
 ```mermaid
 graph LR
   User --> Orch["Orchestrator"] --> Classify["classifyIntent()"]
-  Classify -->|fix| TP["Test Planner"]
-  TP --> Dev["Dev Agent(s)<br>by scope"]
+  Classify -->|fix| Read["Read project source"]
+  Read --> Dev["Dev Agent(s)<br>by scope"]
   Dev --> Rev["Reviewers<br>(parallel)"]
   Rev --> Rem["Remediation"]
   Rem --> Summary
@@ -66,7 +66,7 @@ graph LR
 
 ### Architecture
 - **Base agent function** (`runAgent`) wraps AI SDK 6 `streamText` calls with native tool use
-- **Agent registry** defines 10 base agents + 3 orchestrator subtasks
+- **Agent registry** defines 9 base agents + 4 orchestrator subtasks
 - **Orchestrator** creates a dependency-aware execution plan with batch scheduling
 - **Dependency-aware batching:** Steps whose `dependsOn` are all completed run concurrently; halts on first failure
 - **Token tracker** records every API call with agent, provider, model, key hash
@@ -78,6 +78,7 @@ graph LR
 |-------|-------|----------|
 | Orchestrator | claude-sonnet-4-6 | Anthropic |
 | orchestrator:classify | claude-haiku-4-5-20251001 | Anthropic |
+| orchestrator:title | claude-haiku-4-5-20251001 | Anthropic |
 | orchestrator:summary | claude-sonnet-4-6 | Anthropic |
 | orchestrator:question | claude-sonnet-4-6 | Anthropic |
 | Research | claude-sonnet-4-6 | Anthropic |
@@ -85,7 +86,6 @@ graph LR
 | Frontend Dev | claude-sonnet-4-6 | Anthropic |
 | Backend Dev | claude-sonnet-4-6 | Anthropic |
 | Styling | claude-sonnet-4-6 | Anthropic |
-| Test Planner | claude-sonnet-4-6 | Anthropic |
 | Code Review | claude-sonnet-4-6 | Anthropic |
 | QA | claude-sonnet-4-6 | Anthropic |
 | Security | claude-haiku-4-5-20251001 | Anthropic |

@@ -85,14 +85,6 @@ export const AGENT_ROSTER: AgentConfig[] = [
     group: "development",
   },
   {
-    name: "testing",
-    displayName: "Test Planner",
-    provider: "anthropic",
-    model: "claude-sonnet-4-6",
-    description: "Creates test plans that define expected behavior; dev agents write the actual test files",
-    group: "planning",
-  },
-  {
     name: "code-review",
     displayName: "Code Reviewer",
     provider: "anthropic",
@@ -171,7 +163,6 @@ export const DEFAULT_AGENT_TOOLS: Record<AgentName, ToolName[]> = {
   "frontend-dev": [...ALL_TOOLS],
   "backend-dev": [...ALL_TOOLS],
   styling: [...ALL_TOOLS],
-  testing: ["read_file", "list_files"],  // reads existing code in fix mode to create test plans
   "code-review": [], // reviewer — receives code in prompt, tools cause extra round-trips
   qa: [],            // reviewer — receives code in prompt, tools cause extra round-trips
   security: [],      // reviewer — receives code in prompt, tools cause extra round-trips

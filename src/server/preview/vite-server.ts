@@ -182,7 +182,7 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: true,
-    include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}"],
+    include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}", "server/**/*.{test,spec}.{ts,tsx,js,jsx}"],
   },
 });
 `;

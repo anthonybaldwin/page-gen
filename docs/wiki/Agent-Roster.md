@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system uses 14 agent configs (10 base agents + 4 orchestrator subtasks), coordinated by an orchestrator. Each agent has a specific role, model, and set of tools. All models are configurable via **Settings → Models**.
+The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coordinated by an orchestrator. Each agent has a specific role, model, and set of tools. All models are configurable via **Settings → Models**.
 
 ## Agents
 
@@ -34,7 +34,7 @@ The system uses 14 agent configs (10 base agents + 4 orchestrator subtasks), coo
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
-- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect (build mode) or test planner (fix mode)
+- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect
 - **Single instance (build mode):** A single frontend-dev agent handles all component files defined in the architect's plan. The orchestrator infrastructure supports `instanceId`-based parallelism for future use, but currently dispatches one instance per pipeline.
 
 ### 5. Backend Developer
@@ -50,29 +50,19 @@ The system uses 14 agent configs (10 base agents + 4 orchestrator subtasks), coo
 - **Role:** Applies design polish, responsive layout, theming
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
 
-### 7. Test Planner
-- **Model:** Claude Sonnet 4.6 (Anthropic)
-- **Role:** Creates a JSON test plan that defines expected behavior — dev agents use this to write test files alongside their code
-- **Tools:** `read_file`, `list_files` — read-only access for inspecting existing code
-- **Output:** Structured JSON test plan with component-to-test mapping, behavior descriptions, and setup notes
-- **Position (build mode):** Not used as a separate step — the architect includes a `test_plan` section in its output, saving one API call and one pipeline stage
-- **Position (fix mode):** Not currently dispatched by the orchestrator. The `finishPipeline()` function runs vitest directly instead.
-- **Post-step:** After each dev agent writes files, the orchestrator runs `bunx vitest run` with verbose+json reporters. If tests fail, routes failures to the dev agent for one fix attempt, then re-runs tests.
-- **Test results:** Broadcast via `test_results` and `test_result_incremental` WebSocket events. Displayed **inline** as thinking blocks at the point in the pipeline where tests ran, with a per-test checklist UI and streaming results.
-
-### 8. Code Reviewer
+### 7. Code Reviewer
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Reviews code for bugs, type errors, and correctness; reports issues for dev agents to fix
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, categorized findings (`[frontend]`, `[backend]`, `[styling]`)
 
-### 9. QA Agent (Requirements Validator)
+### 8. QA Agent (Requirements Validator)
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Validates implementation against research requirements; reports gaps without fixing code
 - **Tools:** None — read-only, report only
 - **Output:** Structured JSON report with `status: "pass" | "fail"`, requirements coverage, and categorized issues (`[frontend]`, `[backend]`, `[styling]`)
 
-### 10. Security Reviewer
+### 9. Security Reviewer
 - **Model:** Claude Haiku 4.5 (Anthropic)
 - **Role:** Scans for XSS, injection, key exposure
 - **Output:** Security report (pass/fail with findings)
@@ -94,7 +84,7 @@ Classification uses a ~100-token Haiku call (cheap, fast) with 5 few-shot exampl
 
 | Intent | When | Pipeline |
 |--------|------|----------|
-| **styling-only fix** | Styling-only changes on existing project | Quick-edit: skip research/architect/testing → styling agent only → summary |
+| **styling-only fix** | Styling-only changes on existing project | Quick-edit: skip research/architect → styling agent only → summary |
 
 Quick-edit mode triggers when `scope: "styling"` and the project already has files, saving 4-6 agents' worth of time.
 
@@ -260,7 +250,7 @@ Agents use the AI SDK's native `tool()` definitions instead of text-based `<tool
 - styling: 32,000 tokens (bulk style changes across many files)
 - architect: 12,000 tokens (large JSON architecture doc — truncation breaks file_plan parsing)
 - research: 3,000 tokens
-- Review agents (code-review, security, qa, testing): 2,048 tokens each
+- Review agents (code-review, security, qa): 2,048 tokens each
 - Default (all others): 8,192 tokens
 
 ### File Extraction (Hardened, Fallback)
@@ -283,7 +273,6 @@ Agents only receive relevant upstream data via `filterUpstreamOutputs()`, reduci
 - `backend-dev` → `architect` + `research`
 - `styling` → `architect` + `design-system`
 - Review agents (`code-review`, `security`, `qa`) → dev agent outputs only (they need the code)
-- `testing` → `architect` only
 - Remediation/build-fix/re-review phases receive all outputs (full context needed)
 
 Quick-edit optimization for `fix` requests:
@@ -331,7 +320,6 @@ Each agent's native tool access can be configured via **Settings → Tools**. Th
 | Agent | write_file | write_files | read_file | list_files |
 |-------|-----------|-------------|-----------|------------|
 | frontend-dev, backend-dev, styling | Yes | Yes | Yes | Yes |
-| testing | No | No | Yes | Yes |
 | research, architect, code-review, qa, security | No | No | No | No |
 | orchestrator, orchestrator:classify, orchestrator:title, orchestrator:question, orchestrator:summary | No | No | No | No |
 

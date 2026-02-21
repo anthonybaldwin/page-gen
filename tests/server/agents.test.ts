@@ -4,7 +4,7 @@ import { ALL_TOOLS } from "../../src/shared/types.ts";
 import type { AgentName } from "../../src/shared/types.ts";
 
 describe("Agent Registry", () => {
-  test("all 13 agents are defined (10 base + 3 orchestrator subtasks)", () => {
+  test("all 13 agents are defined (9 base + 4 orchestrator subtasks)", () => {
     expect(AGENT_ROSTER).toHaveLength(13);
   });
 
@@ -31,7 +31,7 @@ describe("Agent Registry", () => {
   });
 
   test("all main agents default to sonnet-4-5", () => {
-    for (const name of ["orchestrator", "research", "architect", "frontend-dev", "backend-dev", "styling", "code-review", "qa", "testing"] as const) {
+    for (const name of ["orchestrator", "research", "architect", "frontend-dev", "backend-dev", "styling", "code-review", "qa"] as const) {
       const config = getAgentConfig(name);
       expect(config?.model).toBe("claude-sonnet-4-6");
     }
@@ -44,6 +44,12 @@ describe("Agent Registry", () => {
 
   test("orchestrator:classify defaults to haiku", () => {
     const config = getAgentConfig("orchestrator:classify");
+    expect(config?.model).toBe("claude-haiku-4-5-20251001");
+    expect(config?.provider).toBe("anthropic");
+  });
+
+  test("orchestrator:title defaults to haiku", () => {
+    const config = getAgentConfig("orchestrator:title");
     expect(config?.model).toBe("claude-haiku-4-5-20251001");
     expect(config?.provider).toBe("anthropic");
   });
@@ -88,13 +94,6 @@ describe("Agent Tool Defaults", () => {
     }
   });
 
-  test("testing defaults to read_file + list_files", () => {
-    const tools = DEFAULT_AGENT_TOOLS["testing"];
-    expect(tools).toContain("read_file");
-    expect(tools).toContain("list_files");
-    expect(tools).not.toContain("write_file");
-  });
-
   test("review agents default to no tools (single-shot)", () => {
     for (const name of ["code-review", "qa", "security"] as AgentName[]) {
       expect(DEFAULT_AGENT_TOOLS[name]).toEqual([]);
@@ -104,6 +103,7 @@ describe("Agent Tool Defaults", () => {
   test("orchestrator and subtasks are in readonly set", () => {
     expect(TOOLS_READONLY_AGENTS.has("orchestrator")).toBe(true);
     expect(TOOLS_READONLY_AGENTS.has("orchestrator:classify")).toBe(true);
+    expect(TOOLS_READONLY_AGENTS.has("orchestrator:title")).toBe(true);
     expect(TOOLS_READONLY_AGENTS.has("orchestrator:question")).toBe(true);
     expect(TOOLS_READONLY_AGENTS.has("orchestrator:summary")).toBe(true);
   });
@@ -111,6 +111,6 @@ describe("Agent Tool Defaults", () => {
   test("getAgentTools returns defaults when no DB override", () => {
     expect(getAgentTools("frontend-dev")).toEqual(ALL_TOOLS);
     expect(getAgentTools("orchestrator")).toEqual([]);
-    expect(getAgentTools("testing")).toEqual(["read_file", "list_files"]);
+    expect(getAgentTools("code-review")).toEqual([]);
   });
 });

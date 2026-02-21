@@ -52,7 +52,6 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   "frontend-dev": "Frontend Dev",
   "backend-dev": "Backend Dev",
   styling: "Styling",
-  testing: "Test Planner",
   "code-review": "Code Review",
   security: "Security",
   qa: "QA",
@@ -251,20 +250,6 @@ export function AgentStatusPanel({ chatId }: Props) {
         }));
       }
 
-      if (msg.type === "test_results") {
-        const { passed, total } = msg.payload as { passed: number; total: number };
-        setAgents((prev) => ({
-          ...prev,
-          testing: {
-            ...prev.testing,
-            name: "testing",
-            displayName: AGENT_DISPLAY_NAMES.testing || "Testing",
-            status: prev.testing?.status || "completed",
-            stream: prev.testing?.stream || "",
-            testBadge: { passed, total },
-          },
-        }));
-      }
     });
 
     return unsub;

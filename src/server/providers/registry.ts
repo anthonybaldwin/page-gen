@@ -56,7 +56,7 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
       } catch { /* not JSON or not parseable */ }
     }
 
-    log("llm-http", `→ ${method} ${provider}`, requestData);
+    log("llm-http", `→ POST ${provider}`, requestData);
 
     // Fix malformed tool_use.input (AI SDK bug — stringifies instead of object)
     if (init?.body && typeof init.body === "string") {
@@ -111,7 +111,7 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
     };
 
     if (response.ok) {
-      log("llm-http", `← ${response.status} ${provider} ${elapsed}ms`, responseData);
+      log("llm-http", `← ${response.status} ${provider}`, responseData);
     } else {
       // For error responses, try to read the body for the error message
       // Clone so the SDK can still read it
@@ -120,7 +120,7 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
         const errorBody = await cloned.text();
         responseData.body = errorBody.length > 500 ? errorBody.slice(0, 500) + "..." : errorBody;
       } catch { /* stream not readable */ }
-      logWarn("llm-http", `← ${response.status} ${provider} ${elapsed}ms`, responseData);
+      logWarn("llm-http", `← ${response.status} ${provider}`, responseData);
     }
 
     return response;

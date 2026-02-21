@@ -88,9 +88,16 @@ Always handle: empty arrays (show placeholder text), null/undefined (fallback de
 - No `// TODO` placeholders. No `any` type. Keep files under 200 lines.
 - Exports must match what other files import.
 
-## Test Files
+## Test Files (REQUIRED)
 
-If a test plan is provided in Previous Agent Outputs, write test files using vitest + @testing-library/react. Follow the plan's structure. Import from `vitest` and `@testing-library/react`. Use `@testing-library/user-event` for interactions. Mock external deps with `vi.mock()`.
+The architect's output includes a `test_plan`. You MUST write every test file listed in the plan. This is not optional — skipping tests is a build failure.
+
+- Write each test file at the exact path specified in the test plan.
+- Use vitest + @testing-library/react. Import `describe`, `it`, `expect` from `vitest` and render utilities from `@testing-library/react`.
+- Use `@testing-library/user-event` for interactions.
+- Mock external deps with `vi.mock()`.
+- Each test file must match the `.test.tsx` or `.test.ts` naming convention.
+- Include test files in your `files_written` summary.
 
 ## Output Discipline
 

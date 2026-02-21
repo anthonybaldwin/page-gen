@@ -153,15 +153,15 @@ export { db };
 - Use async/await consistently. No raw Promise chains.
 - If you need additional npm dependencies beyond Hono and Zod, write an updated `package.json` that includes them. The build system will handle installation.
 
-## Test Files
+## Test Files (REQUIRED)
 
-If a test plan is provided in Previous Agent Outputs (from the architect agent's `test_plan` section, or from the testing agent in fix mode), write test files alongside your server code using vitest.
+If the architect's output includes a `test_plan` with backend test specs, you MUST write every backend test file listed. This is not optional.
 
-- Follow the test plan's structure: one test file per module at the specified path.
-- Import from `vitest` (`describe`, `it`, `expect`, `vi`).
-- Mock external services and databases with `vi.mock()`.
-- The vitest config is already set up — just write the test files.
+- Write each test file at the exact path specified in the test plan (typically `server/__tests__/<module>.test.ts`).
+- Import `describe`, `it`, `expect`, `vi` from `vitest`.
+- Mock databases and external services with `vi.mock()`.
 - Test request validation, response shapes, error handling, and status codes.
+- Include test files in your `files_written` summary.
 
 ## Output Discipline
 

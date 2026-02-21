@@ -1,12 +1,12 @@
-import { generateText } from "ai";
 import { join } from "path";
 import { db, schema } from "../db/index.ts";
 import { eq, inArray, and, desc } from "drizzle-orm";
+import { generateText } from "ai";
 import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
-import { runAgent, type AgentInput, type AgentOutput } from "./base.ts";
+import { runAgent, trackedGenerateText, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -18,7 +18,6 @@ import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
-import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 
 const MAX_RETRIES = 3;
 const MAX_UNIQUE_ERRORS = 10;
@@ -177,7 +176,6 @@ export function preflightValidatePlan(agentNames: AgentName[], providers: Provid
 
 /**
  * Build a fix-mode execution plan for backend/full scopes.
- * Skips the testing agent (finishPipeline runs actual build+tests).
  * Includes reviewers for backend/full scopes (higher risk).
  */
 export function buildFixPlan(userMessage: string, scope: IntentScope): ExecutionPlan {
@@ -456,11 +454,6 @@ export function filterUpstreamOutputs(
   // architect → research (sequential: research runs first, architect consumes its requirements)
   if (agentName === "architect") {
     return truncateAllOutputs(pick(["research"]));
-  }
-
-  // testing → architect + project-source
-  if (agentName === "testing") {
-    return truncateAllOutputs(pick(["architect"]));
   }
 
   // Default: return everything, truncated
@@ -778,8 +771,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           maybeStartBackend(projectId, projectPath);
         }
 
-        // After dev agents (not testing itself), run tests if test files exist
-        if (step.agentName !== "testing" && !signal.aborted) {
+        // After dev agents, run tests if test files exist
+        if (!signal.aborted) {
           const hasTestFiles = testFilesExist(projectPath);
           if (hasTestFiles) {
             const testResult = await runProjectTests(projectPath, chatId, projectId);
@@ -978,16 +971,22 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // Auto-title: if chat has a generic title, generate a short title via LLM (fire-and-forget)
   if (chatTitle === "New Chat" || chatTitle === "Unknown" || /^Chat \d+$/.test(chatTitle)) {
-    const titleConfig = getAgentConfigResolved("orchestrator:classify");
+    const titleConfig = getAgentConfigResolved("orchestrator:title");
     const titleModel = titleConfig ? resolveProviderModel(titleConfig, providers) : null;
-    if (titleModel) {
-      generateText({
+    const titleApiKey = titleConfig ? apiKeys[titleConfig.provider] : null;
+    if (titleModel && titleConfig && titleApiKey) {
+      trackedGenerateText({
         model: titleModel,
         system: "Generate a short title (3-6 words, no quotes) for a chat based on the user's message. Just output the title, nothing else.",
         prompt: userMessage,
         maxOutputTokens: 20,
-      }).then((result) => {
-        const autoTitle = result.text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
+        agentName: "orchestrator:title",
+        provider: titleConfig.provider,
+        modelId: titleConfig.model,
+        apiKey: titleApiKey,
+        chatId, projectId, projectName, chatTitle,
+      }).then(({ text }) => {
+        const autoTitle = text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
         if (!autoTitle) return;
         db.update(schema.chats)
           .set({ title: autoTitle, updatedAt: Date.now() })
@@ -1116,7 +1115,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // --- Fix mode: tiered pipeline based on scope ---
   // styling/frontend = quick-edit (single agent, no reviewers)
-  // backend/full = dev agent(s) + reviewers (no testing agent — finishPipeline runs actual tests)
+  // backend/full = dev agent(s) + reviewers (finishPipeline runs actual tests)
   if (classification.intent === "fix" && hasFiles) {
     const scope = classification.scope as IntentScope;
     const isQuickEdit = scope === "styling" || scope === "frontend";
@@ -1808,72 +1807,24 @@ async function handleQuestion(ctx: {
     : `## Question\n${userMessage}\n\n(This project has no files yet.)`;
 
   try {
+    const providerKey = apiKeys[questionConfig.provider];
+    if (!providerKey) return "No API key configured for the question model.";
+
     logLLMInput("orchestrator", "orchestrator-question", QUESTION_SYSTEM_PROMPT, prompt);
-    const result = await generateText({
+    const { text } = await trackedGenerateText({
       model: questionModel,
       system: QUESTION_SYSTEM_PROMPT,
       prompt,
       maxOutputTokens: 2048,
+      agentName: "orchestrator:question",
+      provider: questionConfig.provider,
+      modelId: questionConfig.model,
+      apiKey: providerKey,
+      chatId, projectId, projectName, chatTitle,
     });
-    logLLMOutput("orchestrator", "orchestrator-question", result.text);
+    logBlock("orchestrator:question", "response", text);
 
-    // Track token usage
-    if (result.usage) {
-      const providerKey = apiKeys[questionConfig.provider];
-      if (providerKey) {
-        const execId = nanoid();
-        db.insert(schema.agentExecutions).values({
-          id: execId, chatId,
-          agentName: "orchestrator:question",
-          status: "completed",
-          input: JSON.stringify({ type: "question", userMessage }),
-          output: JSON.stringify({ answer: result.text }),
-          error: null, retryCount: 0,
-          startedAt: Date.now(), completedAt: Date.now(),
-        }).run();
-
-        const { cacheCreationInputTokens: cacheCreation, cacheReadInputTokens: cacheRead } = extractAnthropicCacheTokens(result);
-
-        // SDK inputTokens includes cache tokens — subtract to get non-cached count
-        const qRawInput = result.usage.inputTokens || 0;
-        const qInputTokens = Math.max(0, qRawInput - cacheCreation - cacheRead);
-
-        const record = trackTokenUsage({
-          executionId: execId, chatId,
-          agentName: "orchestrator:question",
-          provider: questionConfig.provider,
-          model: questionConfig.model,
-          apiKey: providerKey,
-          inputTokens: qInputTokens,
-          outputTokens: result.usage.outputTokens || 0,
-          cacheCreationInputTokens: cacheCreation,
-          cacheReadInputTokens: cacheRead,
-          projectId, projectName, chatTitle,
-        });
-
-        broadcastTokenUsage({
-          chatId, projectId,
-          agentName: "orchestrator:question",
-          provider: questionConfig.provider,
-          model: questionConfig.model,
-          inputTokens: qInputTokens,
-          outputTokens: result.usage.outputTokens || 0,
-          totalTokens: qRawInput + (result.usage.outputTokens || 0),
-          cacheCreationInputTokens: cacheCreation,
-          cacheReadInputTokens: cacheRead,
-          costEstimate: record.costEstimate,
-        });
-
-        log("orchestrator:question", "answered", {
-          model: questionConfig.model,
-          promptChars: prompt.length,
-          tokens: { input: result.usage.inputTokens || 0, output: result.usage.outputTokens || 0, cacheCreate: cacheCreation, cacheRead },
-        });
-      }
-    }
-    logBlock("orchestrator:question", "response", result.text);
-
-    return result.text;
+    return text;
   } catch (err) {
     logError("orchestrator", "Question handling failed", err);
     return "I encountered an error processing your question. Please try again.";
@@ -1943,6 +1894,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   if (!summaryConfig) return fallback();
   const summaryModel = resolveProviderModel(summaryConfig, providers);
   if (!summaryModel) return fallback();
+  const providerKey = apiKeys[summaryConfig.provider];
+  if (!providerKey) return fallback();
 
   // Truncate each agent's output to 500 chars — summary only needs high-level view
   const digest = Array.from(agentResults.entries())
@@ -1954,70 +1907,25 @@ async function generateSummary(input: SummaryInput): Promise<string> {
 
   const prompt = `## User Request\n${userMessage}\n\n## Agent Outputs\n${digest}`;
 
-  logLLMInput("orchestrator", "orchestrator-summary", systemPrompt, prompt);
-  const result = await generateText({
-    model: summaryModel,
-    system: systemPrompt,
-    prompt,
-    maxOutputTokens: 1024,
-  });
-  logLLMOutput("orchestrator", "orchestrator-summary", result.text);
-
-  // Track token usage for the summary call
-  if (result.usage) {
-    const providerKey = apiKeys[summaryConfig.provider];
-    if (providerKey) {
-      const sRawInput = result.usage.inputTokens || 0;
-      const outputTokens = result.usage.outputTokens || 0;
-      const { cacheCreationInputTokens: summaryCacheCreation, cacheReadInputTokens: summaryCacheRead } = extractAnthropicCacheTokens(result);
-      // SDK inputTokens includes cache tokens — subtract to get non-cached count
-      const inputTokens = Math.max(0, sRawInput - summaryCacheCreation - summaryCacheRead);
-
-      const summaryExecId = nanoid();
-      db.insert(schema.agentExecutions).values({
-        id: summaryExecId, chatId,
-        agentName: "orchestrator:summary",
-        status: "completed",
-        input: JSON.stringify({ type: "summary", userMessage }),
-        output: JSON.stringify({ summary: result.text }),
-        error: null, retryCount: 0,
-        startedAt: Date.now(), completedAt: Date.now(),
-      }).run();
-
-      const record = trackTokenUsage({
-        executionId: summaryExecId, chatId,
-        agentName: "orchestrator:summary",
-        provider: summaryConfig.provider,
-        model: summaryConfig.model,
-        apiKey: providerKey,
-        inputTokens, outputTokens,
-        cacheCreationInputTokens: summaryCacheCreation,
-        cacheReadInputTokens: summaryCacheRead,
-        projectId, projectName, chatTitle,
-      });
-
-      broadcastTokenUsage({
-        chatId, projectId,
-        agentName: "orchestrator:summary",
-        provider: summaryConfig.provider,
-        model: summaryConfig.model,
-        inputTokens, outputTokens,
-        totalTokens: sRawInput + outputTokens,
-        cacheCreationInputTokens: summaryCacheCreation,
-        cacheReadInputTokens: summaryCacheRead,
-        costEstimate: record.costEstimate,
-      });
-
-      log("orchestrator:summary", "generated", {
-        model: summaryConfig.model,
-        promptChars: prompt.length,
-        tokens: { input: inputTokens, output: outputTokens, cacheCreate: summaryCacheCreation, cacheRead: summaryCacheRead },
-      });
-    }
+  try {
+    logLLMInput("orchestrator", "orchestrator-summary", systemPrompt, prompt);
+    const { text } = await trackedGenerateText({
+      model: summaryModel,
+      system: systemPrompt,
+      prompt,
+      maxOutputTokens: 1024,
+      agentName: "orchestrator:summary",
+      provider: summaryConfig.provider,
+      modelId: summaryConfig.model,
+      apiKey: providerKey,
+      chatId, projectId, projectName, chatTitle,
+    });
+    logBlock("orchestrator:summary", "response", text);
+    return text;
+  } catch (err) {
+    logError("orchestrator", "Summary generation failed, using fallback", err);
+    return fallback();
   }
-  logBlock("orchestrator:summary", "response", result.text);
-
-  return result.text;
 }
 
 export interface ReviewFindings {
@@ -2554,14 +2462,31 @@ export async function classifyIntent(
     });
     logLLMOutput("orchestrator", "orchestrator-classify", result.text);
 
-    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/m, "");
-    const parsed = JSON.parse(raw);
-    const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent) ? parsed.intent : "build";
-    const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope) ? parsed.scope : "full";
-
-    const { cacheCreationInputTokens: classifyCacheCreation, cacheReadInputTokens: classifyCacheRead } = extractAnthropicCacheTokens(result);
+    // Extract token usage BEFORE parsing — billing must be tracked even if parse fails
+    const classifyCacheCreation = result.usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    const classifyCacheRead = result.usage.inputTokenDetails?.cacheReadTokens ?? 0;
     const classifyRawInput = result.usage.inputTokens || 0;
-    const classifyInputTokens = Math.max(0, classifyRawInput - classifyCacheCreation - classifyCacheRead);
+    const classifyInputTokens = result.usage.inputTokenDetails?.noCacheTokens
+      ?? Math.max(0, classifyRawInput - classifyCacheCreation - classifyCacheRead);
+    const tokenUsage = {
+      inputTokens: classifyInputTokens,
+      outputTokens: result.usage.outputTokens || 0,
+      cacheCreationInputTokens: classifyCacheCreation,
+      cacheReadInputTokens: classifyCacheRead,
+      provider: classifyConfig.provider,
+      model: classifyConfig.model,
+    };
+
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/m, "");
+    let parsed: { intent?: string; scope?: string; reasoning?: string };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      logWarn("orchestrator", `Intent classification returned invalid JSON, defaulting to build`, { raw });
+      return { intent: "build" as OrchestratorIntent, scope: "full" as IntentScope, reasoning: "Fallback: invalid JSON", tokenUsage };
+    }
+    const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent!) ? parsed.intent as OrchestratorIntent : "build";
+    const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope!) ? parsed.scope as IntentScope : "full";
 
     log("orchestrator:classify", "classified", {
       intent, scope,
@@ -2576,17 +2501,7 @@ export async function classifyIntent(
       rawResponse: raw,
     });
 
-    return {
-      intent, scope, reasoning: parsed.reasoning || "",
-      tokenUsage: {
-        inputTokens: classifyInputTokens,
-        outputTokens: result.usage.outputTokens || 0,
-        cacheCreationInputTokens: classifyCacheCreation,
-        cacheReadInputTokens: classifyCacheRead,
-        provider: classifyConfig.provider,
-        model: classifyConfig.model,
-      },
-    };
+    return { intent, scope, reasoning: parsed.reasoning || "", tokenUsage };
   } catch (err) {
     logError("orchestrator", "Intent classification failed, defaulting to build", err);
     return { intent: "build", scope: "full", reasoning: "Fallback: classification error" };
