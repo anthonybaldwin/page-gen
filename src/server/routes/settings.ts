@@ -3,6 +3,7 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { generateText } from "ai";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
+import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt } from "../agents/base.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
@@ -74,6 +75,10 @@ settingsRoutes.put("/limits", async (c) => {
     updated[key] = Number(strVal);
   }
 
+  if (Object.keys(updated).length > 0) {
+    log("settings", `Limits updated`, { updated });
+  }
+
   return c.json({ ok: true, limits: getAllLimits(), defaults: LIMIT_DEFAULTS_NUMERIC });
 });
 
@@ -89,6 +94,7 @@ settingsRoutes.delete("/limits", (c) => {
       db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
     }
   }
+  log("settings", `All limits reset to defaults`);
   return c.json({ ok: true, limits: getAllLimits(), defaults: LIMIT_DEFAULTS_NUMERIC });
 });
 
@@ -125,6 +131,7 @@ settingsRoutes.put("/agents/:name/tools", async (c) => {
     db.insert(schema.appSettings).values({ key, value }).run();
   }
 
+  log("settings", `Agent tools overridden: ${name}`, { agent: name, tools: body.tools });
   return c.json({ ok: true });
 });
 
@@ -134,6 +141,7 @@ settingsRoutes.delete("/agents/:name/tools", (c) => {
   if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
 
   resetAgentToolOverrides(name);
+  log("settings", `Agent tools reset to default: ${name}`, { agent: name });
   return c.json({ ok: true });
 });
 
@@ -210,6 +218,7 @@ settingsRoutes.put("/agents/:name", async (c) => {
     }
   }
 
+  log("settings", `Agent config overridden: ${name}`, { agent: name, provider: body.provider, model: body.model });
   return c.json({ ok: true });
 });
 
@@ -237,6 +246,7 @@ settingsRoutes.put("/agents/:name/prompt", async (c) => {
     db.insert(schema.appSettings).values({ key, value: body.prompt }).run();
   }
 
+  log("settings", `Agent prompt overridden: ${name}`, { agent: name, chars: body.prompt.length });
   return c.json({ ok: true });
 });
 
@@ -246,6 +256,7 @@ settingsRoutes.delete("/agents/:name/overrides", (c) => {
   if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
 
   resetAgentOverrides(name);
+  log("settings", `All agent overrides reset: ${name}`, { agent: name });
   return c.json({ ok: true });
 });
 
@@ -286,6 +297,7 @@ settingsRoutes.post("/validate-key", async (c) => {
         });
         const { cacheCreationInputTokens: cacheCreate, cacheReadInputTokens: cacheRead } = extractAnthropicCacheTokens(result);
         trackValidation("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, result.usage, cacheCreate, cacheRead);
+        log("settings", `API key validated: anthropic`);
         return c.json({ valid: true, provider: "anthropic" });
       }
       case "openai": {
@@ -296,6 +308,7 @@ settingsRoutes.post("/validate-key", async (c) => {
           maxOutputTokens: 16,
         });
         trackValidation("openai", "gpt-5.2", keys.openai.apiKey, result.usage);
+        log("settings", `API key validated: openai`);
         return c.json({ valid: true, provider: "openai" });
       }
       case "google": {
@@ -306,6 +319,7 @@ settingsRoutes.post("/validate-key", async (c) => {
           maxOutputTokens: 16,
         });
         trackValidation("google", "gemini-2.5-flash", keys.google.apiKey, result.usage);
+        log("settings", `API key validated: google`);
         return c.json({ valid: true, provider: "google" });
       }
       default:
@@ -313,6 +327,7 @@ settingsRoutes.post("/validate-key", async (c) => {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Validation failed";
+    logWarn("settings", `API key validation failed: ${body.provider} — ${message}`);
     return c.json({ error: message }, 401);
   }
 });
@@ -337,6 +352,7 @@ settingsRoutes.put("/pricing/:model", async (c) => {
   }
 
   upsertPricing(model, body.input, body.output, body.provider);
+  log("settings", `Pricing overridden: ${model}`, { model, input: body.input, output: body.output, provider: body.provider });
   return c.json({ ok: true });
 });
 
@@ -344,6 +360,7 @@ settingsRoutes.put("/pricing/:model", async (c) => {
 settingsRoutes.delete("/pricing/:model", (c) => {
   const model = c.req.param("model");
   deletePricingOverride(model);
+  log("settings", `Pricing override deleted: ${model}`, { model });
   return c.json({ ok: true });
 });
 
@@ -367,6 +384,7 @@ settingsRoutes.put("/cache-multipliers/:provider", async (c) => {
   }
 
   upsertCacheMultipliers(provider, body.create, body.read);
+  log("settings", `Cache multipliers overridden: ${provider}`, { provider, create: body.create, read: body.read });
   return c.json({ ok: true });
 });
 
@@ -374,6 +392,7 @@ settingsRoutes.put("/cache-multipliers/:provider", async (c) => {
 settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
   const provider = c.req.param("provider");
   deleteCacheMultiplierOverride(provider);
+  log("settings", `Cache multiplier override deleted: ${provider}`, { provider });
   return c.json({ ok: true });
 });
 

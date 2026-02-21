@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { hashApiKey } from "../providers/registry.ts";
 import { estimateCost } from "./pricing.ts";
 import { eq, sql } from "drizzle-orm";
+import { log } from "./logger.ts";
 
 interface TrackTokensParams {
   executionId: string;
@@ -52,6 +53,13 @@ export function trackTokenUsage(params: TrackTokensParams) {
   // Operational record (deleted with chat/project)
   db.insert(schema.tokenUsage).values(record).run();
 
+  log("billing", `${params.agentName} usage: ${params.model}`, {
+    agent: params.agentName, provider: params.provider, model: params.model,
+    inputTokens: params.inputTokens, outputTokens: params.outputTokens,
+    cacheCreate: params.cacheCreationInputTokens || 0, cacheRead: params.cacheReadInputTokens || 0,
+    cost: costEstimate,
+  });
+
   // Permanent ledger record (never deleted)
   db.insert(schema.billingLedger).values({
     id: nanoid(),
@@ -92,6 +100,11 @@ export function trackBillingOnly(params: Omit<TrackTokensParams, "executionId" |
   );
   const now = Date.now();
   const apiKeyHash = hashApiKey(params.apiKey);
+
+  log("billing", `${params.agentName} billing-only: ${params.model}`, {
+    agent: params.agentName, provider: params.provider, model: params.model,
+    totalTokens, cost: costEstimate,
+  });
 
   db.insert(schema.billingLedger).values({
     id: nanoid(),
@@ -147,6 +160,11 @@ export function trackProvisionalUsage(params: {
   const tokenUsageId = nanoid();
   const billingLedgerId = nanoid();
 
+  log("billing", `${params.agentName} provisional: ${params.model} ~${totalTokens} tokens ~$${costEstimate.toFixed(4)}`, {
+    agent: params.agentName, provider: params.provider, model: params.model,
+    estimatedTokens: totalTokens, estimatedCost: costEstimate,
+  });
+
   db.insert(schema.tokenUsage).values({
     id: tokenUsageId,
     executionId: params.executionId,
@@ -190,6 +208,7 @@ export function trackProvisionalUsage(params: {
  * Removes the write-ahead records so failed calls leave no phantom billing trace.
  */
 export function voidProvisionalUsage(ids: { tokenUsageId: string; billingLedgerId: string }): void {
+  log("billing", `Provisional voided`, { tokenUsageId: ids.tokenUsageId, billingLedgerId: ids.billingLedgerId });
   db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.id, ids.tokenUsageId)).run();
   db.delete(schema.billingLedger).where(eq(schema.billingLedger.id, ids.billingLedgerId)).run();
 }
@@ -216,6 +235,13 @@ export function finalizeTokenUsage(
     actual.inputTokens, actual.outputTokens,
     actual.cacheCreationInputTokens || 0, actual.cacheReadInputTokens || 0,
   );
+
+  log("billing", `Finalized: ${model} ${totalTokens} tokens $${costEstimate.toFixed(4)}`, {
+    provider, model,
+    inputTokens: actual.inputTokens, outputTokens: actual.outputTokens,
+    cacheCreate: actual.cacheCreationInputTokens || 0, cacheRead: actual.cacheReadInputTokens || 0,
+    totalTokens, cost: costEstimate,
+  });
 
   db.update(schema.tokenUsage)
     .set({
