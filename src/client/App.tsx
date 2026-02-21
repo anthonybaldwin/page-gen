@@ -147,26 +147,27 @@ export function App() {
                   </span>
                 </button>
               ))}
-              {Object.keys(openFiles).length > 1 && (
-                <button
-                  type="button"
-                  title="Close all tabs"
-                  className="ml-1 mr-1 rounded-sm text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted p-1 shrink-0"
-                  onClick={() => closeFile()}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
           )}
-          <TabsList className="ml-auto mr-2 h-8 bg-transparent p-0 gap-0 shrink-0">
-            <TabsTrigger
-              value="preview"
-              className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
-            >
-              Preview
-            </TabsTrigger>
-          </TabsList>
+          <div className="ml-auto flex items-center gap-1 mr-2 shrink-0">
+            {Object.keys(openFiles).length > 1 && (
+              <button
+                type="button"
+                className="rounded-sm px-2 py-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
+                onClick={() => closeFile()}
+              >
+                Close all
+              </button>
+            )}
+            <TabsList className="h-8 bg-transparent p-0 gap-0">
+              <TabsTrigger
+                value="preview"
+                className="relative rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none bg-transparent"
+              >
+                Preview
+              </TabsTrigger>
+            </TabsList>
+          </div>
         </div>
         <TabsContent value="preview" forceMount className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
           <LivePreview />
