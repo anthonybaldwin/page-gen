@@ -136,6 +136,13 @@ function AgentModelCard({
 }) {
   const [provider, setProvider] = useState(config.provider);
   const [model, setModel] = useState(config.model);
+
+  // Pricing edit state
+  const [editingPricing, setEditingPricing] = useState(false);
+  const [editInput, setEditInput] = useState("");
+  const [editOutput, setEditOutput] = useState("");
+
+  // Limits edit state
   const [editingLimits, setEditingLimits] = useState(false);
   const [editMaxTokens, setEditMaxTokens] = useState("");
   const [editMaxSteps, setEditMaxSteps] = useState("");
@@ -154,6 +161,21 @@ function AgentModelCard({
   }
 
   const pricingInfo = pricing.find((p) => p.model === model);
+
+  async function handlePricingSave() {
+    const inp = parseFloat(editInput);
+    const out = parseFloat(editOutput);
+    if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) return;
+    await api.put(`/settings/pricing/${model}`, { input: inp, output: out });
+    setEditingPricing(false);
+    await onRefresh();
+  }
+
+  async function handlePricingReset() {
+    await api.delete(`/settings/pricing/${model}`);
+    setEditingPricing(false);
+    await onRefresh();
+  }
 
   async function handleLimitsSave() {
     const tokens = parseInt(editMaxTokens);
@@ -236,16 +258,89 @@ function AgentModelCard({
         )}
       </div>
 
-      <div className="mt-1.5">
-        {pricingInfo ? (
-          <span className="text-[11px] text-muted-foreground">
-            ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
-          </span>
-        ) : (
-          <span className="text-[11px] text-amber-400">Pricing not configured</span>
-        )}
-      </div>
+      {/* Pricing line */}
+      {!editingPricing ? (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          {pricingInfo ? (
+            <span className="text-[11px] text-muted-foreground">
+              ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
+            </span>
+          ) : (
+            <span className="text-[11px] text-amber-400">Pricing not configured</span>
+          )}
+          {pricingInfo?.isOverridden && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+              custom
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setEditInput(String(pricingInfo?.input ?? ""));
+              setEditOutput(String(pricingInfo?.output ?? ""));
+              setEditingPricing(true);
+            }}
+            className="h-5 w-5 text-muted-foreground hover:text-foreground ml-0.5"
+            title="Edit pricing"
+          >
+            <Pencil className="h-3 w-3" />
+          </Button>
+          {pricingInfo?.isOverridden && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handlePricingReset}
+              className="h-5 px-1.5 text-[10px] text-muted-foreground"
+            >
+              Reset
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <label className="text-[10px] text-muted-foreground">Input $/1M:</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={editInput}
+              onChange={(e) => setEditInput(e.target.value)}
+              className="w-16 h-7 text-[11px]"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <label className="text-[10px] text-muted-foreground">Output $/1M:</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={editOutput}
+              onChange={(e) => setEditOutput(e.target.value)}
+              className="w-16 h-7 text-[11px]"
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handlePricingSave}
+            className="h-6 px-2 text-[10px] text-primary"
+          >
+            Save
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditingPricing(false)}
+            className="h-6 px-2 text-[10px] text-muted-foreground"
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
 
+      {/* Limits line */}
       {limits && !editingLimits && (
         <div className="mt-1 flex items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">
@@ -283,7 +378,7 @@ function AgentModelCard({
       )}
 
       {limits && editingLimits && (
-        <div className="mt-1.5 flex items-center gap-2">
+        <div className="mt-1 flex items-center gap-2">
           <div className="flex items-center gap-1">
             <label className="text-[10px] text-muted-foreground">Max tokens:</label>
             <Input
