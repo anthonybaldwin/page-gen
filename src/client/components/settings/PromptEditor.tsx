@@ -8,9 +8,10 @@ const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
   development: "Development",
   quality: "Quality",
+  custom: "Custom Agents",
 };
 
-const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality"];
+const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality", "custom"];
 
 export function PromptEditor() {
   const [configs, setConfigs] = useState<ResolvedAgentConfig[]>([]);

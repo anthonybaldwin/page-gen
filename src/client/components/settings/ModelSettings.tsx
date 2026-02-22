@@ -463,7 +463,6 @@ function AddAgentForm({
   const [provider, setProvider] = useState(PROVIDER_IDS[0]);
   const [model, setModel] = useState("");
   const [description, setDescription] = useState("");
-  const [prompt, setPrompt] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -484,7 +483,6 @@ function AddAgentForm({
         provider,
         model,
         description,
-        prompt: prompt || undefined,
       });
       if (res.error) {
         setError(res.error);
@@ -559,16 +557,6 @@ function AddAgentForm({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What this agent does..."
           className="h-7 text-xs"
-        />
-      </div>
-
-      <div>
-        <label className="text-[10px] text-muted-foreground block mb-1">System prompt (optional)</label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Custom system prompt..."
-          className="w-full h-20 rounded-md border border-border bg-background px-3 py-2 text-xs resize-y"
         />
       </div>
 
