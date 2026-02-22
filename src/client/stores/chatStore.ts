@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { Chat, Message } from "../../shared/types.ts";
 
+const ACTIVE_CHAT_KEY = "pagegen:activeChatId";
+
 interface ChatState {
   chats: Chat[];
   activeChat: Chat | null;
@@ -17,7 +19,14 @@ export const useChatStore = create<ChatState>((set) => ({
   activeChat: null,
   messages: [],
   setChats: (chats) => set({ chats }),
-  setActiveChat: (chat) => set({ activeChat: chat }),
+  setActiveChat: (chat) => {
+    if (chat) {
+      localStorage.setItem(ACTIVE_CHAT_KEY, chat.id);
+    } else {
+      localStorage.removeItem(ACTIVE_CHAT_KEY);
+    }
+    set({ activeChat: chat });
+  },
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   renameChat: (id, title) =>

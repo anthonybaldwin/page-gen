@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { Project } from "../../shared/types.ts";
 
+const ACTIVE_PROJECT_KEY = "pagegen:activeProjectId";
+
 interface ProjectState {
   projects: Project[];
   activeProject: Project | null;
@@ -14,7 +16,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
   projects: [],
   activeProject: null,
   setProjects: (projects) => set({ projects }),
-  setActiveProject: (project) => set({ activeProject: project }),
+  setActiveProject: (project) => {
+    if (project) {
+      localStorage.setItem(ACTIVE_PROJECT_KEY, project.id);
+    } else {
+      localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    }
+    set({ activeProject: project });
+  },
   renameProject: (id, name) =>
     set((state) => ({
       projects: state.projects.map((p) => (p.id === id ? { ...p, name } : p)),

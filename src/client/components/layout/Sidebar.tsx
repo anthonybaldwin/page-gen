@@ -57,22 +57,42 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     setActiveProjectId(activeProject?.id ?? null);
   }, [activeProject?.id, setActiveProjectId]);
 
+  // Load projects and restore active project from localStorage
   useEffect(() => {
-    api.get<Project[]>("/projects").then(setProjects).catch(console.error);
-  }, [setProjects]);
+    api.get<Project[]>("/projects").then((loaded) => {
+      setProjects(loaded);
+      if (!activeProject && loaded.length > 0) {
+        const savedId = localStorage.getItem("pagegen:activeProjectId");
+        const saved = savedId ? loaded.find((p) => p.id === savedId) : null;
+        setActiveProject(saved ?? loaded[loaded.length - 1]!);
+      }
+    }).catch(console.error);
+  }, [setProjects]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load chats when project changes; restore active chat from localStorage
   useEffect(() => {
-    setActiveChat(null);
-    setMessages([]);
     if (!activeProject) {
+      setActiveChat(null);
+      setMessages([]);
       setChats([]);
       return;
     }
     api
       .get<Chat[]>(`/chats?projectId=${activeProject.id}`)
-      .then(setChats)
+      .then((loaded) => {
+        setChats(loaded);
+        const savedId = localStorage.getItem("pagegen:activeChatId");
+        const saved = savedId ? loaded.find((c) => c.id === savedId) : null;
+        if (saved) {
+          setActiveChat(saved);
+        } else if (!activeChat || !loaded.find((c) => c.id === activeChat.id)) {
+          // No saved chat or saved chat not in this project — select most recent or null
+          setActiveChat(loaded.length > 0 ? loaded[loaded.length - 1]! : null);
+          if (loaded.length === 0) setMessages([]);
+        }
+      })
       .catch(console.error);
-  }, [activeProject, setChats, setActiveChat, setMessages]);
+  }, [activeProject, setChats, setActiveChat, setMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCreateProject() {
     const name = newProjectName.trim();
