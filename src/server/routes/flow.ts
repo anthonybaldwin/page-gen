@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { log } from "../services/logger.ts";
 import { validateFlowTemplate } from "../../shared/flow-validation.ts";
-import { generateAllDefaults, generateDefaultForIntent } from "../agents/flow-defaults.ts";
+import { generateAllDefaults, generateDefaultForIntent, FLOW_DEFAULTS_VERSION } from "../agents/flow-defaults.ts";
 import {
   getFlowTemplate,
   getAllFlowTemplates,
@@ -17,7 +17,7 @@ import type { OrchestratorIntent } from "../../shared/types.ts";
 
 export const flowRoutes = new Hono();
 
-// --- List all flow templates (auto-seed defaults on first access) ---
+// --- List all flow templates (auto-seed defaults on first access, auto-upgrade outdated) ---
 flowRoutes.get("/templates", (c) => {
   let templates = getAllFlowTemplates();
   if (templates.length === 0) {
@@ -30,6 +30,25 @@ flowRoutes.get("/templates", (c) => {
     }
     templates = defaults;
     log("flow", "Auto-seeded default templates on first access", { count: defaults.length });
+  } else {
+    // Auto-upgrade outdated default templates
+    let upgraded = false;
+    templates = templates.map((tmpl) => {
+      if (tmpl.isDefault && tmpl.version < FLOW_DEFAULTS_VERSION) {
+        const fresh = generateDefaultForIntent(tmpl.intent);
+        if (fresh) {
+          const reset = { ...fresh, id: tmpl.id, name: tmpl.name, createdAt: tmpl.createdAt, updatedAt: Date.now() };
+          saveFlowTemplate(reset);
+          upgraded = true;
+          log("flow", `Auto-upgraded default template "${tmpl.name}" from v${tmpl.version} to v${FLOW_DEFAULTS_VERSION}`);
+          return reset;
+        }
+      }
+      return tmpl;
+    });
+    if (upgraded) {
+      templates = getAllFlowTemplates();
+    }
   }
   return c.json(templates);
 });

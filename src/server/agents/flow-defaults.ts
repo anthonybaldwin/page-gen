@@ -2,6 +2,9 @@ import type { FlowTemplate, FlowNode, FlowEdge } from "../../shared/flow-types.t
 import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
+/** Bump this when default templates change structurally (auto-upgrades existing defaults) */
+export const FLOW_DEFAULTS_VERSION = 2;
+
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
 const Y_SPACING = 150;
@@ -157,7 +160,7 @@ export function generateBuildDefault(): FlowTemplate {
     name: "Default Build Pipeline",
     description: "Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation",
     intent: "build",
-    version: 1,
+    version: FLOW_DEFAULTS_VERSION,
     enabled: true,
     nodes,
     edges,
@@ -288,7 +291,7 @@ export function generateFixDefault(): FlowTemplate {
     name: "Default Fix Pipeline",
     description: "Scope-based routing: quick-edit for styling/frontend, full pipeline with reviewers for backend/full",
     intent: "fix",
-    version: 1,
+    version: FLOW_DEFAULTS_VERSION,
     enabled: true,
     nodes,
     edges,
@@ -309,7 +312,7 @@ export function generateQuestionDefault(): FlowTemplate {
     name: "Default Question Pipeline",
     description: "Single orchestrator:question node — answers questions with project context",
     intent: "question",
-    version: 1,
+    version: FLOW_DEFAULTS_VERSION,
     enabled: true,
     nodes: [
       makeNode("question-agent", "agent", {
