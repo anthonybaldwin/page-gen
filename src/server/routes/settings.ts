@@ -594,8 +594,15 @@ settingsRoutes.post("/validate-key", async (c) => {
 // --- Pricing endpoints ---
 
 // Get all effective pricing (defaults + overrides)
+// Only returns models belonging to providers the caller has keys for.
 settingsRoutes.get("/pricing", (c) => {
-  return c.json(getAllPricing());
+  const keys = extractApiKeys(c);
+  const activeSet = new Set(PROVIDER_IDS.filter((id) => !!keys[id]?.apiKey));
+  const all = getAllPricing();
+  return c.json(all.filter((p) => {
+    const provider = p.provider || getModelProvider(p.model);
+    return provider ? activeSet.has(provider) : false;
+  }));
 });
 
 // Upsert pricing override for a model (optional provider and category for custom models)
@@ -629,8 +636,12 @@ settingsRoutes.delete("/pricing/:model", (c) => {
 // --- Cache multiplier endpoints ---
 
 // Get all effective cache multipliers (defaults + overrides)
+// Only returns multipliers for providers the caller has keys for.
 settingsRoutes.get("/cache-multipliers", (c) => {
-  return c.json(getAllCacheMultipliers());
+  const keys = extractApiKeys(c);
+  const activeSet = new Set(PROVIDER_IDS.filter((id) => !!keys[id]?.apiKey));
+  const all = getAllCacheMultipliers();
+  return c.json(all.filter((cm) => activeSet.has(cm.provider)));
 });
 
 // Upsert cache multiplier override for a provider
