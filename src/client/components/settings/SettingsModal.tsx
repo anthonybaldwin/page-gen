@@ -51,7 +51,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               Tools
             </TabsTrigger>
             <TabsTrigger value="prompts" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-              Prompts
+              System Prompts
             </TabsTrigger>
             <TabsTrigger value="pricing" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Models

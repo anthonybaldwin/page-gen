@@ -102,14 +102,14 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
         </select>
       </label>
       <label className="block">
-        <span className="text-xs text-muted-foreground">Input Template</span>
+        <span className="text-xs text-muted-foreground">Prompt</span>
         <textarea
           value={inputTemplate}
           onChange={(e) => setInputTemplate(e.target.value)}
           onBlur={save}
           rows={4}
           className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
-          placeholder="Use {{userMessage}} for interpolation"
+          placeholder="Use {{userMessage}} for the user's request"
         />
       </label>
       <div className="border-t border-border pt-2 mt-2">
