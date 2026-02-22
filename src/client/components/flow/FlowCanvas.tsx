@@ -280,7 +280,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           nodeBorderRadius={2}
           nodeColor={(node) => {
             switch (node.type) {
-              case "agent": return isDark ? "#818cf8" : "#6366f1";
+              case "agent": return isDark ? "#60a5fa" : "#3b82f6";
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
               case "action": {
