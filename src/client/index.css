@@ -193,3 +193,21 @@ body {
 .cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
 }
+
+/* React Flow MiniMap theming */
+.react-flow__minimap {
+  border-radius: var(--radius) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.2) !important;
+  stroke: var(--muted-foreground) !important;
+  stroke-opacity: 0.5 !important;
+  stroke-width: 2 !important;
+}
+
+.dark .react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.6) !important;
+  stroke-opacity: 0.4 !important;
+}

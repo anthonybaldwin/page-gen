@@ -195,7 +195,10 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         <Background gap={20} size={1} />
         <Controls showInteractive={false} className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground" />
         <MiniMap
-          className="!bg-card !border-border"
+          className="!bg-card !border-border !shadow-sm"
+          pannable
+          zoomable
+          nodeBorderRadius={2}
           nodeColor={(node) => {
             switch (node.type) {
               case "agent": return "hsl(var(--primary))";
