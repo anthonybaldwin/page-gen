@@ -41,16 +41,12 @@ export function PromptEditor() {
   useEffect(() => {
     setLoading(true);
     setSaved(false);
-    Promise.all([
-      api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`),
-      api.get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/defaultPrompt`),
-    ])
-      .then(([promptRes, defaultPromptRes]) => {
-        setPrompt(promptRes.prompt);
-        setIsCustom(promptRes.isCustom);
-        setDefaultPrompt(defaultPromptRes.defaultPrompt);
-        setIsDefaultPromptCustom(defaultPromptRes.isCustom);
-      })
+    // Fetch independently so a failure in one doesn't block the other
+    api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`)
+      .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
+      .catch(console.error);
+    api.get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/defaultPrompt`)
+      .then((res) => { setDefaultPrompt(res.defaultPrompt); setIsDefaultPromptCustom(res.isCustom); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [selectedAgent]);
