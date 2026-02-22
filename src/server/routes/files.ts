@@ -35,7 +35,6 @@ const BINARY_EXTENSIONS = new Set([
   "mp3", "mp4", "wav", "ogg", "webm", "avi",
   "pdf", "zip", "tar", "gz", "rar", "7z",
   "exe", "dll", "so", "dylib", "bin",
-  "lock",
 ]);
 
 const MAX_SEARCH_FILE_SIZE = 512 * 1024; // 512KB

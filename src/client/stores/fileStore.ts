@@ -7,7 +7,7 @@ const BINARY_EXTENSIONS = new Set([
   "mp3", "mp4", "wav", "ogg", "webm", "avi",
   "pdf", "zip", "tar", "gz", "rar", "7z",
   "exe", "dll", "so", "dylib", "bin",
-  "lock", "db", "sqlite", "sqlite3",
+  "db", "sqlite", "sqlite3",
 ]);
 
 function isBinaryFile(path: string): boolean {
