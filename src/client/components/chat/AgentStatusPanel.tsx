@@ -14,7 +14,7 @@ import {
 interface AgentState {
   name: string;
   displayName: string;
-  status: "pending" | "running" | "completed" | "failed" | "retrying";
+  status: "pending" | "running" | "completed" | "failed" | "retrying" | "stopped";
   stream: string;
   error?: string;
   phase?: string;
@@ -194,7 +194,7 @@ export function AgentStatusPanel({ chatId }: Props) {
               stream: existing?.stream || "",
               phase,
               startedAt: status === "running" ? Date.now() : existing?.startedAt,
-              completedAt: (status === "completed" || status === "failed") ? Date.now() : existing?.completedAt,
+              completedAt: (status === "completed" || status === "failed" || status === "stopped") ? Date.now() : existing?.completedAt,
               lastToolCall: status === "running" ? null : existing?.lastToolCall,
             },
           };
@@ -295,7 +295,7 @@ export function AgentStatusPanel({ chatId }: Props) {
                   {state?.phase === "remediation" && " (fixing)"}
                   {state?.phase === "build-fix" && " (build fix)"}
                   {state?.phase === "re-review" && " (re-review)"}
-                  {(status === "running" || status === "completed" || status === "failed") && state?.startedAt && (
+                  {(status === "running" || status === "completed" || status === "failed" || status === "stopped") && state?.startedAt && (
                     <span className="ml-1 text-muted-foreground/50 font-normal">
                       ({formatElapsed(state.startedAt, status === "running" ? undefined : state?.completedAt)})
                     </span>

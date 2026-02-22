@@ -1,4 +1,4 @@
-export type AgentStatus = "pending" | "running" | "completed" | "failed" | "retrying";
+export type AgentStatus = "pending" | "running" | "completed" | "failed" | "retrying" | "stopped";
 export type MessageRole = "user" | "assistant" | "system";
 
 export interface Project {

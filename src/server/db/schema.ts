@@ -36,7 +36,7 @@ export const agentExecutions = sqliteTable("agent_executions", {
     .notNull()
     .references(() => chats.id),
   agentName: text("agent_name").notNull(),
-  status: text("status").notNull(), // 'pending' | 'running' | 'completed' | 'failed' | 'retrying'
+  status: text("status").notNull(), // 'pending' | 'running' | 'completed' | 'failed' | 'retrying' | 'stopped'
   input: text("input").notNull(), // JSON string
   output: text("output"), // JSON string
   error: text("error"),

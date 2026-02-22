@@ -895,7 +895,14 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     }
   }
 
-  if (signal.aborted) return null;
+  if (signal.aborted) {
+    await db.update(schema.agentExecutions)
+      .set({ status: "stopped", completedAt: Date.now() })
+      .where(eq(schema.agentExecutions.id, executionId));
+    broadcastAgentStatus(chatId, stepKey, "stopped");
+    log("orchestrator", `Agent ${stepKey} stopped by user`);
+    return null;
+  }
 
   if (!result) {
     const errorMsg = lastError?.message || "Unknown error";
