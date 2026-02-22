@@ -3,28 +3,27 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { Context } from "hono";
 import { log, logWarn } from "../services/logger.ts";
+import { PROVIDERS } from "../../shared/providers.ts";
 
-export interface ProviderInstance {
-  anthropic?: ReturnType<typeof createAnthropic>;
-  openai?: ReturnType<typeof createOpenAI>;
-  google?: ReturnType<typeof createGoogleGenerativeAI>;
-}
+/** SDK factory functions — add 1 line here + npm install to support a new provider. */
+const SDK_FACTORIES: Record<string, (opts: { apiKey: string; baseURL?: string; fetch: typeof globalThis.fetch }) => any> = {
+  anthropic: (opts) => createAnthropic(opts),
+  openai:    (opts) => createOpenAI(opts),
+  google:    (opts) => createGoogleGenerativeAI(opts),
+};
+
+/** Dynamic provider map: providerId → SDK instance (callable with model id). */
+export type ProviderInstance = Record<string, ((...args: any[]) => any) | undefined>;
 
 export function extractApiKeys(c: Context) {
-  return {
-    anthropic: {
-      apiKey: c.req.header("X-Api-Key-Anthropic") || "",
-      proxyUrl: c.req.header("X-Proxy-Url-Anthropic") || "",
-    },
-    openai: {
-      apiKey: c.req.header("X-Api-Key-OpenAI") || "",
-      proxyUrl: c.req.header("X-Proxy-Url-OpenAI") || "",
-    },
-    google: {
-      apiKey: c.req.header("X-Api-Key-Google") || "",
-      proxyUrl: c.req.header("X-Proxy-Url-Google") || "",
-    },
-  };
+  const keys: Record<string, { apiKey: string; proxyUrl: string }> = {};
+  for (const def of PROVIDERS) {
+    keys[def.id] = {
+      apiKey: c.req.header(`X-Api-Key-${def.headerKey}`) || "",
+      proxyUrl: c.req.header(`X-Proxy-Url-${def.headerKey}`) || "",
+    };
+  }
+  return keys;
 }
 
 /** Redact API keys from URLs (e.g., Google AI uses ?key=... query params). */
@@ -127,31 +126,18 @@ function createLoggingFetch(provider: string): typeof globalThis.fetch {
   }) as typeof globalThis.fetch;
 }
 
-export function createProviders(keys: ReturnType<typeof extractApiKeys>): ProviderInstance {
+export function createProviders(keys: Record<string, { apiKey: string; proxyUrl: string }>): ProviderInstance {
   const providers: ProviderInstance = {};
 
-  if (keys.anthropic.apiKey) {
-    providers.anthropic = createAnthropic({
-      apiKey: keys.anthropic.apiKey,
-      ...(keys.anthropic.proxyUrl ? { baseURL: keys.anthropic.proxyUrl } : {}),
-      fetch: createLoggingFetch("anthropic"),
-    });
-  }
-
-  if (keys.openai.apiKey) {
-    providers.openai = createOpenAI({
-      apiKey: keys.openai.apiKey,
-      ...(keys.openai.proxyUrl ? { baseURL: keys.openai.proxyUrl } : {}),
-      fetch: createLoggingFetch("openai"),
-    });
-  }
-
-  if (keys.google.apiKey) {
-    providers.google = createGoogleGenerativeAI({
-      apiKey: keys.google.apiKey,
-      ...(keys.google.proxyUrl ? { baseURL: keys.google.proxyUrl } : {}),
-      fetch: createLoggingFetch("google"),
-    });
+  for (const [id, factory] of Object.entries(SDK_FACTORIES)) {
+    const keyEntry = keys[id];
+    if (keyEntry?.apiKey) {
+      providers[id] = factory({
+        apiKey: keyEntry.apiKey,
+        ...(keyEntry.proxyUrl ? { baseURL: keyEntry.proxyUrl } : {}),
+        fetch: createLoggingFetch(id),
+      });
+    }
   }
 
   return providers;

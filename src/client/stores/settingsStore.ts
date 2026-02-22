@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ProviderConfig } from "../../shared/types.ts";
+import { PROVIDER_IDS } from "../../shared/providers.ts";
 import {
   initCrypto,
   encryptAndStore,
@@ -11,20 +12,26 @@ import {
 interface SettingsState {
   hasKeys: boolean;
   keysReady: boolean;
-  anthropic: ProviderConfig | null;
-  openai: ProviderConfig | null;
-  google: ProviderConfig | null;
+  providers: Record<string, ProviderConfig | null>;
   loadKeys: () => Promise<void>;
-  saveKeys: (keys: { anthropic?: ProviderConfig; openai?: ProviderConfig; google?: ProviderConfig }) => Promise<void>;
+  saveKeys: (keys: Record<string, ProviderConfig | undefined>) => Promise<void>;
   clearKeys: () => void;
+}
+
+function emptyProviders(): Record<string, ProviderConfig | null> {
+  const result: Record<string, ProviderConfig | null> = {};
+  for (const id of PROVIDER_IDS) result[id] = null;
+  return result;
+}
+
+function hasAnyKey(providers: Record<string, ProviderConfig | null>): boolean {
+  return PROVIDER_IDS.some((id) => !!providers[id]?.apiKey);
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasKeys: false,
   keysReady: false,
-  anthropic: null,
-  openai: null,
-  google: null,
+  providers: emptyProviders(),
   loadKeys: async () => {
     try {
       await initCrypto();
@@ -46,11 +53,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
       if (plaintext) {
         const parsed = JSON.parse(plaintext);
+        const providers: Record<string, ProviderConfig | null> = {};
+        for (const id of PROVIDER_IDS) {
+          providers[id] = parsed[id] || null;
+        }
         set({
-          hasKeys: !!(parsed.anthropic?.apiKey || parsed.openai?.apiKey || parsed.google?.apiKey),
-          anthropic: parsed.anthropic || null,
-          openai: parsed.openai || null,
-          google: parsed.google || null,
+          hasKeys: hasAnyKey(providers),
+          providers,
           keysReady: true,
         });
       } else {
@@ -64,22 +73,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
   saveKeys: async (keys) => {
     const state = get();
-    const current = {
-      anthropic: state.anthropic,
-      openai: state.openai,
-      google: state.google,
-    };
-    const merged = { ...current, ...keys };
+    const merged: Record<string, ProviderConfig | null> = { ...state.providers };
+    for (const [id, val] of Object.entries(keys)) {
+      if (val !== undefined) merged[id] = val;
+    }
     await encryptAndStore(JSON.stringify(merged));
     set({
-      hasKeys: !!(merged.anthropic?.apiKey || merged.openai?.apiKey || merged.google?.apiKey),
-      anthropic: merged.anthropic || null,
-      openai: merged.openai || null,
-      google: merged.google || null,
+      hasKeys: hasAnyKey(merged),
+      providers: merged,
     });
   },
   clearKeys: () => {
     clearStorage();
-    set({ hasKeys: false, anthropic: null, openai: null, google: null });
+    set({ hasKeys: false, providers: emptyProviders() });
   },
 }));

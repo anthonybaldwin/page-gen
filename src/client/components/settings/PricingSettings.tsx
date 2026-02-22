@@ -139,7 +139,8 @@ export function PricingSettings() {
   );
 }
 
-const PROVIDERS = ["anthropic", "openai", "google"];
+import { PROVIDER_IDS } from "../../../shared/providers.ts";
+
 
 function AddCustomModelForm({
   onAdd,
@@ -148,7 +149,7 @@ function AddCustomModelForm({
   onAdd: (model: string, input: number, output: number, provider: string) => void;
   existingModels: Set<string>;
 }) {
-  const [provider, setProvider] = useState(PROVIDERS[0]!);
+  const [provider, setProvider] = useState(PROVIDER_IDS[0]!);
   const [modelId, setModelId] = useState("");
   const [inputPrice, setInputPrice] = useState("");
   const [outputPrice, setOutputPrice] = useState("");
@@ -179,7 +180,7 @@ function AddCustomModelForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROVIDERS.map((p) => (
+              {PROVIDER_IDS.map((p) => (
                 <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
               ))}
             </SelectContent>

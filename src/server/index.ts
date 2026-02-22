@@ -13,6 +13,7 @@ import { fontRoutes } from "./routes/fonts.ts";
 import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
 import { stopAllPreviewServers } from "./preview/vite-server.ts";
+import { PROVIDERS } from "../shared/providers.ts";
 import { stopAllBackendServers } from "./preview/backend-server.ts";
 import { log, logError, logWarn } from "./services/logger.ts";
 import { createMiddleware } from "hono/factory";
@@ -50,12 +51,7 @@ app.use(
     origin: CORS_ORIGINS,
     allowHeaders: [
       "Content-Type",
-      "X-Api-Key-Anthropic",
-      "X-Api-Key-OpenAI",
-      "X-Api-Key-Google",
-      "X-Proxy-Url-Anthropic",
-      "X-Proxy-Url-OpenAI",
-      "X-Proxy-Url-Google",
+      ...PROVIDERS.flatMap((p) => [`X-Api-Key-${p.headerKey}`, `X-Proxy-Url-${p.headerKey}`]),
     ],
   })
 );

@@ -6,9 +6,7 @@ import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
-import { ANTHROPIC_MODELS } from "../providers/anthropic.ts";
-import { OPENAI_MODELS } from "../providers/openai.ts";
-import { GOOGLE_MODELS } from "../providers/google.ts";
+import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS } from "../../shared/providers.ts";
 import type { AgentName, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
@@ -206,16 +204,15 @@ settingsRoutes.put("/agents/:name", async (c) => {
   const body = await c.req.json<{ provider?: string; model?: string }>();
 
   // Validate provider value
-  const VALID_PROVIDERS = new Set(["anthropic", "openai", "google"]);
-  if (body.provider && !VALID_PROVIDERS.has(body.provider)) {
-    return c.json({ error: `Invalid provider "${body.provider}". Must be one of: ${[...VALID_PROVIDERS].join(", ")}` }, 400);
+  if (body.provider && !PROVIDER_IDS.includes(body.provider)) {
+    return c.json({ error: `Invalid provider "${body.provider}". Must be one of: ${PROVIDER_IDS.join(", ")}` }, 400);
   }
 
   // Build known model → provider mapping for compatibility checks
   const MODEL_PROVIDERS: Record<string, string> = {};
-  for (const id of Object.values(ANTHROPIC_MODELS)) MODEL_PROVIDERS[id] = "anthropic";
-  for (const id of Object.values(OPENAI_MODELS)) MODEL_PROVIDERS[id] = "openai";
-  for (const id of Object.values(GOOGLE_MODELS)) MODEL_PROVIDERS[id] = "google";
+  for (const id of PROVIDER_IDS) {
+    for (const m of getModelsForProvider(id)) MODEL_PROVIDERS[m.id] = id;
+  }
 
   // Also include custom models from pricing overrides
   const allPricingEntries = getAllPricing();
@@ -327,22 +324,13 @@ settingsRoutes.post("/validate-key", async (c) => {
       return c.json({ valid: true, provider });
     };
 
-    switch (body.provider) {
-      case "anthropic": {
-        if (!providers.anthropic) return c.json({ error: "No Anthropic key provided" }, 400);
-        return validate("anthropic", "claude-haiku-4-5-20251001", keys.anthropic.apiKey, providers.anthropic("claude-haiku-4-5-20251001"));
-      }
-      case "openai": {
-        if (!providers.openai) return c.json({ error: "No OpenAI key provided" }, 400);
-        return validate("openai", "gpt-5.2", keys.openai.apiKey, providers.openai("gpt-5.2"));
-      }
-      case "google": {
-        if (!providers.google) return c.json({ error: "No Google key provided" }, 400);
-        return validate("google", "gemini-2.5-flash", keys.google.apiKey, providers.google("gemini-2.5-flash"));
-      }
-      default:
-        return c.json({ error: "Unknown provider" }, 400);
+    const validationModel = VALIDATION_MODELS[body.provider];
+    if (!validationModel || !providers[body.provider]) {
+      if (!validationModel) return c.json({ error: "Unknown provider" }, 400);
+      const def = PROVIDER_DEFS.find((p) => p.id === body.provider);
+      return c.json({ error: `No ${def?.label ?? body.provider} key provided` }, 400);
     }
+    return validate(body.provider, validationModel, keys[body.provider].apiKey, providers[body.provider]!(validationModel));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Validation failed";
     logWarn("settings", `API key validation failed: ${body.provider} — ${message}`);
@@ -416,49 +404,30 @@ settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
 
 // Get known models grouped by provider with pricing info (includes custom models)
 settingsRoutes.get("/models", (c) => {
-  const providers: { provider: string; models: { id: string; pricing: { input: number; output: number } | null }[] }[] = [
-    {
-      provider: "anthropic",
-      models: Object.values(ANTHROPIC_MODELS).map((id) => ({
-        id,
-        pricing: DEFAULT_PRICING[id] || null,
+  const providerGroups: { provider: string; models: { id: string; pricing: { input: number; output: number } | null }[] }[] =
+    PROVIDER_IDS.map((id) => ({
+      provider: id,
+      models: getModelsForProvider(id).map((m) => ({
+        id: m.id,
+        pricing: DEFAULT_PRICING[m.id] || null,
       })),
-    },
-    {
-      provider: "openai",
-      models: Object.values(OPENAI_MODELS).map((id) => ({
-        id,
-        pricing: DEFAULT_PRICING[id] || null,
-      })),
-    },
-    {
-      provider: "google",
-      models: Object.values(GOOGLE_MODELS).map((id) => ({
-        id,
-        pricing: DEFAULT_PRICING[id] || null,
-      })),
-    },
-  ];
+    }));
 
   // Include custom models (non-known) under their assigned provider
   const allPricing = getAllPricing();
-  const knownModelIds: Set<string> = new Set([
-    ...Object.values(ANTHROPIC_MODELS),
-    ...Object.values(OPENAI_MODELS),
-    ...Object.values(GOOGLE_MODELS),
-  ]);
+  const knownModelIds = new Set(Object.keys(DEFAULT_PRICING));
   for (const p of allPricing) {
     if (knownModelIds.has(p.model)) continue;
     if (!p.provider) continue;
-    let group = providers.find((g) => g.provider === p.provider);
+    let group = providerGroups.find((g) => g.provider === p.provider);
     if (!group) {
       group = { provider: p.provider, models: [] };
-      providers.push(group);
+      providerGroups.push(group);
     }
     group.models.push({ id: p.model, pricing: { input: p.input, output: p.output } });
   }
 
-  return c.json(providers);
+  return c.json(providerGroups);
 });
 
 // --- Pipeline settings endpoints ---

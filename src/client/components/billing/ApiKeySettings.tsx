@@ -2,14 +2,18 @@ import { useState } from "react";
 import { useSettingsStore } from "../../stores/settingsStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
+import { PROVIDER_IDS } from "../../../shared/providers.ts";
 
 export function ApiKeySettings() {
-  const { anthropic, openai, google, saveKeys, clearKeys } = useSettingsStore();
-  const [keys, setKeys] = useState({
-    anthropic: { apiKey: anthropic?.apiKey || "", proxyUrl: anthropic?.proxyUrl || "" },
-    openai: { apiKey: openai?.apiKey || "", proxyUrl: openai?.proxyUrl || "" },
-    google: { apiKey: google?.apiKey || "", proxyUrl: google?.proxyUrl || "" },
-  });
+  const { providers: storeProviders, saveKeys, clearKeys } = useSettingsStore();
+  const [keys, setKeys] = useState(
+    () => Object.fromEntries(
+      PROVIDER_IDS.map((id) => [id, {
+        apiKey: storeProviders[id]?.apiKey || "",
+        proxyUrl: storeProviders[id]?.proxyUrl || "",
+      }])
+    )
+  );
   const [saved, setSaved] = useState(false);
 
   async function handleSave() {
@@ -26,14 +30,14 @@ export function ApiKeySettings() {
 
   return (
     <div className="space-y-4">
-      {(["anthropic", "openai", "google"] as const).map((provider) => (
+      {PROVIDER_IDS.map((provider) => (
         <div key={provider}>
           <label className="block text-sm font-medium text-muted-foreground mb-1 capitalize">
             {provider} API Key
           </label>
           <Input
             type="password"
-            value={keys[provider].apiKey}
+            value={keys[provider]?.apiKey ?? ""}
             onChange={(e) =>
               setKeys((prev) => ({
                 ...prev,
@@ -44,7 +48,7 @@ export function ApiKeySettings() {
           <Input
             type="url"
             placeholder="Proxy URL (optional)"
-            value={keys[provider].proxyUrl}
+            value={keys[provider]?.proxyUrl ?? ""}
             onChange={(e) =>
               setKeys((prev) => ({
                 ...prev,

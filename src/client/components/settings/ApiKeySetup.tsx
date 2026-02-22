@@ -4,46 +4,13 @@ import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../ui/card.tsx";
 import { Loader2 } from "lucide-react";
-
-interface ProviderField {
-  key: string;
-  label: string;
-  headerKey: string;
-  placeholder: string;
-  proxyPlaceholder: string;
-}
-
-const PROVIDERS: ProviderField[] = [
-  {
-    key: "anthropic",
-    label: "Anthropic",
-    headerKey: "Anthropic",
-    placeholder: "sk-ant-...",
-    proxyPlaceholder: "https://api.anthropic.com",
-  },
-  {
-    key: "openai",
-    label: "OpenAI",
-    headerKey: "OpenAI",
-    placeholder: "sk-...",
-    proxyPlaceholder: "https://api.openai.com",
-  },
-  {
-    key: "google",
-    label: "Google AI",
-    headerKey: "Google",
-    placeholder: "AIza...",
-    proxyPlaceholder: "https://generativelanguage.googleapis.com",
-  },
-];
+import { PROVIDERS } from "../../../shared/providers.ts";
 
 export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
   const saveKeys = useSettingsStore((s) => s.saveKeys);
-  const [keys, setKeys] = useState<Record<string, { apiKey: string; proxyUrl: string }>>({
-    anthropic: { apiKey: "", proxyUrl: "" },
-    openai: { apiKey: "", proxyUrl: "" },
-    google: { apiKey: "", proxyUrl: "" },
-  });
+  const [keys, setKeys] = useState<Record<string, { apiKey: string; proxyUrl: string }>>(
+    () => Object.fromEntries(PROVIDERS.map((p) => [p.id, { apiKey: "", proxyUrl: "" }]))
+  );
   const [showProxy, setShowProxy] = useState(false);
   const [validating, setValidating] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -61,7 +28,7 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
     const validKeys: Record<string, { apiKey: string; proxyUrl?: string }> = {};
 
     for (const provider of PROVIDERS) {
-      const entry = keys[provider.key];
+      const entry = keys[provider.id];
       if (!entry?.apiKey.trim()) continue;
 
       try {
@@ -72,20 +39,20 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
             [`X-Api-Key-${provider.headerKey}`]: entry.apiKey,
             ...(entry.proxyUrl ? { [`X-Proxy-Url-${provider.headerKey}`]: entry.proxyUrl } : {}),
           },
-          body: JSON.stringify({ provider: provider.key }),
+          body: JSON.stringify({ provider: provider.id }),
         });
 
         if (!res.ok) {
           const body = await res.json().catch(() => ({ error: "Validation failed" }));
-          newErrors[provider.key] = (body as { error: string }).error;
+          newErrors[provider.id] = (body as { error: string }).error;
         } else {
-          validKeys[provider.key] = {
+          validKeys[provider.id] = {
             apiKey: entry.apiKey,
             ...(entry.proxyUrl ? { proxyUrl: entry.proxyUrl } : {}),
           };
         }
       } catch {
-        validKeys[provider.key] = {
+        validKeys[provider.id] = {
           apiKey: entry.apiKey,
           ...(entry.proxyUrl ? { proxyUrl: entry.proxyUrl } : {}),
         };
@@ -115,33 +82,33 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {PROVIDERS.map((provider) => (
-              <div key={provider.key}>
+              <div key={provider.id}>
                 <label className="block text-sm font-medium text-foreground/80 mb-1">
                   {provider.label} API Key
                 </label>
                 <Input
                   type="password"
                   placeholder={provider.placeholder}
-                  value={keys[provider.key]?.apiKey || ""}
+                  value={keys[provider.id]?.apiKey || ""}
                   onChange={(e) =>
                     setKeys((prev) => ({
                       ...prev,
-                      [provider.key]: { ...prev[provider.key]!, apiKey: e.target.value },
+                      [provider.id]: { ...prev[provider.id]!, apiKey: e.target.value },
                     }))
                   }
                 />
-                {errors[provider.key] && (
-                  <p className="text-xs text-destructive mt-1">{errors[provider.key]}</p>
+                {errors[provider.id] && (
+                  <p className="text-xs text-destructive mt-1">{errors[provider.id]}</p>
                 )}
                 {showProxy && (
                   <Input
                     type="url"
                     placeholder={provider.proxyPlaceholder}
-                    value={keys[provider.key]?.proxyUrl || ""}
+                    value={keys[provider.id]?.proxyUrl || ""}
                     onChange={(e) =>
                       setKeys((prev) => ({
                         ...prev,
-                        [provider.key]: { ...prev[provider.key]!, proxyUrl: e.target.value },
+                        [provider.id]: { ...prev[provider.id]!, proxyUrl: e.target.value },
                       }))
                     }
                     className="mt-2"

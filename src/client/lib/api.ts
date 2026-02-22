@@ -1,16 +1,16 @@
 import { useSettingsStore } from "../stores/settingsStore.ts";
+import { PROVIDERS } from "../../shared/providers.ts";
 
 const BASE_URL = "/api";
 
 function getApiKeyHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  const { anthropic, openai, google } = useSettingsStore.getState();
-  if (anthropic?.apiKey) headers["X-Api-Key-Anthropic"] = anthropic.apiKey;
-  if (openai?.apiKey) headers["X-Api-Key-OpenAI"] = openai.apiKey;
-  if (google?.apiKey) headers["X-Api-Key-Google"] = google.apiKey;
-  if (anthropic?.proxyUrl) headers["X-Proxy-Url-Anthropic"] = anthropic.proxyUrl;
-  if (openai?.proxyUrl) headers["X-Proxy-Url-OpenAI"] = openai.proxyUrl;
-  if (google?.proxyUrl) headers["X-Proxy-Url-Google"] = google.proxyUrl;
+  const { providers } = useSettingsStore.getState();
+  for (const def of PROVIDERS) {
+    const config = providers[def.id];
+    if (config?.apiKey) headers[`X-Api-Key-${def.headerKey}`] = config.apiKey;
+    if (config?.proxyUrl) headers[`X-Proxy-Url-${def.headerKey}`] = config.proxyUrl;
+  }
   return headers;
 }
 

@@ -4,6 +4,7 @@ import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
 import type { ResolvedAgentConfig, AgentLimitsConfig, ModelPricing, AgentGroup } from "../../../shared/types.ts";
+import { PROVIDER_IDS } from "../../../shared/providers.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
@@ -18,8 +19,6 @@ function buildAgentGroups(configs: ResolvedAgentConfig[]) {
     .map((g) => ({ label: GROUP_LABELS[g], agents: configs.filter((c) => c.group === g) }))
     .filter((g) => g.agents.length > 0);
 }
-
-const PROVIDERS = ["anthropic", "openai", "google"];
 
 interface ProviderModels {
   provider: string;
@@ -244,7 +243,7 @@ function AgentModelCard({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PROVIDERS.map((p) => (
+            {PROVIDER_IDS.map((p) => (
               <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
             ))}
           </SelectContent>

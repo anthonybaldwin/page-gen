@@ -132,12 +132,7 @@ function maybeStartBackend(projectId: string, projectPath: string) {
 
 /** Resolve a provider model instance from a config, respecting the configured provider. */
 function resolveProviderModel(config: { provider: string; model: string }, providers: ProviderInstance) {
-  switch (config.provider) {
-    case "anthropic": return providers.anthropic?.(config.model);
-    case "openai": return providers.openai?.(config.model);
-    case "google": return providers.google?.(config.model);
-    default: return null;
-  }
+  return providers[config.provider]?.(config.model) ?? null;
 }
 
 /**

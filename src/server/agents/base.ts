@@ -559,16 +559,7 @@ export async function runAgent(
 }
 
 function getProviderModel(config: AgentConfig, providers: ProviderInstance) {
-  switch (config.provider) {
-    case "anthropic":
-      return providers.anthropic?.(config.model);
-    case "openai":
-      return providers.openai?.(config.model);
-    case "google":
-      return providers.google?.(config.model);
-    default:
-      return null;
-  }
+  return providers[config.provider]?.(config.model) ?? null;
 }
 
 const MAX_HISTORY_MESSAGES = 6;

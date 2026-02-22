@@ -62,12 +62,6 @@ export interface ProviderConfig {
   proxyUrl?: string;
 }
 
-export interface ApiKeyHeaders {
-  anthropic?: ProviderConfig;
-  openai?: ProviderConfig;
-  google?: ProviderConfig;
-}
-
 export type AgentName =
   | "orchestrator"
   | "orchestrator:classify"

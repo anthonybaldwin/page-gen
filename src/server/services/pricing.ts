@@ -1,26 +1,16 @@
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import type { CacheMultiplierInfo } from "../../shared/types.ts";
+import { MODELS, CACHE_MULTIPLIERS } from "../../shared/providers.ts";
 
-/** Provider-specific cache token multipliers relative to input price. */
-export const PROVIDER_CACHE_MULTIPLIERS: Record<string, { create: number; read: number }> = {
-  anthropic: { create: 1.25, read: 0.1 },
-  openai:    { create: 0,    read: 0.5 },
-  google:    { create: 0,    read: 0.25 },
-};
+/** Re-export for backward compat — derived from the shared MODELS array. */
+export const PROVIDER_CACHE_MULTIPLIERS = CACHE_MULTIPLIERS;
 const DEFAULT_CACHE_MULTIPLIERS = { create: 1.0, read: 0.5 };
 
-/** Per-million-token pricing (USD) — verified Feb 2026, Anthropic Tier 2 */
-export const DEFAULT_PRICING: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-6": { input: 5, output: 25 },
-  "claude-opus-4-5-20251101": { input: 5, output: 25 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-sonnet-4-5-20250929": { input: 3, output: 15 },
-  "claude-haiku-4-5-20251001": { input: 1, output: 5 },
-  "gpt-5.2": { input: 1.75, output: 14 },
-  "gpt-5.2-pro": { input: 21, output: 168 },
-  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
-};
+/** Per-million-token pricing derived from the shared MODELS catalog. */
+export const DEFAULT_PRICING: Record<string, { input: number; output: number }> = Object.fromEntries(
+  MODELS.map((m) => [m.id, m.pricing]),
+);
 
 export function isKnownModel(model: string): boolean {
   return model in DEFAULT_PRICING;
