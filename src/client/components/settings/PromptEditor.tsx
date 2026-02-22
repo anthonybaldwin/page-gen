@@ -21,8 +21,6 @@ export function PromptEditor() {
   const [selectedAgent, setSelectedAgent] = useState<string>("orchestrator");
   const [prompt, setPrompt] = useState("");
   const [isCustom, setIsCustom] = useState(false);
-  const [defaultPrompt, setDefaultPrompt] = useState("");
-  const [isDefaultPromptCustom, setIsDefaultPromptCustom] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -41,12 +39,8 @@ export function PromptEditor() {
   useEffect(() => {
     setLoading(true);
     setSaved(false);
-    // Fetch independently so a failure in one doesn't block the other
     api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`)
       .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
-      .catch(console.error);
-    api.get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/defaultPrompt`)
-      .then((res) => { setDefaultPrompt(res.defaultPrompt); setIsDefaultPromptCustom(res.isCustom); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [selectedAgent]);
@@ -55,12 +49,8 @@ export function PromptEditor() {
     setSaving(true);
     setSaved(false);
     try {
-      await Promise.all([
-        api.put(`/settings/agents/${selectedAgent}/prompt`, { prompt }),
-        api.put(`/settings/agents/${selectedAgent}/defaultPrompt`, { defaultPrompt }),
-      ]);
+      await api.put(`/settings/agents/${selectedAgent}/prompt`, { prompt });
       setIsCustom(true);
-      setIsDefaultPromptCustom(true);
       setSaved(true);
       const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
       setConfigs(updated);
@@ -76,14 +66,9 @@ export function PromptEditor() {
     setSaving(true);
     try {
       await api.delete(`/settings/agents/${selectedAgent}/overrides`);
-      const [promptRes, defaultPromptRes] = await Promise.all([
-        api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`),
-        api.get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/defaultPrompt`),
-      ]);
-      setPrompt(promptRes.prompt);
-      setIsCustom(promptRes.isCustom);
-      setDefaultPrompt(defaultPromptRes.defaultPrompt);
-      setIsDefaultPromptCustom(defaultPromptRes.isCustom);
+      const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`);
+      setPrompt(res.prompt);
+      setIsCustom(res.isCustom);
       const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
       setConfigs(updated);
     } catch (err) {
@@ -94,7 +79,6 @@ export function PromptEditor() {
   }
 
   const selectedConfig = configs.find((c) => c.name === selectedAgent);
-  const hasAnyCustom = isCustom || isDefaultPromptCustom;
 
   return (
     <div className="flex gap-3 flex-1 min-h-0">
@@ -143,7 +127,7 @@ export function PromptEditor() {
               </span>
             )}
           </div>
-          {hasAnyCustom && (
+          {isCustom && (
             <Button
               variant="ghost"
               size="sm"
@@ -161,52 +145,25 @@ export function PromptEditor() {
             Loading...
           </div>
         ) : (
-          <>
-            {/* System Prompt */}
-            <div className="flex-1 min-h-0 overflow-hidden rounded">
-              <CodeMirror
-                value={prompt}
-                onChange={setPrompt}
-                extensions={extensions}
-                theme="none"
-                className="h-full text-xs"
-                height="100%"
-                basicSetup={{
-                  lineNumbers: true,
-                  foldGutter: true,
-                  bracketMatching: true,
-                  closeBrackets: true,
-                  tabSize: 2,
-                  highlightActiveLine: true,
-                  highlightSelectionMatches: true,
-                }}
-              />
-            </div>
-
-            {/* Default Prompt */}
-            <div className="mt-3 border-t border-border pt-3">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xs font-medium text-foreground">Default Prompt</span>
-                {isDefaultPromptCustom && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-                    custom
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-muted-foreground mb-1.5">
-                Used as the starting prompt when this agent is added to a flow node. Supports {"{{userMessage}}"}.
-              </p>
-              <textarea
-                value={defaultPrompt}
-                onChange={(e) => setDefaultPrompt(e.target.value)}
-                rows={3}
-                className={`w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-mono resize-y ${
-                  isDefaultPromptCustom ? "font-medium" : "italic text-muted-foreground"
-                }`}
-                placeholder="{{userMessage}}"
-              />
-            </div>
-          </>
+          <div className="flex-1 min-h-0 overflow-hidden rounded">
+            <CodeMirror
+              value={prompt}
+              onChange={setPrompt}
+              extensions={extensions}
+              theme="none"
+              className="h-full text-xs"
+              height="100%"
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                tabSize: 2,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+              }}
+            />
+          </div>
         )}
 
         <div className="flex justify-end mt-2">
