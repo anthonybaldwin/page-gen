@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Background,
@@ -94,6 +94,26 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Sync externally-added nodes (e.g. from toolbar)
+  useEffect(() => {
+    setNodes(current => {
+      const currentIds = new Set(current.map(n => n.id));
+      const added = template.nodes.filter(n => !currentIds.has(n.id));
+      if (added.length === 0) return current;
+      return [...current, ...toRFNodes(added)];
+    });
+  }, [template.nodes.length, setNodes]);
+
+  // Sync externally-added edges
+  useEffect(() => {
+    setEdges(current => {
+      const currentIds = new Set(current.map(e => e.id));
+      const added = template.edges.filter(e => !currentIds.has(e.id));
+      if (added.length === 0) return current;
+      return [...current, ...toRFEdges(added)];
+    });
+  }, [template.edges.length, setEdges]);
 
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
