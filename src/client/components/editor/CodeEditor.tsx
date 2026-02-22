@@ -18,15 +18,20 @@ function getLanguageExtension(path: string) {
   switch (ext) {
     case "ts":
     case "tsx":
+    case "mts":
       return javascript({ jsx: true, typescript: true });
     case "js":
     case "jsx":
+    case "mjs":
+    case "cjs":
       return javascript({ jsx: true });
     case "html":
       return html();
     case "css":
       return css();
     case "json":
+    case "jsonc":
+    case "lock":
       return json();
     case "md":
     case "mdx":
