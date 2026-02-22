@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
+import { useSettingsStore } from "../../stores/settingsStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from "../ui/select.tsx";
@@ -31,6 +32,7 @@ interface PricingInfo extends ModelPricing {
 }
 
 export function ModelSettings() {
+  const keysVersion = useSettingsStore((s) => s.keysVersion);
   const [configs, setConfigs] = useState<ResolvedAgentConfig[]>([]);
   const [knownModels, setKnownModels] = useState<ProviderModels[]>([]);
   const [pricing, setPricing] = useState<PricingInfo[]>([]);
@@ -53,7 +55,7 @@ export function ModelSettings() {
 
   useEffect(() => {
     refresh().catch(console.error);
-  }, []);
+  }, [keysVersion]);
 
   async function handleSave(name: string, provider: string, model: string) {
     setSaving(name);

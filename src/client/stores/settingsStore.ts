@@ -12,6 +12,8 @@ import {
 interface SettingsState {
   hasKeys: boolean;
   keysReady: boolean;
+  /** Incremented on every saveKeys/clearKeys — watch this to re-fetch dependent data. */
+  keysVersion: number;
   providers: Record<string, ProviderConfig | null>;
   loadKeys: () => Promise<void>;
   saveKeys: (keys: Record<string, ProviderConfig | undefined>) => Promise<void>;
@@ -31,6 +33,7 @@ function hasAnyKey(providers: Record<string, ProviderConfig | null>): boolean {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasKeys: false,
   keysReady: false,
+  keysVersion: 0,
   providers: emptyProviders(),
   loadKeys: async () => {
     try {
@@ -78,13 +81,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (val !== undefined) merged[id] = val;
     }
     await encryptAndStore(JSON.stringify(merged));
-    set({
+    set((s) => ({
       hasKeys: hasAnyKey(merged),
       providers: merged,
-    });
+      keysVersion: s.keysVersion + 1,
+    }));
   },
   clearKeys: () => {
     clearStorage();
-    set({ hasKeys: false, providers: emptyProviders() });
+    set((s) => ({ hasKeys: false, providers: emptyProviders(), keysVersion: s.keysVersion + 1 }));
   },
 }));

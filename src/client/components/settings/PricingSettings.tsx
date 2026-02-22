@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
+import { useSettingsStore } from "../../stores/settingsStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
@@ -17,6 +18,7 @@ interface PricingInfo extends ModelPricing {
 }
 
 export function PricingSettings() {
+  const keysVersion = useSettingsStore((s) => s.keysVersion);
   const [knownModels, setKnownModels] = useState<ProviderModels[]>([]);
   const [pricing, setPricing] = useState<PricingInfo[]>([]);
   const [cacheMultipliers, setCacheMultipliers] = useState<CacheMultiplierInfo[]>([]);
@@ -34,7 +36,7 @@ export function PricingSettings() {
 
   useEffect(() => {
     refresh().catch(console.error);
-  }, []);
+  }, [keysVersion]);
 
   async function handlePricingOverride(model: string, input: number, output: number, provider?: string, category?: string) {
     await api.put(`/settings/pricing/${model}`, { input, output, ...(provider ? { provider } : {}), ...(category ? { category } : {}) });
