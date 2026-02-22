@@ -66,3 +66,5 @@ Architecture Decision Records in [`docs/adr/`](docs/adr/):
 - [004 - Client-Side Security](docs/adr/004-client-side-security.md)
 - [005 - Preview Isolation & Docker](docs/adr/005-preview-isolation-docker.md)
 - [006 - Git-Based Versioning](docs/adr/006-git-versioning.md)
+- [007 - Extensible Agent Registry & Category Restrictions](docs/adr/007-extensible-agent-registry.md)
+- [008 - Visual Pipeline Flow Editor & Custom Tools](docs/adr/008-flow-editor-custom-tools.md)

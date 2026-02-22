@@ -179,7 +179,7 @@ Current ADRs:
 - **004** — Client-side security (encrypted keys, sandboxing)
 - **005** — Preview isolation & Docker (per-project Vite, hybrid extraction, containerization)
 - **006** — Git-based versioning (replaced SQLite snapshots with git, stage hooks, save_version tool)
-- **007** — *(reserved — model categories & providers)*
+- **007** — Extensible agent registry & category restrictions (custom agents, allowedCategories, merged registry)
 - **008** — Visual pipeline flow editor & custom tools (flow templates, DAG resolver, custom tool executors)
 
 ## Test Gate
