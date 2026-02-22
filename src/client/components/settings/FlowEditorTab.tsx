@@ -4,6 +4,7 @@ import { Button } from "../ui/button.tsx";
 import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
+import { PipelineSettings } from "./PipelineSettings.tsx";
 import { Trash2 } from "lucide-react";
 import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
 import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
@@ -11,6 +12,7 @@ import type { OrchestratorIntent } from "../../../shared/types.ts";
 import type { ResolvedAgentConfig } from "../../../shared/types.ts";
 
 type IntentTab = OrchestratorIntent;
+type PipelineSubTab = "editor" | "defaults";
 
 export function FlowEditorTab() {
   const [templates, setTemplates] = useState<FlowTemplate[]>([]);
@@ -26,6 +28,7 @@ export function FlowEditorTab() {
   const [validated, setValidated] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [subTab, setSubTab] = useState<PipelineSubTab>("editor");
 
   const refresh = useCallback(async () => {
     try {
@@ -169,6 +172,30 @@ export function FlowEditorTab() {
 
   return (
     <div className="flex flex-col gap-2 flex-1 min-h-0">
+      {/* Sub-tab toggle: Flow Editor | Defaults */}
+      <div className="flex items-center gap-1">
+        {(["editor", "defaults"] as PipelineSubTab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setSubTab(tab)}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              subTab === tab
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            {tab === "editor" ? "Flow Editor" : "Defaults"}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "defaults" && (
+        <div className="overflow-y-auto flex-1">
+          <PipelineSettings />
+        </div>
+      )}
+
+      {subTab === "editor" && <>
       {/* Intent tabs + description in one row */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
@@ -304,6 +331,7 @@ export function FlowEditorTab() {
           )}
         </>
       )}
+      </>}
     </div>
   );
 }

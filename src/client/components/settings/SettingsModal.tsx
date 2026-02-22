@@ -6,7 +6,6 @@ import { PromptEditor } from "./PromptEditor.tsx";
 import { ToolSettings } from "./ToolSettings.tsx";
 import { GitSettings } from "./GitSettings.tsx";
 import { AppearanceSettings } from "./AppearanceSettings.tsx";
-import { PipelineSettings } from "./PipelineSettings.tsx";
 import { FlowEditorTab } from "./FlowEditorTab.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Button } from "../ui/button.tsx";
@@ -71,8 +70,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <TabsContent value="keys" className="mt-0 overflow-y-auto"><ApiKeySettings /></TabsContent>
           <TabsContent value="limits" className="mt-0 overflow-y-auto">
             <LimitsSettings />
-            <hr className="my-6 border-border" />
-            <PipelineSettings />
           </TabsContent>
           <TabsContent value="models" className="mt-0 overflow-y-auto"><ModelSettings /></TabsContent>
           <TabsContent value="pipeline" className="mt-0 min-h-[80vh] flex flex-col"><FlowEditorTab /></TabsContent>

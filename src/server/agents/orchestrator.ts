@@ -36,6 +36,16 @@ import {
 } from "../config/pipeline.ts";
 
 /**
+ * Read a pipeline setting with optional per-flow overrides.
+ * Checks overrides first, then falls back to the global pipeline setting.
+ */
+function effectiveSetting(key: string, overrides?: PostActionOverrides): number {
+  const override = overrides?.[key as keyof PostActionOverrides];
+  if (override !== undefined) return override;
+  return getPipelineSetting(key);
+}
+
+/**
  * Detect non-retriable API errors that should immediately halt the pipeline
  * instead of wasting retries. Covers credit exhaustion, auth failures,
  * invalid API keys, and billing issues.
@@ -72,7 +82,7 @@ export function isNonRetriableApiError(err: unknown): { nonRetriable: boolean; r
  * Returns formatted string with counts, e.g., "[3x] Cannot find module '@/utils'"
  * Caps at MAX_UNIQUE_ERRORS unique patterns.
  */
-export function deduplicateErrors(errorLines: string[]): string {
+export function deduplicateErrors(errorLines: string[], overrides?: PostActionOverrides): string {
   if (errorLines.length === 0) return "";
   const counts = new Map<string, { count: number; example: string }>();
   for (const line of errorLines) {
@@ -86,7 +96,7 @@ export function deduplicateErrors(errorLines: string[]): string {
       counts.set(key, { count: 1, example: line.trim() });
     }
   }
-  const maxErrors = getPipelineSetting("maxUniqueErrors");
+  const maxErrors = effectiveSetting("maxUniqueErrors", overrides);
   const entries = [...counts.entries()].slice(0, maxErrors);
   const lines = entries.map(([, { count, example }]) =>
     count > 1 ? `[${count}x] ${example}` : example
@@ -99,8 +109,8 @@ export function deduplicateErrors(errorLines: string[]): string {
 /**
  * Format test failures for agent consumption. Caps at MAX_TEST_FAILURES to prevent prompt bloat.
  */
-export function formatTestFailures(failures: Array<{ name: string; error: string }>): string {
-  const maxFails = getPipelineSetting("maxTestFailures");
+export function formatTestFailures(failures: Array<{ name: string; error: string }>, overrides?: PostActionOverrides): string {
+  const maxFails = effectiveSetting("maxTestFailures", overrides);
   const capped = failures.slice(0, maxFails);
   const lines = capped.map((f) => `- ${f.name}: ${f.error}`);
   if (failures.length > maxFails) {
@@ -547,13 +557,27 @@ export interface OrchestratorInput {
   apiKeys: Record<string, string>;
 }
 
+/** Per-node overrides collected from post-action flow nodes */
+export interface PostActionOverrides {
+  buildTimeoutMs?: number;
+  testTimeoutMs?: number;
+  maxTestFailures?: number;
+  maxUniqueErrors?: number;
+  maxBuildFixAttempts?: number;
+  maxRemediationCycles?: number;
+}
+
 export interface ExecutionPlan {
   steps: Array<{
     agentName: AgentName;
     input: string;
     dependsOn?: string[];
     instanceId?: string;
+    maxOutputTokens?: number;
+    maxToolSteps?: number;
   }>;
+  /** Overrides from post-action flow nodes (merged from all active post-action nodes) */
+  postActionOverrides?: PostActionOverrides;
 }
 
 // Shared mutable counters — passed by reference so all call sites share the same count
@@ -561,7 +585,7 @@ interface CallCounter { value: number; }
 interface BuildFixCounter { value: number; }
 
 interface PipelineStepContext {
-  step: { agentName: AgentName; input: string; instanceId?: string };
+  step: { agentName: AgentName; input: string; instanceId?: string; maxOutputTokens?: number; maxToolSteps?: number };
   chatId: string;
   projectId: string;
   projectPath: string;
@@ -578,6 +602,8 @@ interface PipelineStepContext {
   signal: AbortSignal;
   /** When true, skip build checks and tests — caller will handle them after the batch completes */
   skipPostProcessing?: boolean;
+  /** Per-flow overrides from post-action nodes */
+  postActionOverrides?: PostActionOverrides;
 }
 
 /**
@@ -587,7 +613,7 @@ interface PipelineStepContext {
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, skipPostProcessing } = ctx;
+    providers, apiKeys, signal, skipPostProcessing, postActionOverrides } = ctx;
 
   // Use instanceId for keying/broadcasting, base agentName for config lookup
   const stepKey = step.instanceId ?? step.agentName;
@@ -689,7 +715,15 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         });
       }
 
-      result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId, step.instanceId);
+      // Build per-step overrides from flow node data
+      const stepOverrides = (step.maxOutputTokens || step.maxToolSteps)
+        ? {
+            ...(step.maxOutputTokens ? { maxOutputTokens: step.maxOutputTokens } : {}),
+            ...(step.maxToolSteps ? { maxToolSteps: step.maxToolSteps } : {}),
+          }
+        : undefined;
+
+      result = await runAgent(config, providers, agentInput, toolSubset, signal, chatId, step.instanceId, stepOverrides);
 
       // Fix: Detect silent API failures (0-token empty responses from rate limiting)
       const emptyOutputTokens = result.tokenUsage?.outputTokens || 0;
@@ -755,11 +789,12 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
       if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted && !skipPostProcessing) {
         // All file-producing agents get build check (skipped for parallel batches — caller handles it)
-        const buildErrors = await checkProjectBuild(projectPath, chatId);
+        const buildErrors = await checkProjectBuild(projectPath, chatId, postActionOverrides);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
             userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
+            postActionOverrides,
           });
           if (fixResult) {
             agentResults.set(`${stepKey}-build-fix`, fixResult);
@@ -779,13 +814,14 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         if (!signal.aborted) {
           const hasTestFiles = testFilesExist(projectPath);
           if (hasTestFiles) {
-            const testResult = await runProjectTests(projectPath, chatId, projectId);
+            const testResult = await runProjectTests(projectPath, chatId, projectId, undefined, postActionOverrides);
             if (testResult && testResult.failed > 0 && !signal.aborted) {
               // Route test failures to dev agent for one fix attempt
               const testFixResult = await runBuildFix({
-                buildErrors: formatTestFailures(testResult.failures),
+                buildErrors: formatTestFailures(testResult.failures, postActionOverrides),
                 chatId, projectId, projectPath, projectName, chatTitle,
                 userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
+                postActionOverrides,
               });
               if (testFixResult) {
                 agentResults.set(`${stepKey}-test-fix`, testFixResult);
@@ -1269,6 +1305,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       chatId, projectId, projectPath, projectName, chatTitle,
       userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
       providers, apiKeys, signal,
+      postActionOverrides: plan.postActionOverrides,
     });
 
     await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
@@ -1405,6 +1442,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
+    postActionOverrides: plan.postActionOverrides,
   });
 
   await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
@@ -1572,7 +1610,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     }
 
     // Execute remaining steps
-    const remainingPlan: ExecutionPlan = { steps: remainingSteps };
+    const remainingPlan: ExecutionPlan = { steps: remainingSteps, postActionOverrides: plan.postActionOverrides };
     const pipelineOk = await executePipelineSteps({
       plan: remainingPlan, chatId, projectId, projectPath, projectName, chatTitle,
       userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
@@ -1592,6 +1630,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     chatId, projectId, projectPath, projectName, chatTitle,
     userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal,
+    postActionOverrides: plan.postActionOverrides,
   });
 
   await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
@@ -1636,6 +1675,8 @@ async function executePipelineSteps(ctx: {
   const { plan, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal } = ctx;
+
+  const postActionOverrides = plan.postActionOverrides;
 
   const completedSet = new Set<string>(
     agentResults.keys()
@@ -1693,6 +1734,7 @@ async function executePipelineSteps(ctx: {
               userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
               providers, apiKeys, signal,
               skipPostProcessing: isParallelBatch,
+              postActionOverrides,
             });
             resolve({ stepKey: step.instanceId ?? step.agentName, result });
           }, i * STAGGER_MS)
@@ -1735,11 +1777,12 @@ async function executePipelineSteps(ctx: {
       const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
         log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
-        const buildErrors = await checkProjectBuild(projectPath, chatId);
+        const buildErrors = await checkProjectBuild(projectPath, chatId, postActionOverrides);
         if (buildErrors && !signal.aborted) {
           const fixResult = await runBuildFix({
             buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
             userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
+            postActionOverrides,
           });
           if (fixResult) {
             agentResults.set("parallel-batch-build-fix", fixResult);
@@ -1825,10 +1868,11 @@ async function finishPipeline(ctx: {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
+  postActionOverrides?: PostActionOverrides;
 }): Promise<void> {
   const { chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal } = ctx;
+    providers, apiKeys, signal, postActionOverrides } = ctx;
 
   // Remediation loop
   if (!signal.aborted) {
@@ -1836,17 +1880,19 @@ async function finishPipeline(ctx: {
       chatId, projectId, projectPath, projectName, chatTitle,
       userMessage, chatHistory, agentResults, completedAgents, callCounter,
       providers, apiKeys, signal,
+      postActionOverrides,
     });
   }
 
   // Final build check — track outcome for honest summary
   let buildOk = true;
   if (!signal.aborted) {
-    const finalBuildErrors = await checkProjectBuild(projectPath, chatId);
+    const finalBuildErrors = await checkProjectBuild(projectPath, chatId, postActionOverrides);
     if (finalBuildErrors && !signal.aborted) {
       const fixResult = await runBuildFix({
         buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
         userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal,
+        postActionOverrides,
       });
       if (fixResult) {
         agentResults.set("final-build-fix", fixResult);
@@ -2168,6 +2214,7 @@ interface RemediationContext {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
+  postActionOverrides?: PostActionOverrides;
 }
 
 /**
@@ -2178,7 +2225,7 @@ interface RemediationContext {
  */
 async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
   let previousIssueCount = Infinity;
-  const maxCycles = getPipelineSetting("maxRemediationCycles");
+  const maxCycles = effectiveSetting("maxRemediationCycles", ctx.postActionOverrides);
 
   for (let cycle = 0; cycle < maxCycles; cycle++) {
     if (ctx.signal.aborted) return;
@@ -3003,7 +3050,7 @@ function extractAndWriteFiles(
  * Run a Vite build check on the project to detect compile errors.
  * Returns error output string if there are errors, null if build succeeds.
  */
-async function checkProjectBuild(projectPath: string, chatId?: string): Promise<string | null> {
+async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: PostActionOverrides): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -3037,7 +3084,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
       env: { ...process.env, NODE_ENV: "development" },
     });
 
-    const buildTimeout = getPipelineSetting("buildTimeoutMs");
+    const buildTimeout = effectiveSetting("buildTimeoutMs", overrides);
     const timeout = new Promise<"timeout">((resolve) =>
       setTimeout(() => resolve("timeout"), buildTimeout),
     );
@@ -3077,7 +3124,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string): Promise<
       });
 
     // Deduplicate by core error pattern (strip file paths, keep error type + message)
-    const deduped = deduplicateErrors(errorLines);
+    const deduped = deduplicateErrors(errorLines, overrides);
     const errors = (deduped || combined.slice(0, 2000)).trim();
     log("build", "Build failed", { exitCode, errorLines: errorLines.length, chars: errors.length });
     logBlock("build", "Build errors", errors);
@@ -3110,12 +3157,13 @@ async function runBuildFix(params: {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
+  postActionOverrides?: PostActionOverrides;
 }): Promise<string | null> {
   const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal } = params;
+    userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, postActionOverrides } = params;
 
   // Enforce per-pipeline build-fix attempt limit
-  const maxBuildFixes = getPipelineSetting("maxBuildFixAttempts");
+  const maxBuildFixes = effectiveSetting("maxBuildFixAttempts", postActionOverrides);
   if (buildFixCounter.value >= maxBuildFixes) {
     log("orchestrator", `Build fix limit reached (${maxBuildFixes}). Skipping to prevent runaway costs.`);
     broadcastAgentError(chatId, "orchestrator", `Build fix attempt limit reached (${maxBuildFixes}). Skipping further fixes.`);
@@ -3376,7 +3424,8 @@ export async function runProjectTests(
   projectPath: string,
   chatId: string,
   projectId: string,
-  failedTestFiles?: string[]
+  failedTestFiles?: string[],
+  overrides?: PostActionOverrides,
 ): Promise<TestRunResult | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
@@ -3431,7 +3480,7 @@ export async function runProjectTests(
       }
     }
 
-    const testTimeout = getPipelineSetting("testTimeoutMs");
+    const testTimeout = effectiveSetting("testTimeoutMs", overrides);
     const timeout = new Promise<"timeout">((resolve) =>
       setTimeout(() => resolve("timeout"), testTimeout),
     );

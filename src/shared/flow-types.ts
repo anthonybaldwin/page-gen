@@ -8,6 +8,8 @@ export interface AgentNodeData {
   type: "agent";
   agentName: string;
   inputTemplate: string;
+  maxOutputTokens?: number;  // per-node override
+  maxToolSteps?: number;     // per-node override
 }
 
 export interface ConditionNodeData {
@@ -33,6 +35,11 @@ export interface PostActionNodeData {
   type: "post-action";
   actionType: PostActionType;
   label: string;
+  // per-node overrides (relevant fields depend on actionType)
+  timeoutMs?: number;         // build-check, test-run, build-fix-loop
+  maxAttempts?: number;       // build-fix-loop, remediation-loop
+  maxTestFailures?: number;   // test-run
+  maxUniqueErrors?: number;   // build-fix-loop, test-run
 }
 
 export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | PostActionNodeData;

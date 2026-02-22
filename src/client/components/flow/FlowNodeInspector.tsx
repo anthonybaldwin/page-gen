@@ -62,14 +62,24 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
 }) {
   const [agentName, setAgentName] = useState(data.agentName);
   const [inputTemplate, setInputTemplate] = useState(data.inputTemplate);
+  const [maxOutputTokens, setMaxOutputTokens] = useState(data.maxOutputTokens?.toString() ?? "");
+  const [maxToolSteps, setMaxToolSteps] = useState(data.maxToolSteps?.toString() ?? "");
 
   useEffect(() => {
     setAgentName(data.agentName);
     setInputTemplate(data.inputTemplate);
+    setMaxOutputTokens(data.maxOutputTokens?.toString() ?? "");
+    setMaxToolSteps(data.maxToolSteps?.toString() ?? "");
   }, [data]);
 
   const save = () => {
-    onUpdate(nodeId, { ...data, agentName, inputTemplate });
+    onUpdate(nodeId, {
+      ...data,
+      agentName,
+      inputTemplate,
+      maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+      maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
+    });
   };
 
   return (
@@ -99,6 +109,35 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
           placeholder="Use {{userMessage}} for interpolation"
         />
       </label>
+      <div className="border-t border-border pt-2 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Execution Limits</span>
+        <div className="grid grid-cols-2 gap-2 mt-1.5">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Max Output Tokens</span>
+            <Input
+              type="number"
+              value={maxOutputTokens}
+              onChange={(e) => setMaxOutputTokens(e.target.value)}
+              onBlur={save}
+              className="mt-0.5 h-6 text-xs"
+              placeholder="default"
+              min={1}
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Max Tool Steps</span>
+            <Input
+              type="number"
+              value={maxToolSteps}
+              onChange={(e) => setMaxToolSteps(e.target.value)}
+              onBlur={save}
+              className="mt-0.5 h-6 text-xs"
+              placeholder="default"
+              min={1}
+            />
+          </label>
+        </div>
+      </div>
     </div>
   );
 }
@@ -210,6 +249,21 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
   );
 }
 
+/** Which override fields are relevant per action type */
+const POST_ACTION_FIELDS: Record<PostActionType, Array<"timeoutMs" | "maxAttempts" | "maxTestFailures" | "maxUniqueErrors">> = {
+  "build-check": ["timeoutMs"],
+  "test-run": ["timeoutMs", "maxTestFailures", "maxUniqueErrors"],
+  "build-fix-loop": ["timeoutMs", "maxAttempts", "maxUniqueErrors"],
+  "remediation-loop": ["maxAttempts"],
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  timeoutMs: "Timeout (ms)",
+  maxAttempts: "Max Attempts",
+  maxTestFailures: "Max Test Failures",
+  maxUniqueErrors: "Max Unique Errors",
+};
+
 function PostActionInspector({ data, nodeId, onUpdate }: {
   data: PostActionNodeData;
   nodeId: string;
@@ -217,14 +271,38 @@ function PostActionInspector({ data, nodeId, onUpdate }: {
 }) {
   const [actionType, setActionType] = useState<PostActionType>(data.actionType);
   const [label, setLabel] = useState(data.label);
+  const [timeoutMs, setTimeoutMs] = useState(data.timeoutMs?.toString() ?? "");
+  const [maxAttempts, setMaxAttempts] = useState(data.maxAttempts?.toString() ?? "");
+  const [maxTestFailures, setMaxTestFailures] = useState(data.maxTestFailures?.toString() ?? "");
+  const [maxUniqueErrors, setMaxUniqueErrors] = useState(data.maxUniqueErrors?.toString() ?? "");
 
   useEffect(() => {
     setActionType(data.actionType);
     setLabel(data.label);
+    setTimeoutMs(data.timeoutMs?.toString() ?? "");
+    setMaxAttempts(data.maxAttempts?.toString() ?? "");
+    setMaxTestFailures(data.maxTestFailures?.toString() ?? "");
+    setMaxUniqueErrors(data.maxUniqueErrors?.toString() ?? "");
   }, [data]);
 
   const save = () => {
-    onUpdate(nodeId, { ...data, actionType, label });
+    onUpdate(nodeId, {
+      ...data,
+      actionType,
+      label,
+      timeoutMs: timeoutMs ? parseInt(timeoutMs) : undefined,
+      maxAttempts: maxAttempts ? parseInt(maxAttempts) : undefined,
+      maxTestFailures: maxTestFailures ? parseInt(maxTestFailures) : undefined,
+      maxUniqueErrors: maxUniqueErrors ? parseInt(maxUniqueErrors) : undefined,
+    });
+  };
+
+  const fields = POST_ACTION_FIELDS[actionType] ?? [];
+  const fieldState: Record<string, { value: string; set: (v: string) => void }> = {
+    timeoutMs: { value: timeoutMs, set: setTimeoutMs },
+    maxAttempts: { value: maxAttempts, set: setMaxAttempts },
+    maxTestFailures: { value: maxTestFailures, set: setMaxTestFailures },
+    maxUniqueErrors: { value: maxUniqueErrors, set: setMaxUniqueErrors },
   };
 
   return (
@@ -247,6 +325,31 @@ function PostActionInspector({ data, nodeId, onUpdate }: {
           <option value="remediation-loop">Remediation Loop</option>
         </select>
       </label>
+      {fields.length > 0 && (
+        <div className="border-t border-border pt-2 mt-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Execution Limits</span>
+          <div className="grid grid-cols-2 gap-2 mt-1.5">
+            {fields.map((field) => {
+              const fs = fieldState[field];
+              if (!fs) return null;
+              return (
+                <label key={field} className="block">
+                  <span className="text-[10px] text-muted-foreground">{FIELD_LABELS[field]}</span>
+                  <Input
+                    type="number"
+                    value={fs.value}
+                    onChange={(e) => fs.set(e.target.value)}
+                    onBlur={save}
+                    className="mt-0.5 h-6 text-xs"
+                    placeholder="default"
+                    min={1}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
