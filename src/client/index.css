@@ -202,9 +202,4 @@ body {
 
 /* Minimap mask colors are set via props in FlowCanvas.tsx */
 
-/* Let programmatic edge styles take precedence over React Flow defaults */
-.react-flow__edge.selected .react-flow__edge-path,
-.react-flow__edge.selected .react-flow__edge-interaction,
-.react-flow__edge:hover .react-flow__edge-path {
-  stroke: inherit !important;
-}
+
