@@ -183,12 +183,32 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: Node[] }) => {
       if (selectedNodes.length === 1 && selectedNodes[0]) {
-        onNodeSelect(selectedNodes[0].id);
+        const nodeId = selectedNodes[0].id;
+        onNodeSelect(nodeId);
+        // Elevate connected edges so they render on top of unrelated edges
+        setEdges(current =>
+          current.map(e => ({
+            ...e,
+            zIndex: (e.source === nodeId || e.target === nodeId) ? 1000 : 0,
+            style: {
+              ...e.style,
+              strokeWidth: (e.source === nodeId || e.target === nodeId) ? 2.5 : 1.5,
+            },
+          })),
+        );
       } else {
         onNodeSelect(null);
+        // Reset all edge z-index and stroke
+        setEdges(current =>
+          current.map(e => ({
+            ...e,
+            zIndex: 0,
+            style: { ...e.style, strokeWidth: 1.5 },
+          })),
+        );
       }
     },
-    [onNodeSelect],
+    [onNodeSelect, setEdges],
   );
 
   return (
@@ -202,6 +222,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
         fitView
+        elevateEdgesOnSelect
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: "default",
