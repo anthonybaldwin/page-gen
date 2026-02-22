@@ -10,7 +10,7 @@ FROM base AS dev
 EXPOSE 3000 3001-3020 4001-4020 5173
 COPY scripts/dev-server.sh /usr/local/bin/dev-server
 RUN chmod +x /usr/local/bin/dev-server
-CMD ["sh", "-c", "dev-server & bunx vite --host 0.0.0.0 & wait"]
+CMD ["sh", "-c", "bun install --frozen-lockfile && dev-server & bunx vite --host 0.0.0.0 & wait"]
 
 # Production build — compile frontend
 FROM base AS build
