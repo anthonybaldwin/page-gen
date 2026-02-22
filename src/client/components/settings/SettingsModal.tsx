@@ -66,21 +66,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </TabsList>
         </div>
 
-        {/* Content — flex column; tall tabs fill space, others scroll */}
+        {/* Content — short tabs fit content, Pipeline/Prompts stretch tall */}
         <div className="min-h-0 flex-1 flex flex-col p-4">
-          <TabsContent value="keys" className="mt-0 flex-1 overflow-y-auto"><ApiKeySettings /></TabsContent>
-          <TabsContent value="limits" className="mt-0 flex-1 overflow-y-auto">
+          <TabsContent value="keys" className="mt-0 overflow-y-auto"><ApiKeySettings /></TabsContent>
+          <TabsContent value="limits" className="mt-0 overflow-y-auto">
             <LimitsSettings />
             <hr className="my-6 border-border" />
             <PipelineSettings />
           </TabsContent>
-          <TabsContent value="models" className="mt-0 flex-1 overflow-y-auto"><ModelSettings /></TabsContent>
-          <TabsContent value="pipeline" className="mt-0 flex-1 flex flex-col min-h-0"><FlowEditorTab /></TabsContent>
-          <TabsContent value="pricing" className="mt-0 flex-1 overflow-y-auto"><PricingSettings /></TabsContent>
-          <TabsContent value="prompts" className="mt-0 flex-1 flex flex-col min-h-0"><PromptEditor /></TabsContent>
-          <TabsContent value="tools" className="mt-0 flex-1 overflow-y-auto"><ToolSettings /></TabsContent>
-          <TabsContent value="git" className="mt-0 flex-1 overflow-y-auto"><GitSettings /></TabsContent>
-          <TabsContent value="appearance" className="mt-0 flex-1 overflow-y-auto"><AppearanceSettings /></TabsContent>
+          <TabsContent value="models" className="mt-0 overflow-y-auto"><ModelSettings /></TabsContent>
+          <TabsContent value="pipeline" className="mt-0 min-h-[80vh] flex flex-col"><FlowEditorTab /></TabsContent>
+          <TabsContent value="pricing" className="mt-0 overflow-y-auto"><PricingSettings /></TabsContent>
+          <TabsContent value="prompts" className="mt-0 min-h-[80vh] flex flex-col"><PromptEditor /></TabsContent>
+          <TabsContent value="tools" className="mt-0 overflow-y-auto"><ToolSettings /></TabsContent>
+          <TabsContent value="git" className="mt-0 overflow-y-auto"><GitSettings /></TabsContent>
+          <TabsContent value="appearance" className="mt-0 overflow-y-auto"><AppearanceSettings /></TabsContent>
         </div>
       </Tabs>
     </div>
