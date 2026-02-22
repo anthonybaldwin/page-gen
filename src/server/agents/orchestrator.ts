@@ -882,16 +882,22 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       lastError = err instanceof Error ? err : new Error(String(err));
       logError("orchestrator", `Agent ${stepKey} attempt ${attempt} failed`, err, { agent: stepKey, attempt });
 
-      // Decide whether to void or keep the provisional billing record.
-      // - Retrying: always void (next attempt creates a fresh provisional)
-      // - Final attempt: keep the estimate ONLY if Anthropic likely charged
-      //   (stream/response errors). Void if the request never reached the API
-      //   (connection refused, DNS failure, etc.) since no tokens were consumed.
+      // Decide whether to void, finalize, or keep the provisional billing record.
+      // Check for partial token data attached by runAgent (from step-finish accumulator).
       if (provisionalIds) {
-        const errMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-        const likelyNoCharge = /connect|econnrefused|dns|etimedout|enotfound|socket hang up/i.test(errMsg);
-        if (attempt < MAX_RETRIES || likelyNoCharge) {
-          voidProvisionalUsage(provisionalIds);
+        const partialTokens = (err as Error & { partialTokenUsage?: { inputTokens: number; outputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number } })?.partialTokenUsage;
+
+        if (partialTokens && (partialTokens.inputTokens > 0 || partialTokens.outputTokens > 0)) {
+          // Agent consumed real tokens before crashing — finalize with actuals
+          log("orchestrator", `Finalizing crashed-attempt billing for ${stepKey}`, partialTokens);
+          finalizeTokenUsage(provisionalIds, partialTokens, config.provider, config.model);
+        } else {
+          const errMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+          const likelyNoCharge = /connect|econnrefused|dns|etimedout|enotfound|socket hang up/i.test(errMsg);
+          if (attempt < MAX_RETRIES || likelyNoCharge) {
+            voidProvisionalUsage(provisionalIds);
+          }
+          // else: final attempt, likely charged but no token data — keep provisional estimate
         }
         provisionalIds = null;
       }
@@ -2318,6 +2324,10 @@ async function runFixAgent(
   parts.push(`\nReview the original code in Previous Agent Outputs and output corrected versions of any files with issues.`);
   parts.push(`\nIMPORTANT: Only reference and modify files that exist in Previous Agent Outputs. Do not create new files unless necessary to fix the issue.`);
 
+  // Hoist provisional IDs so catch block can finalize billing on crash/abort
+  const remProviderKey = ctx.apiKeys[config.provider];
+  let remProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+
   try {
     const agentInput: AgentInput = {
       userMessage: parts.join("\n"),
@@ -2345,8 +2355,6 @@ async function runFixAgent(
     }
 
     // Write-ahead: provisional tracking before LLM call
-    const remProviderKey = ctx.apiKeys[config.provider];
-    let remProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
     if (remProviderKey) {
       const upstreamSize = Object.values(agentInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
       remProvisionalIds = trackProvisionalUsage({
@@ -2369,6 +2377,7 @@ async function runFixAgent(
         cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
       }, config.provider, config.model);
+      remProvisionalIds = null;
 
       const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens
         + (result.tokenUsage.cacheCreationInputTokens || 0) + (result.tokenUsage.cacheReadInputTokens || 0);
@@ -2403,6 +2412,15 @@ async function runFixAgent(
 
     return { content: result.content, filesWritten: totalFiles };
   } catch (err) {
+    // Finalize billing with partial tokens if available, otherwise keep provisional estimate
+    if (remProvisionalIds) {
+      const partialTokens = (err instanceof AgentAbortError ? err.partialTokenUsage : (err as Error & { partialTokenUsage?: AgentAbortError["partialTokenUsage"] })?.partialTokenUsage);
+      if (partialTokens && (partialTokens.inputTokens > 0 || partialTokens.outputTokens > 0)) {
+        log("orchestrator", `Finalizing remediation billing on ${ctx.signal.aborted ? "abort" : "crash"} for ${agentName}`, partialTokens);
+        finalizeTokenUsage(remProvisionalIds, partialTokens, config.provider, config.model);
+      }
+      // else: keep provisional estimate — better than $0
+    }
     if (!ctx.signal.aborted) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       await db.update(schema.agentExecutions)
@@ -2460,6 +2478,10 @@ async function runReviewAgent(
     security: `Re-scan all code after remediation cycle #${cycle}. Dev agents have attempted to fix the security issues you previously identified. Check if the fixes are correct and scan for any new vulnerabilities. Original request: ${ctx.userMessage}`,
   };
 
+  // Hoist provisional IDs so catch block can finalize billing on crash/abort
+  const revProviderKey = ctx.apiKeys[config.provider];
+  let revProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+
   try {
     const agentInput: AgentInput = {
       userMessage: reviewPrompts[agentName]!,
@@ -2475,8 +2497,6 @@ async function runReviewAgent(
     };
 
     // Write-ahead: provisional tracking before LLM call
-    const revProviderKey = ctx.apiKeys[config.provider];
-    let revProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
     if (revProviderKey) {
       const upstreamSize = Object.values(agentInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
       revProvisionalIds = trackProvisionalUsage({
@@ -2496,6 +2516,7 @@ async function runReviewAgent(
         cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
       }, config.provider, config.model);
+      revProvisionalIds = null;
 
       const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens
         + (result.tokenUsage.cacheCreationInputTokens || 0) + (result.tokenUsage.cacheReadInputTokens || 0);
@@ -2526,6 +2547,15 @@ async function runReviewAgent(
 
     return result.content;
   } catch (err) {
+    // Finalize billing with partial tokens if available, otherwise keep provisional estimate
+    if (revProvisionalIds) {
+      const partialTokens = (err instanceof AgentAbortError ? err.partialTokenUsage : (err as Error & { partialTokenUsage?: AgentAbortError["partialTokenUsage"] })?.partialTokenUsage);
+      if (partialTokens && (partialTokens.inputTokens > 0 || partialTokens.outputTokens > 0)) {
+        log("orchestrator", `Finalizing re-review billing on ${ctx.signal.aborted ? "abort" : "crash"} for ${agentName}`, partialTokens);
+        finalizeTokenUsage(revProvisionalIds, partialTokens, config.provider, config.model);
+      }
+      // else: keep provisional estimate — better than $0
+    }
     if (!ctx.signal.aborted) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       await db.update(schema.agentExecutions)
@@ -3196,6 +3226,10 @@ async function runBuildFix(params: {
     : "";
   const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the Vite build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Do NOT use read_file or list_files — the full source is provided below. Write corrected files immediately.${sourceSection}`;
 
+  // Hoist provisional IDs so catch block can finalize billing on crash/abort
+  const bfProviderKey = apiKeys[config.provider];
+  let bfProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
+
   try {
     const fixInput: AgentInput = {
       userMessage: fixPrompt,
@@ -3222,8 +3256,6 @@ async function runBuildFix(params: {
     }
 
     // Write-ahead: provisional tracking before LLM call
-    const bfProviderKey = apiKeys[config.provider];
-    let bfProvisionalIds: { tokenUsageId: string; billingLedgerId: string } | null = null;
     if (bfProviderKey) {
       const upstreamSize = Object.values(fixInput.context?.upstreamOutputs as Record<string, string> || {}).reduce((s, v) => s + v.length, 0);
       bfProvisionalIds = trackProvisionalUsage({
@@ -3246,6 +3278,7 @@ async function runBuildFix(params: {
         cacheCreationInputTokens: result.tokenUsage.cacheCreationInputTokens,
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens,
       }, config.provider, config.model);
+      bfProvisionalIds = null;
 
       const totalTokens = result.tokenUsage.inputTokens + result.tokenUsage.outputTokens;
       const costEst = estimateCost(
@@ -3275,6 +3308,15 @@ async function runBuildFix(params: {
     broadcastAgentStatus(chatId, fixAgent, "completed", { phase: "build-fix" });
     return result.content;
   } catch (err) {
+    // Finalize billing with partial tokens if available, otherwise keep provisional estimate
+    if (bfProvisionalIds) {
+      const partialTokens = (err instanceof AgentAbortError ? err.partialTokenUsage : (err as Error & { partialTokenUsage?: AgentAbortError["partialTokenUsage"] })?.partialTokenUsage);
+      if (partialTokens && (partialTokens.inputTokens > 0 || partialTokens.outputTokens > 0)) {
+        log("orchestrator", `Finalizing build-fix billing on ${signal.aborted ? "abort" : "crash"} for ${fixAgent}`, partialTokens);
+        finalizeTokenUsage(bfProvisionalIds, partialTokens, config.provider, config.model);
+      }
+      // else: keep provisional estimate — better than $0
+    }
     const errorMsg = err instanceof Error ? err.message : String(err);
     const status = signal.aborted ? "interrupted" : "failed";
     // Always update DB record to prevent stuck "running" executions

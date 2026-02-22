@@ -389,7 +389,7 @@ export async function runAgent(
                 input: toolName === "write_file"
                   ? { path: (part.input as { path: string }).path }
                   : toolName === "write_files"
-                  ? { paths: (part.input as { files: Array<{ path: string }> }).files.map(f => f.path) }
+                  ? { paths: (part.input as { files?: Array<{ path: string }> }).files?.map(f => f.path) ?? [] }
                   : part.input,
               },
             },
@@ -578,6 +578,19 @@ export async function runAgent(
       },
     };
   } catch (err) {
+    // Attach accumulated step-finish tokens to any error so the orchestrator
+    // can finalize billing even when the agent crashes mid-stream.
+    if ((accInputTokens > 0 || accOutputTokens > 0) && err instanceof Error && !(err instanceof AgentAbortError)) {
+      (err as Error & { partialTokenUsage?: AgentAbortError["partialTokenUsage"] }).partialTokenUsage = {
+        inputTokens: accInputTokens,
+        outputTokens: accOutputTokens,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      };
+      log("pipeline", `agent=${broadcastName} attaching partial tokens to crash error`, {
+        inputTokens: accInputTokens, outputTokens: accOutputTokens,
+      });
+    }
     const userMessage = formatUserFacingError(err);
     broadcastAgentStatus(cid, broadcastName, "failed");
     broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "failed", { error: userMessage });
