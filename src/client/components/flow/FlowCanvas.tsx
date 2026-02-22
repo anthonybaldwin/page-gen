@@ -44,20 +44,26 @@ function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
   return flowEdges.map((e) => {
     // Condition branch edges have labels shown on the node handles — skip edge labels
     const isConditionBranch = e.sourceHandle === "true" || e.sourceHandle === "false";
+    // Color condition branches: green for true, red for false
+    const branchColor = e.sourceHandle === "true"
+      ? "#22c55e"
+      : e.sourceHandle === "false"
+        ? "#ef4444"
+        : undefined;
     return {
       id: e.id,
       source: e.source,
       target: e.target,
       sourceHandle: e.sourceHandle,
-      type: "smoothstep",
+      type: "default",
       label: isConditionBranch ? undefined : e.label,
       labelBgPadding: [4, 2] as [number, number],
       labelBgBorderRadius: 4,
       labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
       labelStyle: { fontSize: 10, fill: "hsl(var(--foreground))" },
       animated: true,
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
+      style: { strokeWidth: 1.5, ...(branchColor ? { stroke: branchColor } : {}) },
     };
   });
 }
@@ -198,7 +204,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         fitView
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
-          type: "smoothstep",
+          type: "default",
           animated: true,
           markerEnd: { type: MarkerType.ArrowClosed },
           style: { strokeWidth: 1.5 },
