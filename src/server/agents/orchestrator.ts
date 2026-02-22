@@ -193,21 +193,24 @@ export function preflightValidatePlan(agentNames: AgentName[], providers: Provid
  * Includes reviewers for backend/full scopes (higher risk).
  */
 export function buildFixPlan(userMessage: string, scope: IntentScope): ExecutionPlan {
-  const steps: ExecutionPlan["steps"] = [];
+  const steps: PlanStep[] = [];
 
   // Dev agent(s) based on scope
   if (scope === "backend") {
     steps.push({
+      kind: "agent",
       agentName: "backend-dev",
       input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
     });
   } else {
     // "full" scope
     steps.push({
+      kind: "agent",
       agentName: "frontend-dev",
       input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
     });
     steps.push({
+      kind: "agent",
       agentName: "backend-dev",
       input: `Fix the following issue in the existing code (provided in Previous Agent Outputs as "project-source"). Original request: ${userMessage}`,
       dependsOn: ["frontend-dev"],
@@ -215,22 +218,26 @@ export function buildFixPlan(userMessage: string, scope: IntentScope): Execution
   }
 
   // Reviewers for backend/full (higher risk)
-  const lastDevAgent = steps[steps.length - 1]!.agentName;
+  const lastStep = steps[steps.length - 1]!;
+  const lastStepName = stepKey(lastStep);
   steps.push(
     {
+      kind: "agent",
       agentName: "code-review",
       input: `Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: [lastDevAgent],
+      dependsOn: [lastStepName],
     },
     {
+      kind: "agent",
       agentName: "security",
       input: `Security review all code changes (provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: [lastDevAgent],
+      dependsOn: [lastStepName],
     },
     {
+      kind: "agent",
       agentName: "qa",
       input: `Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
-      dependsOn: [lastDevAgent],
+      dependsOn: [lastStepName],
     },
   );
 
@@ -257,6 +264,7 @@ function injectDesignSystem(result: Record<string, string>): void {
       const ds = parsed.design_system;
       const lines: string[] = ["## Design System (from architect)"];
 
+      if (ds.brand_kernel) lines.push(`Brand: ${ds.brand_kernel}`);
       if (ds.colors) {
         const colorEntries = Object.entries(ds.colors).map(([k, v]) => `${k}: ${v}`).join(" | ");
         lines.push(`Colors: ${colorEntries}`);
@@ -268,11 +276,154 @@ function injectDesignSystem(result: Record<string, string>): void {
       if (ds.spacing) lines.push(`Spacing: ${ds.spacing}`);
       if (ds.radius) lines.push(`Radius: ${ds.radius}`);
       if (ds.shadows) lines.push(`Shadows: ${ds.shadows}`);
+      if (ds.motif_language) lines.push(`Motif: ${ds.motif_language}`);
+      if (ds.motion_rules) lines.push(`Motion: ${ds.motion_rules}`);
+      if (ds.do_list) lines.push(`Do: ${ds.do_list}`);
+      if (ds.dont_list) lines.push(`Don't: ${ds.dont_list}`);
 
       result["design-system"] = lines.join("\n");
     }
   } catch {
     // Architect output not valid JSON — skip design system injection
+  }
+}
+
+/**
+ * Parse design options from the architect's output.
+ * If the architect returns `design_directions`, extract them.
+ * Otherwise wrap the single `design_system` as a single option.
+ */
+function parseDesignOptions(architectOutput: string): import("../../shared/types.ts").DesignOption[] {
+  try {
+    const parsed = JSON.parse(architectOutput);
+    if (Array.isArray(parsed.design_directions) && parsed.design_directions.length > 0) {
+      return parsed.design_directions.map((d: Record<string, unknown>) => ({
+        name: (d.name as string) || "Option",
+        description: (d.description as string) || "",
+        design_system: (d.design_system as Record<string, unknown>) || {},
+        colorPreview: extractColorPreview((d.design_system as Record<string, unknown>) || {}),
+      }));
+    }
+    // Single design_system — wrap as one option (checkpoint will be skipped for length < 2)
+    if (parsed.design_system) {
+      return [{
+        name: "Default",
+        description: "The architect's recommended design system.",
+        design_system: parsed.design_system,
+        colorPreview: extractColorPreview(parsed.design_system),
+      }];
+    }
+  } catch { /* not valid JSON */ }
+  return [];
+}
+
+function extractColorPreview(ds: Record<string, unknown>): string[] {
+  const colors = ds.colors as Record<string, string> | undefined;
+  if (!colors) return [];
+  return Object.values(colors).filter((v) => typeof v === "string" && v.startsWith("#")).slice(0, 6);
+}
+
+/**
+ * Splice the user's selected design_system back into the architect output,
+ * replacing the `design_directions` array with the chosen `design_system`.
+ */
+function spliceSelectedDesignSystem(
+  agentResults: Map<string, string>,
+  selected: import("../../shared/types.ts").DesignOption,
+): void {
+  const architectOutput = agentResults.get("architect");
+  if (!architectOutput) return;
+  try {
+    const parsed = JSON.parse(architectOutput);
+    parsed.design_system = selected.design_system;
+    delete parsed.design_directions;
+    agentResults.set("architect", JSON.stringify(parsed, null, 2));
+    // Re-inject design system for downstream agents
+    const resultMap: Record<string, string> = {};
+    for (const [k, v] of agentResults) resultMap[k] = v;
+    injectDesignSystem(resultMap);
+    if (resultMap["design-system"]) {
+      agentResults.set("design-system", resultMap["design-system"]);
+    }
+    log("orchestrator", `Spliced selected design system: "${selected.name}"`);
+  } catch { /* ignore */ }
+}
+
+/**
+ * Analyze mood board images using a vision-capable model.
+ * Returns structured analysis or null if no images or no vision provider.
+ */
+async function analyzeMoodImages(
+  projectPath: string,
+  providers: ProviderInstance,
+  apiKeys: Record<string, string>,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const moodDir = join(projectPath, "mood");
+  if (!existsSync(moodDir)) return null;
+  const files = readdirSync(moodDir).filter((f: string) => /\.(jpg|jpeg|png|webp|gif)$/i.test(f));
+  if (files.length === 0) return null;
+
+  // Pick a vision-capable model (Claude or GPT-4o)
+  const visionProvider = providers.anthropic || providers.openai;
+  if (!visionProvider) {
+    logWarn("orchestrator", "No vision-capable provider available for mood analysis");
+    return null;
+  }
+
+  // Read images as base64 data URLs
+  const imageParts: Array<{ type: "image"; image: string; mimeType: string }> = [];
+  for (const file of files.slice(0, 5)) {
+    try {
+      const filePath = join(moodDir, file);
+      const buffer = Bun.file(filePath);
+      const bytes = await buffer.arrayBuffer();
+      const base64 = Buffer.from(bytes).toString("base64");
+      const ext = file.substring(file.lastIndexOf(".") + 1).toLowerCase();
+      const mimeType = ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+      imageParts.push({ type: "image", image: base64, mimeType });
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  if (imageParts.length === 0) return null;
+
+  try {
+    const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+    const result = await generateText({
+      model: visionProvider(modelId),
+      messages: [{
+        role: "user",
+        content: [
+          ...imageParts.map((img) => ({
+            type: "image" as const,
+            image: img.image,
+            mimeType: img.mimeType,
+          })),
+          {
+            type: "text" as const,
+            text: `Analyze these inspiration/mood board images. Extract a structured JSON response with:
+{
+  "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
+  "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
+  "textureNotes": "description of textures and materials",
+  "typographyHints": "description of typography style if visible",
+  "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
+  "layoutPatterns": "description of layout patterns observed"
+}
+Return ONLY the JSON.`,
+          },
+        ],
+      }],
+      maxOutputTokens: 1000,
+      abortSignal: signal,
+    });
+    log("orchestrator", "Mood analysis completed", { imageCount: imageParts.length });
+    return result.text;
+  } catch (err) {
+    logWarn("orchestrator", `Mood analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
 }
 
@@ -414,9 +565,17 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
-  // frontend-dev → architect + research
+  // research → vibe-brief + mood-analysis (if present)
+  if (agentName === "research") {
+    const result: Record<string, string> = {};
+    if (all["vibe-brief"]) result["vibe-brief"] = all["vibe-brief"];
+    if (all["mood-analysis"]) result["mood-analysis"] = all["mood-analysis"];
+    return truncateAllOutputs(result);
+  }
+
+  // frontend-dev → architect + research + vibe-brief
   if (agentName === "frontend-dev") {
-    const result = pick(["architect", "research"]);
+    const result = pick(["architect", "research", "vibe-brief"]);
     injectDesignSystem(result);
     return truncateAllOutputs(result);
   }
@@ -464,9 +623,9 @@ export function filterUpstreamOutputs(
     return truncateAllOutputs(result);
   }
 
-  // architect → research (sequential: research runs first, architect consumes its requirements)
+  // architect → research + vibe-brief + mood-analysis
   if (agentName === "architect") {
-    return truncateAllOutputs(pick(["research"]));
+    return truncateAllOutputs(pick(["research", "vibe-brief", "mood-analysis"]));
   }
 
   // Default: return everything, truncated
@@ -476,11 +635,94 @@ export function filterUpstreamOutputs(
 // Abort registry — keyed by chatId
 const abortControllers = new Map<string, AbortController>();
 
+// Checkpoint registry — keyed by checkpointId
+interface CheckpointEntry {
+  chatId: string;
+  resolve: (selectedIndex: number) => void;
+  reject: (reason: string) => void;
+  timeoutHandle: ReturnType<typeof setTimeout>;
+}
+const pendingCheckpoints = new Map<string, CheckpointEntry>();
+
+/**
+ * Await a checkpoint: pause the pipeline and wait for user selection.
+ * Returns the selected option index (0-based).
+ */
+export function awaitCheckpoint(
+  chatId: string,
+  checkpointId: string,
+  step: CheckpointStep,
+  options?: import("../../shared/types.ts").DesignOption[],
+): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const timeoutMs = step.timeoutMs || getPipelineSetting("checkpointTimeoutMs");
+
+    const timeoutHandle = setTimeout(() => {
+      pendingCheckpoints.delete(checkpointId);
+      log("orchestrator", `Checkpoint ${checkpointId} timed out — auto-selecting option 0`);
+      broadcast({
+        type: "pipeline_checkpoint_resolved" as const,
+        payload: { chatId, checkpointId, selectedIndex: 0, timedOut: true },
+      });
+      resolve(0);
+    }, timeoutMs);
+
+    pendingCheckpoints.set(checkpointId, { chatId, resolve, reject, timeoutHandle });
+
+    // Broadcast checkpoint event to clients
+    broadcast({
+      type: "pipeline_checkpoint" as const,
+      payload: {
+        chatId,
+        checkpointId,
+        nodeId: step.nodeId,
+        label: step.label,
+        checkpointType: step.checkpointType,
+        message: step.message,
+        options: options ?? [],
+        timeoutMs,
+      },
+    });
+
+    log("orchestrator", `Checkpoint paused: ${checkpointId} (${step.label})`, { chatId, type: step.checkpointType });
+  });
+}
+
+/**
+ * Resolve a pending checkpoint with the user's selection.
+ */
+export function resolveCheckpoint(checkpointId: string, selectedIndex: number): boolean {
+  const entry = pendingCheckpoints.get(checkpointId);
+  if (!entry) return false;
+  clearTimeout(entry.timeoutHandle);
+  pendingCheckpoints.delete(checkpointId);
+  entry.resolve(selectedIndex);
+  return true;
+}
+
+/**
+ * Get pending checkpoint for a chat (if any).
+ */
+export function getPendingCheckpoint(chatId: string): { checkpointId: string } | null {
+  for (const [checkpointId, entry] of pendingCheckpoints) {
+    if (entry.chatId === chatId) return { checkpointId };
+  }
+  return null;
+}
+
 export function abortOrchestration(chatId: string) {
   const controller = abortControllers.get(chatId);
   if (controller) {
     controller.abort();
     abortControllers.delete(chatId);
+  }
+  // Reject any pending checkpoints for this chat
+  for (const [checkpointId, entry] of pendingCheckpoints) {
+    if (entry.chatId === chatId) {
+      clearTimeout(entry.timeoutHandle);
+      pendingCheckpoints.delete(checkpointId);
+      entry.reject("Pipeline aborted");
+    }
   }
 }
 
@@ -531,14 +773,14 @@ export async function cleanupStaleExecutions(): Promise<number> {
     });
   }
 
-  // Also mark any running pipeline_runs as interrupted
+  // Also mark any running or awaiting_checkpoint pipeline_runs as interrupted
   await db
     .update(schema.pipelineRuns)
     .set({
       status: "interrupted",
       completedAt: now,
     })
-    .where(eq(schema.pipelineRuns.status, "running"));
+    .where(inArray(schema.pipelineRuns.status, ["running", "awaiting_checkpoint"]));
 
   // Log any provisional billing records from interrupted pipelines
   const provisionalCount = countProvisionalRecords();
@@ -559,15 +801,40 @@ export interface OrchestratorInput {
   apiKeys: Record<string, string>;
 }
 
+export interface AgentStep {
+  kind: "agent";
+  agentName: AgentName;
+  input: string;
+  dependsOn?: string[];
+  instanceId?: string;
+  maxOutputTokens?: number;
+  maxToolSteps?: number;
+}
+
+export interface CheckpointStep {
+  kind: "checkpoint";
+  nodeId: string;
+  label: string;
+  checkpointType: "approve" | "design_direction";
+  message: string;
+  timeoutMs: number;
+  dependsOn?: string[];
+  instanceId?: string;
+}
+
+export type PlanStep = AgentStep | CheckpointStep;
+
+export function isAgentStep(step: PlanStep): step is AgentStep {
+  return step.kind === "agent" || !("kind" in step);
+}
+
+export function stepKey(step: PlanStep): string {
+  if (isAgentStep(step)) return step.instanceId ?? step.agentName;
+  return step.instanceId ?? step.nodeId;
+}
+
 export interface ExecutionPlan {
-  steps: Array<{
-    agentName: AgentName;
-    input: string;
-    dependsOn?: string[];
-    instanceId?: string;
-    maxOutputTokens?: number;
-    maxToolSteps?: number;
-  }>;
+  steps: PlanStep[];
   actionOverrides?: ActionOverrides;
 }
 
@@ -576,7 +843,7 @@ interface CallCounter { value: number; }
 interface BuildFixCounter { value: number; }
 
 interface PipelineStepContext {
-  step: { agentName: AgentName; input: string; instanceId?: string; maxOutputTokens?: number; maxToolSteps?: number };
+  step: AgentStep;
   chatId: string;
   projectId: string;
   projectPath: string;
@@ -1227,6 +1494,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       log("orchestrator", `Quick-edit mode (${scope}): routing directly to ${agentName} agent`);
       quickPlan = {
         steps: [{
+          kind: "agent" as const,
           agentName,
           input: buildQuickEditInput(scope, userMessage),
         }],
@@ -1262,7 +1530,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       intent: "fix",
       scope: classification.scope,
       userMessage,
-      plannedAgents: JSON.stringify(plan.steps.map((s) => s.agentName)),
+      plannedAgents: JSON.stringify(plan.steps.map((s) => stepKey(s))),
       status: "running",
       startedAt: Date.now(),
       completedAt: null,
@@ -1271,7 +1539,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Broadcast pipeline plan so client knows which agents to display
     broadcast({
       type: "pipeline_plan",
-      payload: { chatId, agents: plan.steps.map((s) => s.agentName) },
+      payload: { chatId, agents: plan.steps.filter(isAgentStep).map((s) => s.agentName) },
     });
 
     // Execute fix pipeline
@@ -1308,10 +1576,36 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // --- Build mode: full pipeline (research → architect → parallel dev → styling → review) ---
 
+  // Inject vibe brief if the project has one — before research so all agents can benefit
+  const projectData = await db
+    .select({ vibeBrief: schema.projects.vibeBrief })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .get();
+  if (projectData?.vibeBrief) {
+    try {
+      const vibe = JSON.parse(projectData.vibeBrief);
+      agentResults.set("vibe-brief", JSON.stringify(vibe, null, 2));
+      log("orchestrator", "Vibe brief injected", { projectId, adjectives: vibe.adjectives });
+    } catch {
+      // Corrupt JSON — skip injection
+    }
+  }
+
+  // Analyze mood board images if any exist
+  if (!signal.aborted) {
+    const moodAnalysis = await analyzeMoodImages(projectPath, providers, apiKeys, signal);
+    if (moodAnalysis) {
+      agentResults.set("mood-analysis", moodAnalysis);
+      log("orchestrator", "Mood analysis injected", { projectId });
+    }
+  }
+
   // Phase 1: Run research first so architect gets structured requirements
   log("orchestrator", "Running research agent");
   const researchResult = await runPipelineStep({
     step: {
+      kind: "agent",
       agentName: "research",
       input: `Analyze this request and produce structured requirements: ${userMessage}`,
     },
@@ -1335,6 +1629,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   log("orchestrator", "Running architect agent");
   const architectResult = await runPipelineStep({
     step: {
+      kind: "agent",
       agentName: "architect",
       input: `Design the component architecture, design system, and test plan for this request. Use the research agent's structured requirements from Previous Agent Outputs. Original request: ${userMessage}`,
     },
@@ -1388,7 +1683,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
   }
   // Remove architect step since it already ran
-  plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+  plan.steps = plan.steps.filter((s) => !(isAgentStep(s) && s.agentName === "architect"));
   // Rewrite deps that pointed to "architect" to point to nothing (already completed)
   for (const step of plan.steps) {
     if (step.dependsOn) {
@@ -1398,7 +1693,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // Persist pipeline run
   const pipelineRunId = nanoid();
-  const allStepIds = plan.steps.map((s) => s.instanceId ?? s.agentName);
+  const allStepIds = plan.steps.map((s) => stepKey(s));
   await db.insert(schema.pipelineRuns).values({
     id: pipelineRunId,
     chatId,
@@ -1546,6 +1841,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
       const agentName: AgentName = scope === "styling" ? "styling" : "frontend-dev";
       plan = {
         steps: [{
+          kind: "agent" as const,
           agentName,
           input: buildQuickEditInput(scope, originalMessage),
         }],
@@ -1575,7 +1871,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
       plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
     }
     // Remove architect step since it already ran
-    plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
+    plan.steps = plan.steps.filter((s) => !(isAgentStep(s) && s.agentName === "architect"));
     for (const step of plan.steps) {
       if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
     }
@@ -1583,14 +1879,14 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
 
   // Filter plan to only remaining steps
   const completedAgentNames = new Set(completedAgents);
-  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
+  const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(isAgentStep(s) ? s.agentName : stepKey(s)));
 
   if (remainingSteps.length === 0) {
     // All agents completed — just run finish pipeline
     log("orchestrator", "All agents already completed — running finish pipeline");
   } else {
     // Broadcast pipeline plan showing all agents (completed + remaining)
-    const allStepIds = plan.steps.map((s) => s.instanceId ?? s.agentName);
+    const allStepIds = plan.steps.map((s) => stepKey(s));
     const allAgentNames = intent === "build"
       ? ["research", "architect", ...allStepIds]
       : allStepIds;
@@ -1676,7 +1972,8 @@ async function executePipelineSteps(ctx: {
   // Log plan structure for parallel execution diagnosis
   log("orchestrator", "Starting pipeline steps", { stepCount: remaining.length, completedSet: [...completedSet] });
   for (const s of remaining) {
-    log("orchestrator", `  step: ${s.instanceId ?? s.agentName} (agent=${s.agentName}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
+    const sk = stepKey(s);
+    log("orchestrator", `  step: ${sk} (kind=${s.kind}${isAgentStep(s) ? `, agent=${s.agentName}` : ""}) dependsOn=[${(s.dependsOn || []).join(", ")}]`);
   }
 
   while (remaining.length > 0) {
@@ -1704,19 +2001,77 @@ async function executePipelineSteps(ctx: {
 
     if (ready.length === 0) {
       // Deadlock — remaining steps have unmet deps that will never resolve
-      log("orchestrator", "Pipeline deadlock detected", { blockedSteps: remaining.map((s) => s.instanceId ?? s.agentName), completedSet: [...completedSet] });
-      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => s.instanceId ?? s.agentName).join(", ")} have unmet dependencies`);
+      log("orchestrator", "Pipeline deadlock detected", { blockedSteps: remaining.map((s) => stepKey(s)), completedSet: [...completedSet] });
+      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => stepKey(s)).join(", ")} have unmet dependencies`);
       return false;
     }
 
+    // Separate checkpoint steps from agent steps
+    const readyCheckpoints = ready.filter((s): s is CheckpointStep => s.kind === "checkpoint");
+    const readyAgents = ready.filter((s): s is AgentStep => isAgentStep(s));
+
+    // Process checkpoint steps first (one at a time — each pauses the pipeline)
+    for (const cp of readyCheckpoints) {
+      if (signal.aborted) break;
+      const checkpointId = nanoid();
+      log("orchestrator", `Processing checkpoint: ${cp.label}`, { checkpointId, type: cp.checkpointType });
+
+      // Gather design options from architect output if this is a design_direction checkpoint
+      let designOptions: import("../../shared/types.ts").DesignOption[] | undefined;
+      if (cp.checkpointType === "design_direction") {
+        const architectOutput = agentResults.get("architect");
+        if (architectOutput) {
+          designOptions = parseDesignOptions(architectOutput);
+        }
+      }
+
+      try {
+        const selectedIndex = await awaitCheckpoint(chatId, checkpointId, cp, designOptions);
+        log("orchestrator", `Checkpoint resolved: ${cp.label} → option ${selectedIndex}`);
+
+        // For design_direction: splice the selected design_system into the architect output
+        if (cp.checkpointType === "design_direction" && designOptions && designOptions.length > 0) {
+          const selected = designOptions[selectedIndex] ?? designOptions[0]!;
+          if (selected) spliceSelectedDesignSystem(agentResults, selected);
+        }
+
+        broadcast({
+          type: "pipeline_checkpoint_resolved" as const,
+          payload: { chatId, checkpointId, selectedIndex, timedOut: false },
+        });
+        completedSet.add(stepKey(cp));
+      } catch (err) {
+        // Checkpoint rejected (pipeline aborted)
+        log("orchestrator", `Checkpoint rejected: ${cp.label} — ${err}`);
+        return false;
+      }
+    }
+
+    if (signal.aborted) {
+      await db.insert(schema.messages).values({
+        id: nanoid(), chatId, role: "system",
+        content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
+        agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+      });
+      broadcastAgentStatus(chatId, "orchestrator", "stopped");
+      return false;
+    }
+
+    // If only checkpoints were ready this round, continue to next iteration
+    if (readyAgents.length === 0) {
+      remaining.length = 0;
+      remaining.push(...notReady);
+      continue;
+    }
+
     // For parallel batches (size > 1), skip per-agent build checks — run one after the batch
-    const isParallelBatch = ready.length > 1;
-    const readyNames = ready.map((s) => s.instanceId ?? s.agentName);
-    log("orchestrator", `Running batch of ${ready.length} step(s)`, { steps: readyNames, parallel: isParallelBatch });
+    const isParallelBatch = readyAgents.length > 1;
+    const readyNames = readyAgents.map((s) => stepKey(s));
+    log("orchestrator", `Running batch of ${readyAgents.length} step(s)`, { steps: readyNames, parallel: isParallelBatch });
 
     // Stagger parallel launches to avoid API rate-limit bursts
     const results = await Promise.all(
-      ready.map((step, i) =>
+      readyAgents.map((step, i) =>
         new Promise<{ stepKey: string; result: string | null }>((resolve) =>
           setTimeout(async () => {
             const result = await runPipelineStep({
@@ -1756,14 +2111,14 @@ async function executePipelineSteps(ctx: {
     // Auto-save version after each batch if stage hooks are enabled
     if (STAGE_HOOKS_ENABLED && !signal.aborted) {
       try {
-        const batchNames = ready.map(s => s.instanceId ?? s.agentName).join(", ");
+        const batchNames = readyAgents.map(s => s.instanceId ?? s.agentName).join(", ");
         autoCommit(projectPath, `After ${batchNames}`);
       } catch { /* non-fatal */ }
     }
 
     // Consolidated build check after parallel batch — only if file-writing agents were in the batch
     if (isParallelBatch && !signal.aborted) {
-      const hasFileAgents = ready.some((s) => agentHasFileTools(s.agentName));
+      const hasFileAgents = readyAgents.some((s) => agentHasFileTools(s.agentName));
       if (hasFileAgents) {
         log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
         const buildErrors = await checkProjectBuild(projectPath, chatId, actionOverrides);
@@ -1822,7 +2177,7 @@ async function executePipelineSteps(ctx: {
           chatId,
           reason: "cost_limit",
           completedAgents: [...completedSet],
-          skippedAgents: notReady.map((s) => s.instanceId ?? s.agentName),
+          skippedAgents: notReady.map((s) => stepKey(s)),
           tokens: { current: midCheck.currentTokens, limit: midCheck.limit },
         },
       });
@@ -2779,7 +3134,8 @@ export function buildExecutionPlan(
     if (scope === "styling") {
       return {
         steps: [{
-          agentName: "styling",
+          kind: "agent" as const,
+          agentName: "styling" as AgentName,
           input: buildQuickEditInput("styling", userMessage),
         }],
       };
@@ -2787,7 +3143,8 @@ export function buildExecutionPlan(
     if (scope === "frontend") {
       return {
         steps: [{
-          agentName: "frontend-dev",
+          kind: "agent" as const,
+          agentName: "frontend-dev" as AgentName,
           input: buildQuickEditInput("frontend", userMessage),
         }],
       };
@@ -2801,13 +3158,15 @@ export function buildExecutionPlan(
     ? false  // Classifier said frontend/styling-only — skip backend
     : researchOutput ? needsBackend(researchOutput) : false;
 
-  const steps: ExecutionPlan["steps"] = [
+  const steps: PlanStep[] = [
     {
+      kind: "agent",
       agentName: "architect",
       input: `Design the component architecture and test plan based on the research agent's requirements (provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: ["research"],
     },
     {
+      kind: "agent",
       agentName: "frontend-dev",
       input: `Implement the React components defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your components following the plan. Original request: ${userMessage}`,
       dependsOn: ["architect"],
@@ -2816,6 +3175,7 @@ export function buildExecutionPlan(
 
   if (includeBackend) {
     steps.push({
+      kind: "agent",
       agentName: "backend-dev",
       input: `Implement the backend API routes and server logic defined in the architect's plan (provided in Previous Agent Outputs). A test plan is included in the architect's output — write test files alongside your server code following the plan. Original request: ${userMessage}`,
       dependsOn: ["frontend-dev"],
@@ -2827,22 +3187,26 @@ export function buildExecutionPlan(
 
   steps.push(
     {
+      kind: "agent",
       agentName: "styling",
       input: `Apply design polish to the components created by frontend-dev, using the research requirements for design intent (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: stylingDeps,
     },
     // Review agents all depend on styling — they run in parallel with each other
     {
+      kind: "agent",
       agentName: "code-review",
       input: `Review and fix all code generated by dev and styling agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: ["styling"],
     },
     {
+      kind: "agent",
       agentName: "security",
       input: `Security review all code generated by the dev agents (provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: ["styling"],
     },
     {
+      kind: "agent",
       agentName: "qa",
       input: `Validate the implementation against the research requirements (both provided in Previous Agent Outputs). Original request: ${userMessage}`,
       dependsOn: ["styling"],

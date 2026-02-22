@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 2;
+export const FLOW_DEFAULTS_VERSION = 3;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -54,6 +54,19 @@ export function generateBuildDefault(): FlowTemplate {
   nodes.push(architect);
   edges.push(makeEdge("research", "architect"));
 
+  // Checkpoint: Design Direction (pause for user to choose design system)
+  col++;
+  const designCheckpoint = makeNode("design-checkpoint", "checkpoint", {
+    type: "checkpoint",
+    label: "Choose Design Direction",
+    skipInYolo: true,
+    checkpointType: "design_direction",
+    message: "The architect produced multiple design directions. Pick the one that best fits your vision.",
+    timeoutMs: 600_000,
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(designCheckpoint);
+  edges.push(makeEdge("architect", "design-checkpoint"));
+
   // Condition: needsBackend?
   col++;
   const condNeedsBackend = makeNode("cond-backend", "condition", {
@@ -63,7 +76,7 @@ export function generateBuildDefault(): FlowTemplate {
     label: "Needs Backend?",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(condNeedsBackend);
-  edges.push(makeEdge("architect", "cond-backend"));
+  edges.push(makeEdge("design-checkpoint", "cond-backend"));
 
   // Frontend Dev
   col++;

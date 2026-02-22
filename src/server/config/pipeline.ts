@@ -24,6 +24,7 @@ export const PIPELINE_DEFAULTS: Record<string, number> = {
   maxAgentVersionsPerRun: 3,
   reasoningMinOutputTokens: 16_000,
   allowShellTools: 0, // 0 = disabled, 1 = enabled — gates shell-based custom tools
+  checkpointTimeoutMs: 600_000, // 10 minutes default timeout for checkpoint pauses
 };
 
 /**

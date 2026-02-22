@@ -311,14 +311,27 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
 }) {
   const [label, setLabel] = useState(data.label);
   const [skipInYolo, setSkipInYolo] = useState(data.skipInYolo);
+  const [checkpointType, setCheckpointType] = useState(data.checkpointType ?? "approve");
+  const [message, setMessage] = useState(data.message ?? "");
+  const [timeoutMs, setTimeoutMs] = useState(data.timeoutMs?.toString() ?? "");
 
   useEffect(() => {
     setLabel(data.label);
     setSkipInYolo(data.skipInYolo);
+    setCheckpointType(data.checkpointType ?? "approve");
+    setMessage(data.message ?? "");
+    setTimeoutMs(data.timeoutMs?.toString() ?? "");
   }, [data]);
 
   const save = () => {
-    onUpdate(nodeId, { ...data, label, skipInYolo });
+    onUpdate(nodeId, {
+      ...data,
+      label,
+      skipInYolo,
+      checkpointType,
+      message: message || undefined,
+      timeoutMs: timeoutMs ? parseInt(timeoutMs) : undefined,
+    });
   };
 
   return (
@@ -326,6 +339,40 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
       <label className="block">
         <span className="text-xs text-muted-foreground">Label</span>
         <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
+      </label>
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Checkpoint Type</span>
+        <select
+          value={checkpointType}
+          onChange={(e) => { setCheckpointType(e.target.value as "approve" | "design_direction"); setTimeout(save, 0); }}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+        >
+          <option value="approve">Approve / Continue</option>
+          <option value="design_direction">Design Direction Choice</option>
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Message</span>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onBlur={save}
+          rows={2}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs resize-y"
+          placeholder="Message shown to the user at this checkpoint"
+        />
+      </label>
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Timeout (ms)</span>
+        <Input
+          type="number"
+          value={timeoutMs}
+          onChange={(e) => setTimeoutMs(e.target.value)}
+          onBlur={save}
+          className="mt-1 h-7 text-xs"
+          placeholder="600000 (10 min)"
+          min={0}
+        />
       </label>
       <label className="flex items-center gap-2">
         <input
@@ -336,6 +383,11 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
         />
         <span className="text-xs text-muted-foreground">Skip in YOLO mode</span>
       </label>
+      <div className="text-[10px] text-muted-foreground leading-relaxed">
+        {checkpointType === "approve"
+          ? "Pauses the pipeline and waits for user approval before continuing."
+          : "Pauses the pipeline and presents design direction options from the architect for user selection."}
+      </div>
     </div>
   );
 }

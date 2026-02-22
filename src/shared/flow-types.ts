@@ -27,6 +27,12 @@ export interface CheckpointNodeData {
   label: string;
   /** If true, this checkpoint is skipped in YOLO mode */
   skipInYolo: boolean;
+  /** The type of checkpoint interaction */
+  checkpointType?: "approve" | "design_direction";
+  /** Message shown to the user in the checkpoint card */
+  message?: string;
+  /** Timeout in milliseconds before auto-resolving (0 = no timeout) */
+  timeoutMs?: number;
 }
 
 export type ActionKind = "build-check" | "test-run" | "remediation";

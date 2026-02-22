@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
 import { eq } from "drizzle-orm";
-import { buildExecutionPlan, findInterruptedPipelineRun } from "../../src/server/agents/orchestrator.ts";
+import { buildExecutionPlan, findInterruptedPipelineRun, isAgentStep } from "../../src/server/agents/orchestrator.ts";
 
 /**
  * Tests for pipeline resume logic.
@@ -194,8 +194,8 @@ describe("pipeline resume", () => {
     const completedAgentNames = new Set(["architect", "frontend-dev"]);
     const plan = buildExecutionPlan("Build a calculator", "some research output", "build");
 
-    const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
-    const remainingNames = remainingSteps.map((s) => s.agentName);
+    const remainingSteps = plan.steps.filter((s) => isAgentStep(s) && !completedAgentNames.has(s.agentName));
+    const remainingNames = remainingSteps.filter(isAgentStep).map((s) => s.agentName);
 
     expect(remainingNames).not.toContain("architect");
     expect(remainingNames).not.toContain("frontend-dev");
@@ -207,8 +207,8 @@ describe("pipeline resume", () => {
 
   test("resume with all agents completed produces empty remaining steps", () => {
     const plan = buildExecutionPlan("Build a thing");
-    const completedAgentNames = new Set(plan.steps.map((s) => s.agentName));
-    const remainingSteps = plan.steps.filter((s) => !completedAgentNames.has(s.agentName));
+    const completedAgentNames = new Set(plan.steps.filter(isAgentStep).map((s) => s.agentName));
+    const remainingSteps = plan.steps.filter((s) => isAgentStep(s) && !completedAgentNames.has(s.agentName));
     expect(remainingSteps).toHaveLength(0);
   });
 

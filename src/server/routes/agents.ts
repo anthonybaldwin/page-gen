@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db, schema } from "../db/index.ts";
 import { eq, asc } from "drizzle-orm";
 import { extractApiKeys, createProviders } from "../providers/registry.ts";
-import { runOrchestration, resumeOrchestration, abortOrchestration, isOrchestrationRunning, findInterruptedPipelineRun } from "../agents/orchestrator.ts";
+import { runOrchestration, resumeOrchestration, abortOrchestration, isOrchestrationRunning, findInterruptedPipelineRun, resolveCheckpoint, getPendingCheckpoint } from "../agents/orchestrator.ts";
 import { logError } from "../services/logger.ts";
 
 export const agentRoutes = new Hono();
@@ -107,7 +107,18 @@ agentRoutes.get("/status", async (c) => {
   // Check for interrupted pipeline run
   const interruptedPipelineId = findInterruptedPipelineRun(chatId);
 
-  return c.json({ running, executions, interruptedPipelineId });
+  // Check for pending checkpoint
+  const pendingCheckpoint = getPendingCheckpoint(chatId);
+
+  return c.json({ running, executions, interruptedPipelineId, pendingCheckpoint });
+});
+
+// Resolve a pipeline checkpoint (user selected an option)
+agentRoutes.post("/checkpoint", async (c) => {
+  const { checkpointId, selectedIndex } = await c.req.json<{ chatId: string; checkpointId: string; selectedIndex: number }>();
+  const resolved = resolveCheckpoint(checkpointId, selectedIndex);
+  if (!resolved) return c.json({ error: "Checkpoint not found or already resolved" }, 404);
+  return c.json({ ok: true });
 });
 
 // Stop orchestration

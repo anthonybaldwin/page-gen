@@ -7,6 +7,7 @@ interface ProjectState {
   setProjects: (projects: Project[]) => void;
   setActiveProject: (project: Project | null) => void;
   renameProject: (id: string, name: string) => void;
+  updateProject: (id: string, updates: Partial<Project>) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
@@ -20,6 +21,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
       activeProject:
         state.activeProject?.id === id
           ? { ...state.activeProject, name }
+          : state.activeProject,
+    })),
+  updateProject: (id, updates) =>
+    set((state) => ({
+      projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+      activeProject:
+        state.activeProject?.id === id
+          ? { ...state.activeProject, ...updates }
           : state.activeProject,
     })),
 }));

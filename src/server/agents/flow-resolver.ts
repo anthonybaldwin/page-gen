@@ -1,6 +1,7 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
-import type { ExecutionPlan, ActionOverrides } from "./orchestrator.ts";
+import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
+import { getPipelineSetting } from "../config/pipeline.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import { log } from "../services/logger.ts";
@@ -211,9 +212,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
   }
 
-  // Second pass: convert active agent nodes to execution plan steps + collect action overrides
-  const steps: ExecutionPlan["steps"] = [];
-  const nodeToAgent = new Map<string, string>(); // nodeId → agentName for dependsOn resolution
+  // Second pass: convert active nodes to execution plan steps + collect action overrides
+  const steps: PlanStep[] = [];
+  const nodeToStepKey = new Map<string, string>(); // nodeId → stepKey for dependsOn resolution
   const actionOverrides: ActionOverrides = {};
 
   for (const nodeId of sorted) {
@@ -224,10 +225,11 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     if (node.data.type === "agent") {
       const input = node.data.inputTemplate.replace(/\{\{userMessage\}\}/g, ctx.userMessage);
 
-      // Compute dependsOn: find upstream agent nodes
-      const deps = computeAgentDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToAgent);
+      // Compute dependsOn: find upstream agent/checkpoint nodes
+      const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
 
       steps.push({
+        kind: "agent",
         agentName: node.data.agentName,
         input,
         dependsOn: deps.length > 0 ? deps : undefined,
@@ -236,7 +238,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         maxToolSteps: node.data.maxToolSteps,
       });
 
-      nodeToAgent.set(nodeId, node.data.agentName);
+      nodeToStepKey.set(nodeId, node.data.agentName);
     }
 
     // Collect per-node overrides from action nodes
@@ -244,7 +246,25 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
       collectActionOverrides(node.data, actionOverrides);
     }
 
-    // Checkpoint nodes: skip for now (Phase 2)
+    // Checkpoint nodes: emit as checkpoint steps
+    if (node.data.type === "checkpoint") {
+      const cpData = node.data as CheckpointNodeData;
+      const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
+      const defaultTimeout = getPipelineSetting("checkpointTimeoutMs");
+
+      steps.push({
+        kind: "checkpoint",
+        nodeId,
+        label: cpData.label,
+        checkpointType: cpData.checkpointType ?? "approve",
+        message: cpData.message ?? cpData.label,
+        timeoutMs: cpData.timeoutMs ?? defaultTimeout,
+        dependsOn: deps.length > 0 ? deps : undefined,
+        instanceId: nodeId,
+      });
+
+      nodeToStepKey.set(nodeId, nodeId);
+    }
   }
 
   log("flow-resolver", `Resolved template "${template.name}" → ${steps.length} steps`, {
@@ -289,15 +309,15 @@ function pruneSubgraph(
 }
 
 /**
- * Walk backwards from a node through the graph to find the nearest active agent nodes
- * that this node depends on.
+ * Walk backwards from a node through the graph to find the nearest active
+ * agent or checkpoint nodes that this node depends on.
  */
-function computeAgentDependencies(
+function computeStepDependencies(
   nodeId: string,
   activeNodes: Set<string>,
   inEdges: Map<string, string[]>,
   nodeMap: Map<string, FlowNode>,
-  nodeToAgent: Map<string, string>,
+  nodeToStepKey: Map<string, string>,
 ): string[] {
   const deps = new Set<string>();
   const visited = new Set<string>();
@@ -313,10 +333,10 @@ function computeAgentDependencies(
     const node = nodeMap.get(currentId);
     if (!node) continue;
 
-    if (node.data.type === "agent" && nodeToAgent.has(currentId)) {
-      deps.add(nodeToAgent.get(currentId)!);
+    if ((node.data.type === "agent" || node.data.type === "checkpoint") && nodeToStepKey.has(currentId)) {
+      deps.add(nodeToStepKey.get(currentId)!);
     } else {
-      // Not an agent node — keep walking backwards
+      // Not a step-producing node — keep walking backwards
       const parents = inEdges.get(currentId) ?? [];
       queue.push(...parents);
     }

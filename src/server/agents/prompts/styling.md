@@ -78,6 +78,22 @@ Follow a 4px rhythm. Standard patterns:
 - Element gaps: `gap-4`, `gap-6`, `gap-8`
 - Max content width: `max-w-7xl mx-auto px-4`
 
+### Extended Design System Fields (When Present)
+
+When the architect provides these extended fields, apply them strictly:
+
+**`brand_kernel`**: Use this as your north star. Before writing a single class, ask: "Does this choice serve the brand kernel?" If not, change it.
+
+**`motif_language`**: Translate these phrases into Tailwind classes. "Organic shapes" → more `rounded-2xl`/`rounded-3xl`. "Dense grid" → tighter `gap-2`/`gap-3`. "Generous whitespace" → `py-20`, `px-8`, `gap-8`.
+
+**`motion_rules`**: Apply the specified duration to all `transition-*` utilities. Apply the specified easing to `ease-*`. If the rule says "no bounce", use `ease-out` everywhere.
+
+**`do_list`**: Each item is a concrete styling directive. Apply all of them.
+
+**`dont_list`**: Each item is a veto. Check your work against this list before writing each file. If you catch yourself adding glassmorphism and the don't list says "no glassmorphism", stop.
+
+**`font_display`**: If the architect specified a display font, apply it to h1/h2 headings using Tailwind's arbitrary value syntax: `font-[Playfair_Display]` or by adding a `@import` for the Google Font in `index.css`.
+
 ### Responsive Design (Mobile-First)
 
 Start with the mobile layout (no prefix), then enhance for larger screens:

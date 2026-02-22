@@ -4,6 +4,7 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   path: text("path").notNull(),
+  vibeBrief: text("vibe_brief"),  // JSON string of VibeBrief, nullable
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -119,7 +120,8 @@ export const pipelineRuns = sqliteTable("pipeline_runs", {
   scope: text("scope").notNull(), // 'frontend' | 'backend' | 'styling' | 'full'
   userMessage: text("user_message").notNull(),
   plannedAgents: text("planned_agents").notNull(), // JSON array of agent names
-  status: text("status").notNull(), // 'running' | 'completed' | 'failed' | 'interrupted'
+  status: text("status").notNull(), // 'running' | 'completed' | 'failed' | 'interrupted' | 'awaiting_checkpoint'
+  checkpointData: text("checkpoint_data"), // JSON string of checkpoint options, nullable
   startedAt: integer("started_at").notNull(),
   completedAt: integer("completed_at"),
 });

@@ -9,12 +9,13 @@ import {
   XCircle,
   RefreshCw,
   Square,
+  Palette,
 } from "lucide-react";
 
 interface AgentState {
   name: string;
   displayName: string;
-  status: "pending" | "running" | "completed" | "failed" | "retrying" | "stopped";
+  status: "pending" | "running" | "completed" | "failed" | "retrying" | "stopped" | "awaiting_checkpoint";
   stream: string;
   error?: string;
   phase?: string;
@@ -75,6 +76,8 @@ function StatusIcon({ status, className = "h-3.5 w-3.5" }: { status: string; cla
       return <RefreshCw className={`${className} text-orange-400 animate-spin`} />;
     case "stopped":
       return <Square className={`${className} text-muted-foreground`} />;
+    case "awaiting_checkpoint":
+      return <Palette className={`${className} text-violet-500 animate-pulse`} />;
     default:
       return <Circle className={`${className} text-muted-foreground/40`} />;
   }
@@ -229,6 +232,36 @@ export function AgentStatusPanel({ chatId }: Props) {
         }));
       }
 
+      if (msg.type === "pipeline_checkpoint") {
+        // Show checkpoint status on the orchestrator
+        setAgents((prev) => ({
+          ...prev,
+          orchestrator: {
+            ...prev.orchestrator,
+            name: "orchestrator",
+            displayName: "Orchestrator",
+            status: "awaiting_checkpoint",
+            stream: prev.orchestrator?.stream || "",
+            startedAt: prev.orchestrator?.startedAt,
+          },
+        }));
+      }
+
+      if (msg.type === "pipeline_checkpoint_resolved") {
+        // Resume orchestrator running status
+        setAgents((prev) => ({
+          ...prev,
+          orchestrator: {
+            ...prev.orchestrator,
+            name: "orchestrator",
+            displayName: "Orchestrator",
+            status: "running",
+            stream: prev.orchestrator?.stream || "",
+            startedAt: prev.orchestrator?.startedAt,
+          },
+        }));
+      }
+
       if (msg.type === "agent_error") {
         const { agentName, error } = msg.payload as { agentName: string; error: string };
         const display = resolveDisplayName(agentName);
@@ -290,8 +323,9 @@ export function AgentStatusPanel({ chatId }: Props) {
                 title={state?.error || status}
               >
                 <StatusIcon status={status} className="h-3 w-3" />
-                <span className={status === "running" ? "text-foreground" : "text-muted-foreground"}>
+                <span className={status === "running" || status === "awaiting_checkpoint" ? "text-foreground" : "text-muted-foreground"}>
                   {agent.displayName}
+                  {status === "awaiting_checkpoint" && " (awaiting selection)"}
                   {state?.phase === "remediation" && " (fixing)"}
                   {state?.phase === "build-fix" && " (build fix)"}
                   {state?.phase === "re-review" && " (re-review)"}

@@ -162,5 +162,15 @@ export function runMigrations() {
     db.run(sql`ALTER TABLE billing_ledger ADD COLUMN cache_read_input_tokens INTEGER NOT NULL DEFAULT 0`);
   } catch { /* already exists */ }
 
+  // Add vibe_brief column to projects
+  try {
+    db.run(sql`ALTER TABLE projects ADD COLUMN vibe_brief TEXT`);
+  } catch { /* already exists */ }
+
+  // Add checkpoint_data column to pipeline_runs
+  try {
+    db.run(sql`ALTER TABLE pipeline_runs ADD COLUMN checkpoint_data TEXT`);
+  } catch { /* already exists */ }
+
   log("db", "Migrations complete");
 }

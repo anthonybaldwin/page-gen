@@ -71,6 +71,11 @@ export function FeatureCard({ title, description, icon }: FeatureCardProps) {
 
 The architect provides a `design_system` in Previous Agent Outputs. Use its typography scale, spacing rhythm, and component structure conventions. The styling agent adds colors and polish later.
 
+When the architect provides a `brand_kernel` and `do_list`/`dont_list`, use them as structural constraints:
+- The `do_list` tells you which layout patterns and component shapes are in-character. Favor them when choosing between structurally equivalent approaches.
+- The `dont_list` vetoes certain choices even at the structural level (e.g., "no dense layouts" means use more whitespace classes even before the styling agent arrives).
+- You do not apply colors or visual polish — but you do set up the structural skeleton in a way that the styling agent can faithfully fill in.
+
 ## Code Standards
 
 - **TypeScript**: All `.tsx` files. Define props interfaces inline or in `types/`.

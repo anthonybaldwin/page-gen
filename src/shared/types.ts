@@ -1,10 +1,38 @@
 export type AgentStatus = "pending" | "running" | "completed" | "failed" | "retrying" | "stopped";
 export type MessageRole = "user" | "assistant" | "system";
 
+export interface VibeBrief {
+  adjectives: string[];       // 3-6 vibe words
+  targetUser: string;         // 1-2 sentences about the intended user
+  antiReferences: string;     // what it should NOT feel like
+  metaphor: string;           // studio|workshop|library|arcade|cabin|cockpit|gallery|campsite or custom string
+  customMetaphor?: string;    // only when metaphor === "custom"
+  additionalNotes?: string;   // freeform overflow
+}
+
+export interface DesignOption {
+  name: string;               // e.g. "Warm Analog"
+  description: string;        // 1-2 sentences
+  design_system: Record<string, unknown>;
+  colorPreview: string[];     // 4-6 hex values for swatch strip
+}
+
+export interface PipelineCheckpoint {
+  chatId: string;
+  checkpointId: string;
+  nodeId: string;             // flow node ID that triggered this checkpoint
+  label: string;
+  checkpointType: "approve" | "design_direction";
+  message: string;
+  options?: DesignOption[];   // for design_direction type; undefined for approve
+  timeoutMs: number;
+}
+
 export interface Project {
   id: string;
   name: string;
   path: string;
+  vibeBrief: VibeBrief | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -117,7 +145,7 @@ export interface IntentClassification {
 }
 
 export interface WsMessage {
-  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "pipeline_interrupted" | "test_results" | "test_result_incremental" | "chat_renamed" | "backend_ready" | "backend_error" | "preview_exited";
+  type: "agent_status" | "agent_stream" | "agent_complete" | "agent_error" | "chat_message" | "agent_thinking" | "token_usage" | "files_changed" | "preview_ready" | "pipeline_plan" | "pipeline_interrupted" | "pipeline_checkpoint" | "pipeline_checkpoint_resolved" | "test_results" | "test_result_incremental" | "chat_renamed" | "backend_ready" | "backend_error" | "preview_exited";
   payload: Record<string, unknown>;
 }
 

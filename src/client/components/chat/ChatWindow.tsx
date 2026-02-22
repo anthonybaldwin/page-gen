@@ -8,21 +8,35 @@ import { Alert, AlertDescription } from "../ui/alert.tsx";
 import { useChatStore } from "../../stores/chatStore.ts";
 import { useAgentThinkingStore, type ThinkingBlock } from "../../stores/agentThinkingStore.ts";
 import { useUsageStore } from "../../stores/usageStore.ts";
+import { useProjectStore } from "../../stores/projectStore.ts";
+import { VibeIntake } from "./VibeIntake.tsx";
+import { CheckpointCard } from "./CheckpointCard.tsx";
 import { api } from "../../lib/api.ts";
 import { connectWebSocket, onWsMessage } from "../../lib/ws.ts";
-import type { Message, TestDetail } from "../../../shared/types.ts";
+import type { Message, TestDetail, VibeBrief, DesignOption } from "../../../shared/types.ts";
 import { nanoid } from "nanoid";
 import { AlertCircle, AlertTriangle, X } from "lucide-react";
 
 export function ChatWindow() {
   const { activeChat, messages, setMessages, addMessage, renameChat } = useChatStore();
   const { blocks, reset: resetThinking, stopAll, handleThinking, addTestResults, updateTestResults, toggleExpanded } = useAgentThinkingStore();
+  const { activeProject, updateProject } = useProjectStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
   const [costLimitInterrupt, setCostLimitInterrupt] = useState(false);
   const [showLimitsInline, setShowLimitsInline] = useState(false);
+  const [showVibeIntake, setShowVibeIntake] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [checkpoint, setCheckpoint] = useState<{
+    checkpointId: string;
+    label: string;
+    message: string;
+    checkpointType: "approve" | "design_direction";
+    options: DesignOption[];
+    resolved?: { selectedIndex: number; timedOut?: boolean };
+  } | null>(null);
 
   // Track whether we've created an incremental test results block
   const hasStreamingTestBlock = useRef(false);
@@ -37,6 +51,9 @@ export function ChatWindow() {
     setCostLimitInterrupt(false);
     setShowLimitsInline(false);
     hasStreamingTestBlock.current = false;
+    setShowVibeIntake(false);
+    setPendingMessage(null);
+    setCheckpoint(null);
     resetThinking();
     api
       .get<Message[]>(`/messages?chatId=${activeChat.id}`)
@@ -215,6 +232,34 @@ export function ChatWindow() {
         renameChat(renamedChatId, title);
       }
 
+      // Pipeline checkpoint — pause for user selection
+      if (msg.type === "pipeline_checkpoint") {
+        const payload = msg.payload as {
+          checkpointId: string;
+          label: string;
+          message: string;
+          checkpointType: "approve" | "design_direction";
+          options: DesignOption[];
+        };
+        setCheckpoint({
+          checkpointId: payload.checkpointId,
+          label: payload.label,
+          message: payload.message,
+          checkpointType: payload.checkpointType,
+          options: payload.options,
+        });
+      }
+
+      // Pipeline checkpoint resolved (by timeout or another client)
+      if (msg.type === "pipeline_checkpoint_resolved") {
+        const payload = msg.payload as { checkpointId: string; selectedIndex: number; timedOut?: boolean };
+        setCheckpoint((prev) =>
+          prev?.checkpointId === payload.checkpointId
+            ? { ...prev, resolved: { selectedIndex: payload.selectedIndex, timedOut: payload.timedOut } }
+            : prev
+        );
+      }
+
       // Token usage events
       if (msg.type === "token_usage") {
         const payload = msg.payload as {
@@ -239,7 +284,7 @@ export function ChatWindow() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, thinking, blocks]);
+  }, [messages, thinking, blocks, checkpoint]);
 
   async function handleResume() {
     if (!activeChat || !messages.length) return;
@@ -282,12 +327,52 @@ export function ChatWindow() {
     }
   }
 
+  function handleVibeApply(brief: VibeBrief) {
+    if (!activeProject) return;
+    updateProject(activeProject.id, { vibeBrief: brief });
+    setShowVibeIntake(false);
+    if (pendingMessage) {
+      fireMessage(pendingMessage);
+      setPendingMessage(null);
+    }
+  }
+
+  function handleCheckpointSelect(checkpointId: string, selectedIndex: number) {
+    setCheckpoint((prev) =>
+      prev?.checkpointId === checkpointId
+        ? { ...prev, resolved: { selectedIndex } }
+        : prev
+    );
+  }
+
+  function handleVibeSkip() {
+    setShowVibeIntake(false);
+    if (pendingMessage) {
+      fireMessage(pendingMessage);
+      setPendingMessage(null);
+    }
+  }
+
   async function handleSend(content: string) {
     if (!activeChat) return;
     setError(null);
     setInterrupted(false);
     setCostLimitInterrupt(false);
     setShowLimitsInline(false);
+
+    // First message on a fresh project → show vibe intake
+    const hasUserMessages = messages.some((m) => m.role === "user");
+    if (!hasUserMessages && activeProject && !activeProject.vibeBrief) {
+      setPendingMessage(content);
+      setShowVibeIntake(true);
+      return;
+    }
+
+    fireMessage(content);
+  }
+
+  async function fireMessage(content: string) {
+    if (!activeChat) return;
 
     const optimisticMsg: Message = {
       id: nanoid(),
@@ -405,9 +490,28 @@ export function ChatWindow() {
           thinking={thinking}
           onToggle={toggleExpanded}
         />
+        {checkpoint && activeChat && (
+          <CheckpointCard
+            chatId={activeChat.id}
+            checkpointId={checkpoint.checkpointId}
+            label={checkpoint.label}
+            message={checkpoint.message}
+            checkpointType={checkpoint.checkpointType}
+            options={checkpoint.options}
+            resolved={checkpoint.resolved}
+            onSelect={handleCheckpointSelect}
+          />
+        )}
         <div ref={messagesEndRef} />
       </div>
-      <MessageInput onSend={handleSend} disabled={thinking} onStop={handleStop} />
+      {showVibeIntake && activeProject && (
+        <VibeIntake
+          projectId={activeProject.id}
+          onApply={handleVibeApply}
+          onSkip={handleVibeSkip}
+        />
+      )}
+      <MessageInput onSend={handleSend} disabled={thinking || showVibeIntake} onStop={handleStop} />
     </div>
   );
 }
