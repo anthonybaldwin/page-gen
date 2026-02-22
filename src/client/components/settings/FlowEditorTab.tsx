@@ -1,0 +1,285 @@
+import { useState, useEffect, useCallback } from "react";
+import { api } from "../../lib/api.ts";
+import { Button } from "../ui/button.tsx";
+import { FlowCanvas } from "../flow/FlowCanvas.tsx";
+import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
+import { FlowToolbar } from "../flow/FlowToolbar.tsx";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
+import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
+import type { OrchestratorIntent } from "../../../shared/types.ts";
+import type { ResolvedAgentConfig } from "../../../shared/types.ts";
+
+type IntentTab = OrchestratorIntent;
+
+export function FlowEditorTab() {
+  const [templates, setTemplates] = useState<FlowTemplate[]>([]);
+  const [activeBindings, setActiveBindings] = useState<Record<string, string>>({});
+  const [activeIntent, setActiveIntent] = useState<IntentTab>("build");
+  const [selectedTemplate, setSelectedTemplate] = useState<FlowTemplate | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [editNodes, setEditNodes] = useState<FlowNode[]>([]);
+  const [editEdges, setEditEdges] = useState<FlowEdge[]>([]);
+  const [errors, setErrors] = useState<ValidationError[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [agentNames, setAgentNames] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [tmpls, bindings, agents] = await Promise.all([
+        api.get<FlowTemplate[]>("/settings/flow/templates"),
+        api.get<Record<string, string>>("/settings/flow/active"),
+        api.get<ResolvedAgentConfig[]>("/settings/agents"),
+      ]);
+      setTemplates(tmpls);
+      setActiveBindings(bindings);
+      setAgentNames(agents.map((a) => a.name));
+
+      // Auto-select the active template for the current intent
+      const activeId = bindings[activeIntent];
+      const active = tmpls.find((t) => t.id === activeId) ?? tmpls.find((t) => t.intent === activeIntent) ?? null;
+      if (active) {
+        setSelectedTemplate(active);
+        setEditNodes(active.nodes);
+        setEditEdges(active.edges);
+        setDirty(false);
+      }
+    } catch (err) {
+      console.error("[flow-editor] Load failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeIntent]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const handleIntentChange = (intent: IntentTab) => {
+    setActiveIntent(intent);
+    setSelectedNodeId(null);
+    setErrors([]);
+  };
+
+  const handleTemplateSelect = (template: FlowTemplate) => {
+    setSelectedTemplate(template);
+    setEditNodes(template.nodes);
+    setEditEdges(template.edges);
+    setSelectedNodeId(null);
+    setDirty(false);
+    setErrors([]);
+  };
+
+  const handleCanvasChange = (nodes: FlowNode[], edges: FlowEdge[]) => {
+    setEditNodes(nodes);
+    setEditEdges(edges);
+    setDirty(true);
+  };
+
+  const handleAddNode = (node: FlowNode) => {
+    setEditNodes((prev) => [...prev, node]);
+    setDirty(true);
+  };
+
+  const handleNodeUpdate = (nodeId: string, data: FlowNodeData) => {
+    setEditNodes((prev) => prev.map((n) => n.id === nodeId ? { ...n, data } : n));
+    setDirty(true);
+  };
+
+  const handleNodeDelete = (nodeId: string) => {
+    setEditNodes((prev) => prev.filter((n) => n.id !== nodeId));
+    setEditEdges((prev) => prev.filter((e) => e.source !== nodeId && e.target !== nodeId));
+    setSelectedNodeId(null);
+    setDirty(true);
+  };
+
+  const handleValidate = () => {
+    if (!selectedTemplate) return;
+    const tmpl = { ...selectedTemplate, nodes: editNodes, edges: editEdges };
+    const result = validateFlowTemplate(tmpl, agentNames);
+    setErrors(result);
+  };
+
+  const handleSave = async () => {
+    if (!selectedTemplate) return;
+    setSaving(true);
+    try {
+      const updated: FlowTemplate = {
+        ...selectedTemplate,
+        nodes: editNodes,
+        edges: editEdges,
+        updatedAt: Date.now(),
+      };
+      await api.put(`/settings/flow/templates/${updated.id}`, updated);
+      setDirty(false);
+      setErrors([]);
+      await refresh();
+    } catch (err) {
+      console.error("[flow-editor] Save failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSetActive = async (templateId: string) => {
+    try {
+      await api.put("/settings/flow/active", { intent: activeIntent, templateId });
+      await refresh();
+    } catch (err) {
+      console.error("[flow-editor] Set active failed:", err);
+    }
+  };
+
+  const handleResetDefaults = async () => {
+    try {
+      await api.post<{ ok: boolean; templates: FlowTemplate[] }>("/settings/flow/defaults", {});
+      await refresh();
+    } catch (err) {
+      console.error("[flow-editor] Reset defaults failed:", err);
+    }
+  };
+
+  const handleToggleEnabled = async (template: FlowTemplate) => {
+    try {
+      const updated = { ...template, enabled: !template.enabled, updatedAt: Date.now() };
+      await api.put(`/settings/flow/templates/${updated.id}`, updated);
+      await refresh();
+    } catch (err) {
+      console.error("[flow-editor] Toggle failed:", err);
+    }
+  };
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading flow templates...</p>;
+  }
+
+  const intentTemplates = templates.filter((t) => t.intent === activeIntent);
+  const selectedNode = editNodes.find((n) => n.id === selectedNodeId) ?? null;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Configure pipeline execution flow per intent. The active template replaces the hardcoded pipeline logic.
+      </p>
+
+      {/* Intent tabs */}
+      <div className="flex items-center gap-1 border-b border-border pb-2">
+        {(["build", "fix", "question"] as IntentTab[]).map((intent) => (
+          <button
+            key={intent}
+            onClick={() => handleIntentChange(intent)}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${
+              activeIntent === intent
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            {intent.charAt(0).toUpperCase() + intent.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Template picker */}
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Templates</h3>
+        {intentTemplates.length === 0 ? (
+          <div className="text-xs text-muted-foreground">
+            No templates for this intent.{" "}
+            <button onClick={handleResetDefaults} className="text-primary hover:underline">Generate defaults</button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {intentTemplates.map((tmpl) => {
+              const isActive = activeBindings[activeIntent] === tmpl.id;
+              const isSelected = selectedTemplate?.id === tmpl.id;
+              return (
+                <div
+                  key={tmpl.id}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                    isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                  } ${!tmpl.enabled ? "opacity-50" : ""}`}
+                  onClick={() => handleTemplateSelect(tmpl)}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium truncate">{tmpl.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{tmpl.nodes.length} nodes</div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleEnabled(tmpl); }}
+                      className={`w-8 h-4 rounded-full transition-colors ${tmpl.enabled ? "bg-primary" : "bg-muted"}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-white transition-transform ${tmpl.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </button>
+                    {isActive ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">active</span>
+                    ) : tmpl.enabled ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); handleSetActive(tmpl.id); }}
+                        className="h-5 px-1.5 text-[10px]"
+                      >
+                        Set Active
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Canvas + Inspector */}
+      {selectedTemplate && (
+        <>
+          <FlowToolbar
+            onAddNode={handleAddNode}
+            onValidate={handleValidate}
+            onSave={handleSave}
+            onResetDefaults={handleResetDefaults}
+            saving={saving}
+            errors={errors}
+            dirty={dirty}
+          />
+
+          <div className="flex gap-0 rounded-lg border border-border overflow-hidden">
+            <div className="flex-1 min-w-0">
+              <FlowCanvas
+                template={{ ...selectedTemplate, nodes: editNodes, edges: editEdges }}
+                onChange={handleCanvasChange}
+                onNodeSelect={setSelectedNodeId}
+              />
+            </div>
+            <FlowNodeInspector
+              node={selectedNode}
+              agentNames={agentNames}
+              onUpdate={handleNodeUpdate}
+              onDelete={handleNodeDelete}
+            />
+          </div>
+
+          {/* Validation errors */}
+          {errors.length > 0 && (
+            <div className="space-y-1">
+              {errors.map((err, i) => (
+                <div
+                  key={i}
+                  className={`text-xs px-3 py-1.5 rounded ${
+                    err.type === "error"
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-amber-500/10 text-amber-600"
+                  }`}
+                >
+                  {err.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

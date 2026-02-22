@@ -7,6 +7,7 @@ import { ToolSettings } from "./ToolSettings.tsx";
 import { GitSettings } from "./GitSettings.tsx";
 import { AppearanceSettings } from "./AppearanceSettings.tsx";
 import { PipelineSettings } from "./PipelineSettings.tsx";
+import { FlowEditorTab } from "./FlowEditorTab.tsx";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs.tsx";
 import { Button } from "../ui/button.tsx";
 import { X } from "lucide-react";
@@ -44,6 +45,9 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <TabsTrigger value="models" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Agents
             </TabsTrigger>
+            <TabsTrigger value="pipeline" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Pipeline
+            </TabsTrigger>
             <TabsTrigger value="tools" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Tools
             </TabsTrigger>
@@ -71,6 +75,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <PipelineSettings />
           </TabsContent>
           <TabsContent value="models" className="mt-0"><ModelSettings /></TabsContent>
+          <TabsContent value="pipeline" className="mt-0"><FlowEditorTab /></TabsContent>
           <TabsContent value="pricing" className="mt-0"><PricingSettings /></TabsContent>
           <TabsContent value="prompts" className="mt-0"><PromptEditor /></TabsContent>
           <TabsContent value="tools" className="mt-0"><ToolSettings /></TabsContent>

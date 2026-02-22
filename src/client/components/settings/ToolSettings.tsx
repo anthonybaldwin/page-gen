@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Checkbox } from "../ui/checkbox.tsx";
-import type { AgentToolConfig, ToolName, AgentGroup } from "../../../shared/types.ts";
-import { ALL_TOOLS } from "../../../shared/types.ts";
+import { CustomToolSection } from "./CustomToolSection.tsx";
+import type { AgentToolConfig, AgentGroup } from "../../../shared/types.ts";
+import { BUILTIN_TOOL_NAMES } from "../../../shared/types.ts";
+import type { CustomToolDefinition } from "../../../shared/custom-tool-types.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
@@ -20,7 +22,7 @@ function buildAgentGroups(configs: AgentToolConfig[]) {
     .filter((g) => g.agents.length > 0);
 }
 
-const TOOL_LABELS: Record<ToolName, string> = {
+const BUILTIN_TOOL_LABELS: Record<string, string> = {
   write_file: "Write File",
   write_files: "Write Files (Batch)",
   read_file: "Read File",
@@ -31,13 +33,18 @@ const TOOL_LABELS: Record<ToolName, string> = {
 
 export function ToolSettings() {
   const [configs, setConfigs] = useState<AgentToolConfig[]>([]);
-  const [localTools, setLocalTools] = useState<Record<string, ToolName[]>>({});
+  const [localTools, setLocalTools] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [customTools, setCustomTools] = useState<CustomToolDefinition[]>([]);
 
   const refresh = async () => {
-    const data = await api.get<AgentToolConfig[]>("/settings/agents/tools");
+    const [data, ct] = await Promise.all([
+      api.get<AgentToolConfig[]>("/settings/agents/tools"),
+      api.get<CustomToolDefinition[]>("/settings/custom-tools"),
+    ]);
     setConfigs(data);
-    const local: Record<string, ToolName[]> = {};
+    setCustomTools(ct);
+    const local: Record<string, string[]> = {};
     for (const c of data) {
       local[c.name] = [...c.tools];
     }
@@ -48,7 +55,19 @@ export function ToolSettings() {
     refresh().catch(console.error);
   }, []);
 
-  function toggleTool(agentName: string, tool: ToolName) {
+  // All tool names: built-in + enabled custom
+  const allToolNames = [
+    ...BUILTIN_TOOL_NAMES,
+    ...customTools.filter((t) => t.enabled).map((t) => t.name),
+  ];
+
+  function getToolLabel(toolName: string): string {
+    if (BUILTIN_TOOL_LABELS[toolName]) return BUILTIN_TOOL_LABELS[toolName];
+    const ct = customTools.find((t) => t.name === toolName);
+    return ct?.displayName ?? toolName;
+  }
+
+  function toggleTool(agentName: string, tool: string) {
     setLocalTools((prev) => {
       const current = prev[agentName] || [];
       const next = current.includes(tool)
@@ -99,7 +118,7 @@ export function ToolSettings() {
   return (
     <div className="space-y-6">
       <p className="text-xs text-muted-foreground">
-        Control which native tools each agent can use during pipeline runs. Changes take effect on the next run.
+        Control which tools each agent can use during pipeline runs. Changes take effect on the next run.
       </p>
 
       {buildAgentGroups(configs).map((group) => (
@@ -159,8 +178,8 @@ export function ToolSettings() {
                     </div>
                   </div>
 
-                  <div className="flex gap-4">
-                    {ALL_TOOLS.map((tool) => (
+                  <div className="flex gap-4 flex-wrap">
+                    {allToolNames.map((tool) => (
                       <label
                         key={tool}
                         className={`flex items-center gap-1.5 text-xs ${
@@ -174,7 +193,7 @@ export function ToolSettings() {
                           onCheckedChange={() => toggleTool(agentName, tool)}
                           disabled={config.isReadOnly}
                         />
-                        {TOOL_LABELS[tool]}
+                        {getToolLabel(tool)}
                       </label>
                     ))}
                   </div>
@@ -184,6 +203,10 @@ export function ToolSettings() {
           </div>
         </div>
       ))}
+
+      <hr className="border-border" />
+
+      <CustomToolSection />
     </div>
   );
 }
