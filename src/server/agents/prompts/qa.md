@@ -112,3 +112,8 @@ Return a structured JSON report:
 - If every requirement is met and UX patterns are present, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed gaps.
 - Focus on functional completeness and UX quality, not code style.
+
+**Test infrastructure checks:**
+- Verify `vitest.config.ts` has `setupFiles: ["./src/test-setup.ts"]`.
+- Verify `src/test-setup.ts` exists and imports `@testing-library/jest-dom/vitest`.
+- Verify no test file directly imports `@testing-library/jest-dom`.

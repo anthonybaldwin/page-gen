@@ -116,3 +116,8 @@ Return a structured JSON report:
 - Prioritize critical issues (crashes, type errors, missing exports) over medium/low severity.
 - If no issues are found, return `"status": "pass"` with an empty findings array.
 - Do not fabricate issues. False positives are worse than missed bugs.
+
+**Test quality checks:**
+- Tests must not use bare `getByText` for values that appear in multiple DOM locations (buttons + display, nav + content, etc.). Flag as high severity.
+- Tests must not assert CSS class names. Flag as medium severity — assert behavior or ARIA attributes instead.
+- Test files must not import `@testing-library/jest-dom` directly — it is pre-loaded via setupFiles. Flag as low severity.

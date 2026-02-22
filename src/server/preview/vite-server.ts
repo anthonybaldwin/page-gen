@@ -126,6 +126,7 @@ function ensureProjectHasPackageJson(projectPath: string, projectName?: string) 
   if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^20.0.0";
   if (!devDeps["@testing-library/react"]) devDeps["@testing-library/react"] = "^16.3.0";
   if (!devDeps["@testing-library/user-event"]) devDeps["@testing-library/user-event"] = "^14.0.0";
+  if (!devDeps["@testing-library/jest-dom"]) devDeps["@testing-library/jest-dom"] = "^6.6.0";
 
   const pkg = {
     name: (existing.name as string) || (projectName ? toPackageName(projectName) : "preview-project"),
@@ -203,12 +204,23 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "happy-dom",
+    setupFiles: ["./src/test-setup.ts"],
     globals: true,
     include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}", "server/**/*.{test,spec}.{ts,tsx,js,jsx}"],
   },
 });
 `;
   writeFileSync(configPath, config, "utf-8");
+}
+
+/**
+ * Ensure src/test-setup.ts exists so vitest has jest-dom matchers available.
+ */
+function ensureProjectHasTestSetup(projectPath: string) {
+  const setupPath = join(projectPath, "src", "test-setup.ts");
+  if (existsSync(setupPath)) return;
+  mkdirSync(join(projectPath, "src"), { recursive: true });
+  writeFileSync(setupPath, `import "@testing-library/jest-dom/vitest";\n`, "utf-8");
 }
 
 /**
@@ -334,6 +346,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
   ensureProjectHasTsConfig(fullPath);
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);
+  ensureProjectHasTestSetup(fullPath);
   ensureProjectHasMainEntry(fullPath);
   return await installProjectDependencies(fullPath, chatId);
 }

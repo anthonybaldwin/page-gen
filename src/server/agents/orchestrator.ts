@@ -3412,13 +3412,18 @@ function extractAndWriteFiles(
     }
   }
 
+  // Check both native tool writes AND extracted writes for package.json changes.
+  // Native write_file writes land in alreadyWritten (skipped above), so `written`
+  // stays empty — but we still need to invalidate deps when package.json was touched.
+  const hasPackageJsonNative = alreadyWritten
+    ? Array.from(alreadyWritten).some(f => f === "package.json" || f.endsWith("/package.json"))
+    : false;
+  if (hasPackageJson || hasPackageJsonNative) {
+    invalidateProjectDeps(projectPath);
+  }
+
   if (written.length > 0) {
     broadcastFilesChanged(projectId, written);
-
-    // If the agent wrote a package.json, invalidate cached deps
-    if (hasPackageJson) {
-      invalidateProjectDeps(projectPath);
-    }
 
     // After the first file-producing agent writes files, prepare project for preview
     // This runs in the background — doesn't block the pipeline

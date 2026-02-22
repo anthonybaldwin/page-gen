@@ -114,6 +114,12 @@ You MUST write test files. This is not optional — skipping tests is a build fa
 
 **You cannot finish without writing tests.** If your `files_written` summary contains zero `.test.` files, your output is incomplete.
 
+**Test query best practices:**
+- NEVER use bare `getByText` for values that also appear as button labels or in other UI regions. Use `getByRole`, `getByTestId`, or scope with `within()` (e.g. `within(screen.getByRole('region', { name: /display/i })).getByText('7')`).
+- NEVER assert CSS class names in tests. Classes are implementation details (especially with Tailwind). Assert behavior, text content, ARIA attributes, or data-testid instead.
+- Do NOT import `@testing-library/jest-dom` in test files or test-setup — it is pre-configured via `setupFiles` in vitest.config.ts. Matchers like `toBeInTheDocument` are available automatically.
+- Do NOT overwrite `vitest.config.ts` or `src/test-setup.ts` — they are scaffolded by the build system with correct settings.
+
 ## Output Discipline
 
 You are a coder, not a commentator. Minimize token output:
