@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Bookmark } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -41,6 +41,9 @@ function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
     case "action":
       data = { type: "action", kind: actionKind ?? "build-check", label: ACTION_LABELS[actionKind ?? "build-check"] };
       break;
+    case "version":
+      data = { type: "version", label: "Version" };
+      break;
   }
 
   return {
@@ -67,6 +70,9 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("checkpoint"))} className="h-7 text-xs gap-1">
           <CirclePause className="h-3 w-3" /> Checkpoint
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("version"))} className="h-7 text-xs gap-1">
+          <Bookmark className="h-3 w-3" /> Version
         </Button>
       </div>
 

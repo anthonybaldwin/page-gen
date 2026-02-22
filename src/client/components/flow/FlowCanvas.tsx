@@ -19,6 +19,7 @@ import { AgentNode } from "./nodes/AgentNode.tsx";
 import { ConditionNode } from "./nodes/ConditionNode.tsx";
 import { CheckpointNode } from "./nodes/CheckpointNode.tsx";
 import { ActionNode } from "./nodes/ActionNode.tsx";
+import { VersionNode } from "./nodes/VersionNode.tsx";
 import type { FlowTemplate, FlowNode, FlowEdge } from "../../../shared/flow-types.ts";
 
 const nodeTypes = {
@@ -26,6 +27,7 @@ const nodeTypes = {
   condition: ConditionNode,
   checkpoint: CheckpointNode,
   action: ActionNode,
+  version: VersionNode,
 };
 
 /** Convert our FlowNode[] to React Flow Node[] */
@@ -283,6 +285,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
               case "agent": return isDark ? "#60a5fa" : "#3b82f6";
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
+              case "version": return "#14b8a6";
               case "action": {
                 const kind = (node.data as Record<string, unknown>)?.kind;
                 switch (kind) {

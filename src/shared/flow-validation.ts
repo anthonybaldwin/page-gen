@@ -157,6 +157,12 @@ function validateNode(
       }
       break;
     }
+    case "version": {
+      if (!data.label.trim()) {
+        errors.push({ type: "warning", message: `Version node "${node.id}" has no label`, nodeId: node.id });
+      }
+      break;
+    }
   }
 }
 

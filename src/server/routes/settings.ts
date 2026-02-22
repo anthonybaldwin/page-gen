@@ -3,7 +3,7 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
-import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents } from "../agents/registry.ts";
+import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents, getAgentTools } from "../agents/registry.ts";
 import { loadDefaultPrompt, isDefaultPromptCustom } from "../agents/default-prompts.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
@@ -156,6 +156,13 @@ settingsRoutes.delete("/agents/:name/limits", (c) => {
 // Get all agent tool configs
 settingsRoutes.get("/agents/tools", (c) => {
   return c.json(getAllAgentToolConfigs());
+});
+
+// Get resolved tools for a single agent (DB override or default)
+settingsRoutes.get("/agents/:name/tools", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
+  return c.json({ tools: getAgentTools(name) });
 });
 
 // Upsert tool override for an agent

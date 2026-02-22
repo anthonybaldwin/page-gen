@@ -2,7 +2,7 @@ import type { OrchestratorIntent } from "./types.ts";
 
 // --- Flow Node Types ---
 
-export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action";
+export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action" | "version";
 
 // --- Upstream Source Configuration ---
 
@@ -30,6 +30,7 @@ export interface AgentNodeData {
   maxOutputTokens?: number;  // per-node override
   maxToolSteps?: number;     // per-node override
   upstreamSources?: UpstreamSource[];
+  toolOverrides?: string[];  // per-node tool override (replaces global agent tools when set)
 }
 
 export interface ConditionNodeData {
@@ -71,7 +72,12 @@ export interface ActionNodeData {
   maxOutputTokens?: number;    // max output tokens for the LLM call
 }
 
-export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData;
+export interface VersionNodeData {
+  type: "version";
+  label: string;
+}
+
+export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData | VersionNodeData;
 
 export interface FlowNode {
   id: string;

@@ -988,6 +988,7 @@ export interface AgentStep {
   maxOutputTokens?: number;
   maxToolSteps?: number;
   upstreamSources?: import("../../shared/flow-types.ts").UpstreamSource[];
+  toolOverrides?: string[];
 }
 
 export interface CheckpointStep {
@@ -1017,7 +1018,15 @@ export interface ActionStep {
   maxOutputTokens?: number;
 }
 
-export type PlanStep = AgentStep | CheckpointStep | ActionStep;
+export interface VersionStep {
+  kind: "version";
+  nodeId: string;
+  label: string;
+  dependsOn?: string[];
+  instanceId?: string;
+}
+
+export type PlanStep = AgentStep | CheckpointStep | ActionStep | VersionStep;
 
 export function isAgentStep(step: PlanStep): step is AgentStep {
   return step.kind === "agent" || !("kind" in step);
@@ -1025,6 +1034,10 @@ export function isAgentStep(step: PlanStep): step is AgentStep {
 
 export function isActionStep(step: PlanStep): step is ActionStep {
   return step.kind === "action";
+}
+
+export function isVersionStep(step: PlanStep): step is VersionStep {
+  return step.kind === "version";
 }
 
 export function stepKey(step: PlanStep): string {
@@ -1150,8 +1163,8 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         },
       };
 
-      // Create native tools based on agent's tool config
-      const enabledToolNames = getAgentTools(step.agentName);
+      // Create native tools based on agent's tool config (per-node overrides take priority)
+      const enabledToolNames = step.toolOverrides ?? getAgentTools(step.agentName);
       let agentTools: ReturnType<typeof createAgentTools> | undefined;
       if (enabledToolNames.length > 0) {
         agentTools = createAgentTools(projectPath, projectId);
@@ -1985,8 +1998,9 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    // Separate checkpoint, action, and agent steps
+    // Separate checkpoint, action, version, and agent steps
     const readyCheckpoints = ready.filter((s): s is CheckpointStep => s.kind === "checkpoint");
+    const readyVersions = ready.filter((s): s is VersionStep => isVersionStep(s));
     const readyActions = ready.filter((s): s is ActionStep => isActionStep(s));
     const readyAgents = ready.filter((s): s is AgentStep => isAgentStep(s));
 
@@ -2258,7 +2272,25 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    // If only checkpoints/actions were ready this round, continue to next iteration
+    // Process version steps (fast, synchronous — create a git snapshot)
+    for (const vs of readyVersions) {
+      if (signal.aborted) break;
+      const vk = stepKey(vs);
+      log("orchestrator", `Executing version step: ${vs.label}`, { instanceId: vk });
+      broadcastAgentStatus(chatId, vk, "running");
+      try {
+        autoCommit(projectPath, vs.label);
+        broadcastAgentStatus(chatId, vk, "completed");
+        completedSet.add(vk);
+      } catch (err) {
+        // Non-fatal — log and continue (matches pipeline-end autoCommit pattern)
+        logWarn("orchestrator", `Version step ${vk} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        broadcastAgentStatus(chatId, vk, "completed");
+        completedSet.add(vk);
+      }
+    }
+
+    // If only checkpoints/actions/versions were ready this round, continue to next iteration
     if (readyAgents.length === 0) {
       remaining.length = 0;
       remaining.push(...notReady);

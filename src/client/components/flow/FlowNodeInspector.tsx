@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, UpstreamSource, UpstreamTransform } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, UpstreamSource, UpstreamTransform } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "../../../shared/flow-types.ts";
+import { BUILTIN_TOOL_NAMES } from "../../../shared/types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
 
 interface FlowNodeInspectorProps {
@@ -74,6 +75,9 @@ export function FlowNodeInspector({ node, agentNames, allNodes, allEdges, onUpda
       )}
       {node.data.type === "action" && (
         <ActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
+      )}
+      {node.data.type === "version" && (
+        <VersionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
     </div>
   );
@@ -207,6 +211,8 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
   const [agentDefaultPrompt, setAgentDefaultPrompt] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(!!data.upstreamSources);
   const [upstreamSources, setUpstreamSources] = useState<UpstreamSource[]>(data.upstreamSources ?? []);
+  const [showToolOverrides, setShowToolOverrides] = useState(!!data.toolOverrides);
+  const [toolOverrides, setToolOverrides] = useState<string[]>(data.toolOverrides ?? [...BUILTIN_TOOL_NAMES]);
 
   useEffect(() => {
     setAgentName(data.agentName);
@@ -215,6 +221,8 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
     setMaxToolSteps(data.maxToolSteps?.toString() ?? "");
     setUpstreamSources(data.upstreamSources ?? []);
     setShowSources(!!data.upstreamSources);
+    setShowToolOverrides(!!data.toolOverrides);
+    setToolOverrides(data.toolOverrides ?? [...BUILTIN_TOOL_NAMES]);
   }, [data]);
 
   // Fetch default prompt when agent name is set
@@ -237,9 +245,10 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
       maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
       maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
       upstreamSources: showSources ? upstreamSources : undefined,
+      toolOverrides: showToolOverrides ? toolOverrides : undefined,
       ...overrides,
     }),
-    [data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, upstreamSources, showSources],
+    [data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, upstreamSources, showSources, toolOverrides, showToolOverrides],
   );
 
   const save = useCallback(() => {
@@ -294,6 +303,40 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
     setInputTemplate((prev) => prev + " " + field);
     // Don't auto-save here — user should review and blur to save
   }, []);
+
+  const handleToggleToolOverrides = useCallback((enabled: boolean) => {
+    setShowToolOverrides(enabled);
+    if (enabled) {
+      // Initialize from global agent tools when enabling
+      if (agentName) {
+        api
+          .get<{ tools: string[] }>(`/settings/agents/${agentName}/tools`)
+          .then((res) => {
+            setToolOverrides(res.tools);
+            onUpdate(nodeId, buildData({ toolOverrides: res.tools }));
+          })
+          .catch(() => {
+            const defaults = [...BUILTIN_TOOL_NAMES];
+            setToolOverrides(defaults);
+            onUpdate(nodeId, buildData({ toolOverrides: defaults }));
+          });
+      } else {
+        const defaults = [...BUILTIN_TOOL_NAMES];
+        setToolOverrides(defaults);
+        onUpdate(nodeId, buildData({ toolOverrides: defaults }));
+      }
+    } else {
+      onUpdate(nodeId, buildData({ toolOverrides: undefined }));
+    }
+  }, [agentName, nodeId, buildData, onUpdate]);
+
+  const handleToolToggle = useCallback((toolName: string, enabled: boolean) => {
+    const next = enabled
+      ? [...toolOverrides, toolName]
+      : toolOverrides.filter((t) => t !== toolName);
+    setToolOverrides(next);
+    onUpdate(nodeId, buildData({ toolOverrides: next }));
+  }, [toolOverrides, nodeId, buildData, onUpdate]);
 
   const isUsingDefault = agentDefaultPrompt !== null && inputTemplate === agentDefaultPrompt;
   const isCustomized = agentDefaultPrompt !== null && inputTemplate !== agentDefaultPrompt;
@@ -416,6 +459,41 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
             />
           </label>
         </div>
+      </div>
+
+      {/* Tool Overrides section */}
+      <div className="border-t border-border pt-2 mt-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Tools</span>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={showToolOverrides}
+              onChange={(e) => handleToggleToolOverrides(e.target.checked)}
+              className="rounded border-border h-3 w-3"
+            />
+            <span className="text-[10px] text-muted-foreground">Override</span>
+          </label>
+        </div>
+        {showToolOverrides ? (
+          <div className="space-y-1">
+            {BUILTIN_TOOL_NAMES.map((toolName) => (
+              <label key={toolName} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={toolOverrides.includes(toolName)}
+                  onChange={(e) => handleToolToggle(toolName, e.target.checked)}
+                  className="rounded border-border h-3 w-3"
+                />
+                <span className="text-[11px] font-mono text-foreground">{toolName}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="text-[10px] text-muted-foreground italic">
+            Using global agent tools config
+          </div>
+        )}
       </div>
     </div>
   );
@@ -838,6 +916,44 @@ function ActionInspector({ data, nodeId, onUpdate }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function VersionInspector({ data, nodeId, onUpdate }: {
+  data: VersionNodeData;
+  nodeId: string;
+  onUpdate: (nodeId: string, data: FlowNodeData) => void;
+}) {
+  const [label, setLabel] = useState(data.label);
+
+  useEffect(() => {
+    setLabel(data.label);
+  }, [data]);
+
+  const save = () => {
+    onUpdate(nodeId, { ...data, label });
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Label</span>
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
+      </label>
+      <div className="text-[10px] text-muted-foreground leading-relaxed">
+        Creates a git version snapshot when reached during pipeline execution. The version will appear in the Previous Versions sidebar.
+      </div>
+      <div className="border-t border-border pt-2 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Input</span>
+        <div className="text-[10px] text-muted-foreground mt-1">Pass-through (no data consumed)</div>
+      </div>
+      <div className="border-t border-border pt-2 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
+        <div className="text-[10px] text-muted-foreground mt-1">
+          Output key: <code className="font-mono bg-muted px-1.5 py-0.5 rounded">{nodeId}</code>
+        </div>
+      </div>
     </div>
   );
 }

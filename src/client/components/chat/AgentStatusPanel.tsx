@@ -61,6 +61,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
 
 function resolveDisplayName(name: string): string {
   if (AGENT_DISPLAY_NAMES[name]) return AGENT_DISPLAY_NAMES[name];
+  if (name.startsWith("version-")) return "Save Version";
   return name;
 }
 

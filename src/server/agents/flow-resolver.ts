@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, VersionNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
 import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -243,6 +243,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         maxOutputTokens: agentData.maxOutputTokens,
         maxToolSteps: agentData.maxToolSteps,
         upstreamSources: agentData.upstreamSources,
+        toolOverrides: agentData.toolOverrides,
       });
 
       nodeToStepKey.set(nodeId, agentData.agentName);
@@ -271,6 +272,20 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
 
       // Also collect overrides for backwards compat (used by utility functions like deduplicateErrors)
       collectActionOverrides(actionData, actionOverrides);
+    }
+
+    // Version nodes: emit as version steps
+    if (node.data.type === "version") {
+      const versionData = node.data as VersionNodeData;
+      const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
+      steps.push({
+        kind: "version",
+        nodeId,
+        label: versionData.label,
+        dependsOn: deps.length > 0 ? deps : undefined,
+        instanceId: nodeId,
+      });
+      nodeToStepKey.set(nodeId, nodeId);
     }
 
     // Checkpoint nodes: emit as checkpoint steps
@@ -370,7 +385,7 @@ function computeStepDependencies(
     const node = nodeMap.get(currentId);
     if (!node) continue;
 
-    if ((node.data.type === "agent" || node.data.type === "checkpoint" || node.data.type === "action") && nodeToStepKey.has(currentId)) {
+    if ((node.data.type === "agent" || node.data.type === "checkpoint" || node.data.type === "action" || node.data.type === "version") && nodeToStepKey.has(currentId)) {
       deps.add(nodeToStepKey.get(currentId)!);
     } else {
       // Not a step-producing node — keep walking backwards
