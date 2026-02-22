@@ -157,7 +157,7 @@ export function getPlannedAgents(intent: OrchestratorIntent, scope: IntentScope,
   if (intent === "fix" && !hasFiles) return []; // will fall through to build
 
   if (intent === "fix") {
-    // Quick-edit paths (styling, frontend) skip reviewers
+    // Scope-based agent list for preflight validation (actual routing handled by flow template)
     if (scope === "styling") return ["styling"];
     if (scope === "frontend") return ["frontend-dev"];
     // Backend/full fixes get dev + reviewers
@@ -977,8 +977,6 @@ interface PipelineStepContext {
   apiKeys: Record<string, string>;
   signal: AbortSignal;
   actionOverrides?: ActionOverrides;
-  /** When true, skip build checks and tests — caller will handle them after the batch completes */
-  skipPostProcessing?: boolean;
 }
 
 /**
@@ -988,7 +986,7 @@ interface PipelineStepContext {
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, actionOverrides, skipPostProcessing } = ctx;
+    providers, apiKeys, signal, actionOverrides } = ctx;
 
   // Use instanceId for keying/broadcasting, base agentName for config lookup
   const stepKey = step.instanceId ?? step.agentName;
@@ -1168,85 +1166,6 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       const diagOutputTokens = result.tokenUsage?.outputTokens || 0;
       if (filesWritten.length === 0 && agentHasFileTools(step.agentName) && diagOutputTokens > 1000) {
         logWarn("orchestrator", `${stepKey} produced ${diagOutputTokens} output tokens but wrote 0 files — possible tool call truncation`);
-      }
-
-      if (filesWritten.length > 0 && agentHasFileTools(step.agentName) && !signal.aborted && !skipPostProcessing) {
-        // All file-producing agents get build check (skipped for parallel batches — caller handles it)
-        const buildErrors = await checkProjectBuild(projectPath, chatId, actionOverrides);
-        if (buildErrors && !signal.aborted) {
-          const fixResult = await runBuildFix({
-            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides,
-          });
-          if (fixResult) {
-            agentResults.set(`${stepKey}-build-fix`, fixResult);
-            completedAgents.push(`${stepKey} (build fix)`);
-          }
-          const recheckErrors = await checkProjectBuild(projectPath, undefined, actionOverrides);
-          if (!recheckErrors) {
-            broadcast({ type: "preview_ready", payload: { projectId } });
-            maybeStartBackend(projectId, projectPath);
-          }
-        } else {
-          broadcast({ type: "preview_ready", payload: { projectId } });
-          maybeStartBackend(projectId, projectPath);
-        }
-
-        // After dev agents, run tests if test files exist
-        if (!signal.aborted) {
-          const hasTestFiles = testFilesExist(projectPath);
-          if (hasTestFiles) {
-            const testResult = await runProjectTests(projectPath, chatId, projectId, undefined, actionOverrides);
-            if (testResult && testResult.failed > 0 && !signal.aborted) {
-              // Route test failures to dev agent for one fix attempt
-              const testFixResult = await runBuildFix({
-                buildErrors: formatTestFailures(testResult.failures, actionOverrides),
-                chatId, projectId, projectPath, projectName, chatTitle,
-                userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides,
-              });
-              if (testFixResult) {
-                agentResults.set(`${stepKey}-test-fix`, testFixResult);
-                completedAgents.push(`${stepKey} (test fix)`);
-              }
-              // Smart re-run: only re-run failed test files, not the full suite
-              if (!signal.aborted) {
-                const failedFiles = testResult.testDetails
-                  ?.filter((t) => t.status === "failed")
-                  .map((t) => t.suite)
-                  .filter((v, i, a) => a.indexOf(v) === i); // unique
-                await runProjectTests(projectPath, chatId, projectId, failedFiles, actionOverrides);
-              }
-            }
-          } else if (!agentResults.has("test-results-skipped")) {
-            const skipped = {
-              chatId,
-              projectId,
-              passed: 0,
-              failed: 0,
-              total: 0,
-              duration: 0,
-              failures: [] as Array<{ name: string; error: string }>,
-              testDetails: [] as Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>,
-              skipped: true,
-              skipReason: "Tests skipped: no test files found",
-            };
-            broadcastTestResults(skipped);
-            await db.insert(schema.agentExecutions).values({
-              id: nanoid(),
-              chatId,
-              agentName: "test-results",
-              status: "completed",
-              input: JSON.stringify({ projectId, skipped: true }),
-              output: JSON.stringify(skipped),
-              error: null,
-              retryCount: 0,
-              startedAt: Date.now(),
-              completedAt: Date.now(),
-            });
-            log("orchestrator", "Tests skipped: no test files found");
-            agentResults.set("test-results-skipped", "Tests skipped: no test files found");
-          }
-        }
       }
 
       break;
@@ -1601,51 +1520,29 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Fix mode: tiered pipeline based on scope ---
-  // styling/frontend = quick-edit (single agent, no reviewers)
-  // backend/full = dev agent(s) + reviewers (finishPipeline runs actual tests)
+  // --- Fix mode: resolve flow template (handles all scopes via condition nodes) ---
   if (classification.intent === "fix" && hasFiles) {
     const scope = classification.scope as IntentScope;
-    const isQuickEdit = scope === "styling" || scope === "frontend";
-    if (!isQuickEdit) {
-      const projectSource = readProjectSource(projectPath);
-      if (projectSource) {
-        agentResults.set("project-source", projectSource);
-      }
+    const projectSource = readProjectSource(projectPath);
+    if (projectSource) {
+      agentResults.set("project-source", projectSource);
     }
 
-    let quickPlan: ExecutionPlan | null = null;
-    if (isQuickEdit) {
-      const agentName: AgentName = scope === "styling" ? "styling" : "frontend-dev";
-      log("orchestrator", `Quick-edit mode (${scope}): routing directly to ${agentName} agent`);
-      quickPlan = {
-        steps: [{
-          kind: "agent" as const,
-          agentName,
-          input: buildQuickEditInput(scope, userMessage),
-        }],
-      };
-    }
-
-    // Try flow template first, fall back to hardcoded plan
+    // Resolve flow template — handles scope routing via condition nodes (no quick-edit bypass)
     let plan: ExecutionPlan;
-    if (quickPlan) {
-      plan = quickPlan;
-    } else {
-      const fixTemplate = getActiveFlowTemplate("fix");
-      if (fixTemplate) {
-        log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
-        plan = resolveFlowTemplate(fixTemplate, {
-          intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
-          hasFiles: true, userMessage,
-        });
-        if (plan.steps.length === 0) {
-          log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
-          plan = buildFixPlan(userMessage, scope);
-        }
-      } else {
+    const fixTemplate = getActiveFlowTemplate("fix");
+    if (fixTemplate) {
+      log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
+      plan = resolveFlowTemplate(fixTemplate, {
+        intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
+        hasFiles: true, userMessage,
+      });
+      if (plan.steps.length === 0) {
+        log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
         plan = buildFixPlan(userMessage, scope);
       }
+    } else {
+      plan = buildFixPlan(userMessage, scope);
     }
 
     // Persist pipeline run
@@ -1688,12 +1585,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       return;
     }
 
-    // Remediation + final build + summary (shared with build mode)
-    await finishPipeline({
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-      providers, apiKeys, signal, actionOverrides: plan.actionOverrides,
-    });
+    await finishPipeline({ chatId, projectId, projectPath, agentResults, signal });
 
     await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     abortControllers.delete(chatId);
@@ -1754,12 +1646,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // Remediation + final build + summary
-  await finishPipeline({
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, actionOverrides: plan.actionOverrides,
-  });
+  await finishPipeline({ chatId, projectId, projectPath, agentResults, signal });
 
   await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
   abortControllers.delete(chatId);
@@ -1927,12 +1814,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     }
   }
 
-  // Remediation + final build + summary
-  await finishPipeline({
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, actionOverrides: plan.actionOverrides,
-  });
+  await finishPipeline({ chatId, projectId, projectPath, agentResults, signal });
 
   await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
   abortControllers.delete(chatId);
@@ -2240,7 +2122,6 @@ async function executePipelineSteps(ctx: {
               step, chatId, projectId, projectPath, projectName, chatTitle,
               userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
               providers, apiKeys, signal, actionOverrides,
-              skipPostProcessing: isParallelBatch,
             });
             resolve({ stepKey: step.instanceId ?? step.agentName, result });
           }, i * STAGGER_MS)
@@ -2268,45 +2149,6 @@ async function executePipelineSteps(ctx: {
     // Mark completed
     for (const r of results) {
       completedSet.add(r.stepKey);
-    }
-
-    // Auto-save version after each batch if stage hooks are enabled
-    if (STAGE_HOOKS_ENABLED && !signal.aborted) {
-      try {
-        const batchNames = readyAgents.map(s => s.instanceId ?? s.agentName).join(", ");
-        autoCommit(projectPath, `After ${batchNames}`);
-      } catch { /* non-fatal */ }
-    }
-
-    // Consolidated build check after parallel batch — only if file-writing agents were in the batch
-    if (isParallelBatch && !signal.aborted) {
-      const hasFileAgents = readyAgents.some((s) => agentHasFileTools(s.agentName));
-      if (hasFileAgents) {
-        log("orchestrator", `Running consolidated build check after parallel batch (file-writing agents present)`);
-        const buildErrors = await checkProjectBuild(projectPath, chatId, actionOverrides);
-        if (buildErrors && !signal.aborted) {
-          const fixResult = await runBuildFix({
-            buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-            userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides,
-          });
-          if (fixResult) {
-            agentResults.set("parallel-batch-build-fix", fixResult);
-            completedAgents.push("parallel batch (build fix)");
-          }
-          const recheckErrors = await checkProjectBuild(projectPath, undefined, actionOverrides);
-          if (!recheckErrors) {
-            broadcast({ type: "preview_ready", payload: { projectId } });
-            maybeStartBackend(projectId, projectPath);
-          }
-        } else if (!buildErrors) {
-          broadcast({ type: "preview_ready", payload: { projectId } });
-          maybeStartBackend(projectId, projectPath);
-        } else {
-          // Build failed but pipeline aborted — send preview_ready with whatever state exists
-          broadcast({ type: "preview_ready", payload: { projectId } });
-          maybeStartBackend(projectId, projectPath);
-        }
-      }
     }
 
     // Cost check after each batch — per-chat, daily, and project limits
@@ -2355,82 +2197,23 @@ async function executePipelineSteps(ctx: {
 }
 
 /**
- * Shared pipeline finish: remediation loop, final build check, summary generation.
- * Used by both build and fix modes.
+ * Shared pipeline finish: cleanup and status broadcast.
+ * All agent execution (remediation, build checks, summary) now lives in
+ * the flow template as explicit action nodes — finishPipeline only handles
+ * final status, cleanup, and auto-commit.
  */
 async function finishPipeline(ctx: {
   chatId: string;
   projectId: string;
   projectPath: string;
-  projectName: string;
-  chatTitle: string;
-  userMessage: string;
-  chatHistory: Array<{ role: string; content: string }>;
   agentResults: Map<string, string>;
-  completedAgents: string[];
-  callCounter: CallCounter;
-  buildFixCounter: BuildFixCounter;
-  providers: ProviderInstance;
-  apiKeys: Record<string, string>;
   signal: AbortSignal;
-  actionOverrides?: ActionOverrides;
 }): Promise<void> {
-  const { chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, actionOverrides } = ctx;
+  const { chatId, projectId, projectPath, agentResults, signal } = ctx;
 
-  // Remediation loop
-  if (!signal.aborted) {
-    await runRemediationLoop({
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, agentResults, completedAgents, callCounter,
-      providers, apiKeys, signal, actionOverrides,
-    });
-  }
-
-  // Final build check — track outcome for honest summary
-  let buildOk = true;
-  if (!signal.aborted) {
-    const finalBuildErrors = await checkProjectBuild(projectPath, chatId, actionOverrides);
-    if (finalBuildErrors && !signal.aborted) {
-      const fixResult = await runBuildFix({
-        buildErrors: finalBuildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-        userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides,
-      });
-      if (fixResult) {
-        agentResults.set("final-build-fix", fixResult);
-        completedAgents.push("frontend-dev (final build fix)");
-      }
-      const finalRecheck = await checkProjectBuild(projectPath, undefined, actionOverrides);
-      if (!finalRecheck) {
-        broadcast({ type: "preview_ready", payload: { projectId } });
-        maybeStartBackend(projectId, projectPath);
-      } else {
-        buildOk = false; // Build still broken after all fix attempts
-      }
-    } else if (!finalBuildErrors) {
-      broadcast({ type: "preview_ready", payload: { projectId } });
-      maybeStartBackend(projectId, projectPath);
-    }
-  }
-
-  // Generate summary — use honest failure prompt when build is broken
-  const summary = await generateSummary({
-    userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys,
-    buildFailed: !buildOk,
-  });
-
-  await db.insert(schema.messages).values({
-    id: nanoid(), chatId, role: "assistant",
-    content: summary,
-    agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-  });
-
-  log("orchestrator", `Final summary sent to user`, { chatId, chars: summary.length, buildOk });
-  broadcast({
-    type: "chat_message",
-    payload: { chatId, agentName: "orchestrator", content: summary },
-  });
+  // Determine build status from build-check results (if a build-check node ran)
+  const buildCheckResult = agentResults.get("build-check") ?? "";
+  const buildOk = !buildCheckResult.startsWith("Build failed");
 
   broadcastAgentStatus(chatId, "orchestrator", buildOk ? "completed" : "failed");
 
