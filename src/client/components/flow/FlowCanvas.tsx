@@ -268,9 +268,11 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         fitView
         elevateEdgesOnSelect
         proOptions={{ hideAttribution: true }}
+        deleteKeyCode="Delete"
         defaultEdgeOptions={{
           type: "default",
           animated: true,
+          selectable: true,
           markerEnd: { type: MarkerType.ArrowClosed },
           style: { strokeWidth: 1.5 },
         }}
