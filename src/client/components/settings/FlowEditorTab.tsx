@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
+import { ConfirmDialog, PromptDialog } from "../ui/confirm-dialog.tsx";
 import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
@@ -31,6 +32,12 @@ export function FlowEditorTab() {
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState<PipelineSubTab>("editor");
   const [pipelineDefaults, setPipelineDefaults] = useState<PipelineConfig | null>(null);
+
+  // Dialog state
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FlowTemplate | null>(null);
+  const [newPipelineDialogOpen, setNewPipelineDialogOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -146,7 +153,6 @@ export function FlowEditorTab() {
 
   const handleReset = async () => {
     if (!selectedTemplate) return;
-    if (!window.confirm(`Reset "${selectedTemplate.name}" to its default layout? This will discard all customizations.`)) return;
     try {
       const res = await api.post<{ ok: boolean; template: FlowTemplate }>(`/settings/flow/templates/${selectedTemplate.id}/reset`, {});
       if (res.template) {
@@ -160,12 +166,12 @@ export function FlowEditorTab() {
       await refresh();
     } catch (err) {
       console.error("[flow-editor] Reset failed:", err);
+    } finally {
+      setResetDialogOpen(false);
     }
   };
 
-  const handleAddPipeline = async () => {
-    const name = window.prompt("Pipeline name:", `Custom ${activeIntent.charAt(0).toUpperCase() + activeIntent.slice(1)} Pipeline`);
-    if (!name) return;
+  const handleAddPipeline = async (name: string) => {
     const now = Date.now();
     const newTemplate: FlowTemplate = {
       id: `${activeIntent}-${nanoid(8)}`,
@@ -183,21 +189,22 @@ export function FlowEditorTab() {
     try {
       await api.post("/settings/flow/templates", newTemplate);
       await refresh();
-      // Select the new template
       setSelectedTemplate(newTemplate);
       setEditNodes([]);
       setEditEdges([]);
       setDirty(false);
     } catch (err) {
       console.error("[flow-editor] Create pipeline failed:", err);
+    } finally {
+      setNewPipelineDialogOpen(false);
     }
   };
 
-  const handleDeleteTemplate = async (template: FlowTemplate) => {
-    if (!window.confirm(`Delete "${template.name}"? This cannot be undone.`)) return;
+  const handleDeleteTemplate = async () => {
+    if (!deleteTarget) return;
     try {
-      await api.delete(`/settings/flow/templates/${template.id}`);
-      if (selectedTemplate?.id === template.id) {
+      await api.delete(`/settings/flow/templates/${deleteTarget.id}`);
+      if (selectedTemplate?.id === deleteTarget.id) {
         setSelectedTemplate(null);
         setEditNodes([]);
         setEditEdges([]);
@@ -205,6 +212,9 @@ export function FlowEditorTab() {
       await refresh();
     } catch (err) {
       console.error("[flow-editor] Delete failed:", err);
+    } finally {
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
     }
   };
 
@@ -321,7 +331,7 @@ export function FlowEditorTab() {
                     </Button>
                   )}
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl); }}
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(tmpl); setDeleteDialogOpen(true); }}
                     disabled={isActive}
                     className={`p-0.5 rounded transition-colors ${
                       isActive
@@ -338,7 +348,7 @@ export function FlowEditorTab() {
           })}
           {/* Add pipeline button */}
           <button
-            onClick={handleAddPipeline}
+            onClick={() => setNewPipelineDialogOpen(true)}
             className="flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
           >
             <Plus className="h-3 w-3" /> New Pipeline
@@ -353,7 +363,7 @@ export function FlowEditorTab() {
             onAddNode={handleAddNode}
             onValidate={handleValidate}
             onSave={handleSave}
-            onReset={handleReset}
+            onReset={() => setResetDialogOpen(true)}
             saving={saving}
             errors={errors}
             dirty={dirty}
@@ -369,13 +379,15 @@ export function FlowEditorTab() {
                 onNodeSelect={setSelectedNodeId}
               />
             </div>
-            <FlowNodeInspector
-              node={selectedNode}
-              agentNames={agentNames}
-              onUpdate={handleNodeUpdate}
-              onDelete={handleNodeDelete}
-              pipelineDefaults={pipelineDefaults}
-            />
+            {selectedNode && (
+              <FlowNodeInspector
+                node={selectedNode}
+                agentNames={agentNames}
+                onUpdate={handleNodeUpdate}
+                onDelete={handleNodeDelete}
+                pipelineDefaults={pipelineDefaults}
+              />
+            )}
           </div>
 
           {/* Validation errors */}
@@ -398,6 +410,36 @@ export function FlowEditorTab() {
         </>
       )}
       </>}
+
+      {/* Dialogs */}
+      <ConfirmDialog
+        open={resetDialogOpen}
+        onOpenChange={setResetDialogOpen}
+        title="Reset Pipeline"
+        description={`Reset "${selectedTemplate?.name}" to its default layout? This will discard all customizations.`}
+        confirmLabel="Reset"
+        onConfirm={handleReset}
+        destructive
+      />
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => { setDeleteDialogOpen(open); if (!open) setDeleteTarget(null); }}
+        title="Delete Pipeline"
+        description={`Delete "${deleteTarget?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={handleDeleteTemplate}
+        destructive
+      />
+      <PromptDialog
+        open={newPipelineDialogOpen}
+        onOpenChange={setNewPipelineDialogOpen}
+        title="New Pipeline"
+        description={`Create a new ${activeIntent} pipeline.`}
+        defaultValue={`Custom ${activeIntent.charAt(0).toUpperCase() + activeIntent.slice(1)} Pipeline`}
+        placeholder="Pipeline name"
+        confirmLabel="Create"
+        onConfirm={handleAddPipeline}
+      />
     </div>
   );
 }

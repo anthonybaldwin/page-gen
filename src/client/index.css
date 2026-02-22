@@ -200,17 +200,7 @@ body {
   overflow: hidden !important;
 }
 
-.react-flow__minimap-mask {
-  fill: rgba(0, 0, 0, 0.25) !important;
-  stroke: var(--primary) !important;
-  stroke-opacity: 0.5 !important;
-  stroke-width: 2 !important;
-}
-
-.dark .react-flow__minimap-mask {
-  fill: rgba(0, 0, 0, 0.7) !important;
-  stroke-opacity: 0.6 !important;
-}
+/* Minimap mask colors are set via props in FlowCanvas.tsx */
 
 /* React Flow edge/node selection in dark mode */
 .dark .react-flow__edge.selected .react-flow__edge-path,

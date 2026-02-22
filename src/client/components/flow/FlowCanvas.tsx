@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { useThemeStore } from "../../stores/themeStore.ts";
 import {
   ReactFlow,
   Background,
@@ -89,6 +90,7 @@ interface FlowCanvasProps {
 }
 
 export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps) {
+  const isDark = useThemeStore((s) => s.resolvedTheme) === "dark";
   const initialNodes = useMemo(() => toRFNodes(template.nodes), [template.id]);
   const initialEdges = useMemo(() => toRFEdges(template.edges), [template.id]);
 
@@ -206,16 +208,19 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         <Controls showInteractive={false} className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground" />
         <MiniMap
           className="!bg-card !border-border !shadow-sm"
+          maskColor={isDark ? "rgba(0, 0, 0, 0.7)" : "rgba(0, 0, 0, 0.15)"}
+          maskStrokeColor={isDark ? "rgba(140, 160, 255, 0.5)" : "rgba(80, 80, 180, 0.4)"}
+          maskStrokeWidth={2}
           pannable
           zoomable
           nodeBorderRadius={2}
           nodeColor={(node) => {
             switch (node.type) {
-              case "agent": return "hsl(var(--primary))";
+              case "agent": return isDark ? "#818cf8" : "#6366f1";
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
               case "post-action": return "#a855f7";
-              default: return "#888";
+              default: return isDark ? "#aaa" : "#888";
             }
           }}
         />

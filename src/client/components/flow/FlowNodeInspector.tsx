@@ -15,13 +15,7 @@ interface FlowNodeInspectorProps {
 }
 
 export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipelineDefaults }: FlowNodeInspectorProps) {
-  if (!node) {
-    return (
-      <div className="text-xs text-muted-foreground p-3 text-center">
-        Select a node to edit its properties
-      </div>
-    );
-  }
+  if (!node) return null;
 
   return (
     <div className="space-y-3 p-3 border-l border-border min-w-[240px]">

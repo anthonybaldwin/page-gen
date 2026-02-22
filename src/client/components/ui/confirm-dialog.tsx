@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -78,6 +78,81 @@ export function ConfirmDialog({
             variant={destructive ? "destructive" : "default"}
             disabled={!confirmEnabled || loading}
             onClick={onConfirm}
+          >
+            {loading ? "Working..." : confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------
+ * PromptDialog — replaces window.prompt() with a themed dialog
+ * ----------------------------------------------------------------*/
+
+interface PromptDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: (value: string) => void | Promise<void>;
+  loading?: boolean;
+}
+
+export function PromptDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  defaultValue = "",
+  placeholder,
+  confirmLabel = "Create",
+  cancelLabel = "Cancel",
+  onConfirm,
+  loading = false,
+}: PromptDialogProps) {
+  const [value, setValue] = useState(defaultValue);
+
+  useEffect(() => {
+    if (open) setValue(defaultValue);
+  }, [open, defaultValue]);
+
+  const handleSubmit = useCallback(() => {
+    if (!value.trim()) return;
+    onConfirm(value.trim());
+  }, [value, onConfirm]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+          placeholder={placeholder}
+          autoFocus
+          disabled={loading}
+        />
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={loading}>
+              {cancelLabel}
+            </Button>
+          </DialogClose>
+          <Button
+            disabled={!value.trim() || loading}
+            onClick={handleSubmit}
           >
             {loading ? "Working..." : confirmLabel}
           </Button>
