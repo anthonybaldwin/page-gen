@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -19,6 +19,8 @@ const ACTION_LABELS: Record<ActionKind, string> = {
   "build-check": "Build Check",
   "test-run": "Test Run",
   "remediation": "Remediation",
+  "vibe-intake": "Vibe Brief",
+  "mood-analysis": "Mood Analysis",
 };
 
 function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
@@ -77,6 +79,12 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "remediation"))} className="h-7 text-xs gap-1">
           <RefreshCw className="h-3 w-3" /> Remediation
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "vibe-intake"))} className="h-7 text-xs gap-1">
+          <Sparkles className="h-3 w-3" /> Vibe Brief
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "mood-analysis"))} className="h-7 text-xs gap-1">
+          <Image className="h-3 w-3" /> Mood Analysis
         </Button>
       </div>
 

@@ -144,7 +144,7 @@ function validateNode(
       break;
     }
     case "action": {
-      const validKinds = ["build-check", "test-run", "remediation"];
+      const validKinds = ["build-check", "test-run", "remediation", "vibe-intake", "mood-analysis"];
       if (!validKinds.includes(data.kind)) {
         errors.push({ type: "error", message: `Action node "${node.id}" has invalid kind "${data.kind}"`, nodeId: node.id });
       }

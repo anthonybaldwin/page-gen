@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, ActionKind } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
 import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -241,9 +241,23 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
       nodeToStepKey.set(nodeId, node.data.agentName);
     }
 
-    // Collect per-node overrides from action nodes
+    // Action nodes: vibe-intake/mood-analysis become executable steps;
+    // build-check/test-run/remediation collect overrides only (handled by finishPipeline)
     if (node.data.type === "action") {
-      collectActionOverrides(node.data, actionOverrides);
+      const actionKind = node.data.kind as ActionKind;
+      if (actionKind === "vibe-intake" || actionKind === "mood-analysis") {
+        const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
+        steps.push({
+          kind: "action",
+          actionKind,
+          label: node.data.label,
+          dependsOn: deps.length > 0 ? deps : undefined,
+          instanceId: nodeId,
+        });
+        nodeToStepKey.set(nodeId, nodeId);
+      } else {
+        collectActionOverrides(node.data, actionOverrides);
+      }
     }
 
     // Checkpoint nodes: emit as checkpoint steps
@@ -333,7 +347,7 @@ function computeStepDependencies(
     const node = nodeMap.get(currentId);
     if (!node) continue;
 
-    if ((node.data.type === "agent" || node.data.type === "checkpoint") && nodeToStepKey.has(currentId)) {
+    if ((node.data.type === "agent" || node.data.type === "checkpoint" || node.data.type === "action") && nodeToStepKey.has(currentId)) {
       deps.add(nodeToStepKey.get(currentId)!);
     } else {
       // Not a step-producing node — keep walking backwards

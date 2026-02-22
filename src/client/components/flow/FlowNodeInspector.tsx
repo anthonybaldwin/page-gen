@@ -396,6 +396,8 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "build-check": "Runs a build check at this point in the pipeline. If errors are found, a dev agent attempts to fix them.",
   "test-run": "Runs the project's test suite. If tests fail, a dev agent attempts to fix them.",
   "remediation": "Iteratively fixes issues found by review agents. Re-runs reviews until clean or max cycles reached.",
+  "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context.",
+  "mood-analysis": "Analyzes uploaded mood board images using a vision model and extracts color palette, style descriptors, and mood keywords.",
 };
 
 /** Which override fields to show per action kind */

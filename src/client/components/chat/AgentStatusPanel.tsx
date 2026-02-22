@@ -47,6 +47,8 @@ const DEFAULT_PIPELINE_AGENTS: Array<{ name: string; displayName: string }> = [
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   orchestrator: "Orchestrator",
+  "vibe-intake": "Vibe Brief",
+  "mood-analysis": "Mood Analysis",
   research: "Research",
   architect: "Architect",
   "frontend-dev": "Frontend Dev",

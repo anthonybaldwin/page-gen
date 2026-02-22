@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 3;
+export const FLOW_DEFAULTS_VERSION = 4;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -36,13 +36,33 @@ export function generateBuildDefault(): FlowTemplate {
   // Column positions
   let col = 0;
 
+  // Vibe Intake
+  const vibeIntake = makeNode("vibe-intake", "action", {
+    type: "action",
+    kind: "vibe-intake",
+    label: "Vibe Brief",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(vibeIntake);
+
+  // Mood Analysis
+  col++;
+  const moodAnalysis = makeNode("mood-analysis", "action", {
+    type: "action",
+    kind: "mood-analysis",
+    label: "Mood Analysis",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(moodAnalysis);
+  edges.push(makeEdge("vibe-intake", "mood-analysis"));
+
   // Research
+  col++;
   const research = makeNode("research", "agent", {
     type: "agent",
     agentName: "research",
     inputTemplate: loadDefaultPrompt("research"),
   }, col * X_SPACING, Y_CENTER);
   nodes.push(research);
+  edges.push(makeEdge("mood-analysis", "research"));
 
   // Architect
   col++;
@@ -171,7 +191,7 @@ export function generateBuildDefault(): FlowTemplate {
   return {
     id: `default-build-${nanoid(8)}`,
     name: "Default Build Pipeline",
-    description: "Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation",
+    description: "Vibe Brief → Mood Analysis → Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation",
     intent: "build",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,

@@ -822,14 +822,27 @@ export interface CheckpointStep {
   instanceId?: string;
 }
 
-export type PlanStep = AgentStep | CheckpointStep;
+export interface ActionStep {
+  kind: "action";
+  actionKind: import("../../shared/flow-types.ts").ActionKind;
+  label: string;
+  dependsOn?: string[];
+  instanceId?: string;
+}
+
+export type PlanStep = AgentStep | CheckpointStep | ActionStep;
 
 export function isAgentStep(step: PlanStep): step is AgentStep {
   return step.kind === "agent" || !("kind" in step);
 }
 
+export function isActionStep(step: PlanStep): step is ActionStep {
+  return step.kind === "action";
+}
+
 export function stepKey(step: PlanStep): string {
   if (isAgentStep(step)) return step.instanceId ?? step.agentName;
+  if (isActionStep(step)) return step.instanceId ?? step.actionKind;
   return step.instanceId ?? step.nodeId;
 }
 
@@ -1539,7 +1552,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Broadcast pipeline plan so client knows which agents to display
     broadcast({
       type: "pipeline_plan",
-      payload: { chatId, agents: plan.steps.filter(isAgentStep).map((s) => s.agentName) },
+      payload: { chatId, agents: plan.steps.map((s) => stepKey(s)) },
     });
 
     // Execute fix pipeline
@@ -1574,9 +1587,10 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Build mode: full pipeline (research → architect → parallel dev → styling → review) ---
+  // --- Build mode: full pipeline (vibe → mood → research → architect → dev → styling → review) ---
 
-  // Inject vibe brief if the project has one — before research so all agents can benefit
+  // Vibe brief intake — visible pipeline step
+  broadcastAgentStatus(chatId, "vibe-intake", "running");
   const projectData = await db
     .select({ vibeBrief: schema.projects.vibeBrief })
     .from(schema.projects)
@@ -1591,14 +1605,17 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       // Corrupt JSON — skip injection
     }
   }
+  broadcastAgentStatus(chatId, "vibe-intake", "completed");
 
-  // Analyze mood board images if any exist
+  // Mood board analysis — visible pipeline step
   if (!signal.aborted) {
+    broadcastAgentStatus(chatId, "mood-analysis", "running");
     const moodAnalysis = await analyzeMoodImages(projectPath, providers, apiKeys, signal);
     if (moodAnalysis) {
       agentResults.set("mood-analysis", moodAnalysis);
       log("orchestrator", "Mood analysis injected", { projectId });
     }
+    broadcastAgentStatus(chatId, "mood-analysis", "completed");
   }
 
   // Phase 1: Run research first so architect gets structured requirements
@@ -1682,12 +1699,17 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   } else {
     plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
   }
-  // Remove architect step since it already ran
-  plan.steps = plan.steps.filter((s) => !(isAgentStep(s) && s.agentName === "architect"));
-  // Rewrite deps that pointed to "architect" to point to nothing (already completed)
+  // Remove steps that already ran (vibe-intake, mood-analysis, architect)
+  const alreadyRan = new Set(["architect", "vibe-intake", "mood-analysis"]);
+  plan.steps = plan.steps.filter((s) => {
+    if (isAgentStep(s) && s.agentName === "architect") return false;
+    if (isActionStep(s) && alreadyRan.has(s.actionKind)) return false;
+    return true;
+  });
+  // Rewrite deps that pointed to already-ran steps
   for (const step of plan.steps) {
     if (step.dependsOn) {
-      step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
+      step.dependsOn = step.dependsOn.filter((d) => !alreadyRan.has(d));
     }
   }
 
@@ -1700,7 +1722,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     intent: "build",
     scope: classification.scope,
     userMessage,
-    plannedAgents: JSON.stringify(["research", "architect", ...allStepIds]),
+    plannedAgents: JSON.stringify(["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds]),
     status: "running",
     startedAt: Date.now(),
     completedAt: null,
@@ -1708,7 +1730,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   broadcast({
     type: "pipeline_plan",
-    payload: { chatId, agents: ["research", "architect", ...allStepIds] },
+    payload: { chatId, agents: ["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds] },
   });
 
   // Execute build pipeline (research + architect already completed)
@@ -1870,10 +1892,15 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     } else {
       plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
     }
-    // Remove architect step since it already ran
-    plan.steps = plan.steps.filter((s) => !(isAgentStep(s) && s.agentName === "architect"));
+    // Remove steps that already ran (vibe-intake, mood-analysis, architect)
+    const resumeAlreadyRan = new Set(["architect", "vibe-intake", "mood-analysis"]);
+    plan.steps = plan.steps.filter((s) => {
+      if (isAgentStep(s) && s.agentName === "architect") return false;
+      if (isActionStep(s) && resumeAlreadyRan.has(s.actionKind)) return false;
+      return true;
+    });
     for (const step of plan.steps) {
-      if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => d !== "architect");
+      if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => !resumeAlreadyRan.has(d));
     }
   }
 
@@ -1888,7 +1915,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     // Broadcast pipeline plan showing all agents (completed + remaining)
     const allStepIds = plan.steps.map((s) => stepKey(s));
     const allAgentNames = intent === "build"
-      ? ["research", "architect", ...allStepIds]
+      ? ["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds]
       : allStepIds;
     broadcast({ type: "pipeline_plan", payload: { chatId, agents: allAgentNames } });
 
@@ -2006,11 +2033,54 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    // Separate checkpoint steps from agent steps
+    // Separate checkpoint, action, and agent steps
     const readyCheckpoints = ready.filter((s): s is CheckpointStep => s.kind === "checkpoint");
+    const readyActions = ready.filter((s): s is ActionStep => isActionStep(s));
     const readyAgents = ready.filter((s): s is AgentStep => isAgentStep(s));
 
-    // Process checkpoint steps first (one at a time — each pauses the pipeline)
+    // Process action steps first (fast, synchronous operations)
+    for (const act of readyActions) {
+      if (signal.aborted) break;
+      const sk = stepKey(act);
+      log("orchestrator", `Executing action step: ${act.actionKind}`, { instanceId: sk });
+      broadcastAgentStatus(chatId, sk, "running");
+
+      try {
+        if (act.actionKind === "vibe-intake") {
+          const projectData = await db
+            .select({ vibeBrief: schema.projects.vibeBrief })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, projectId))
+            .get();
+          if (projectData?.vibeBrief) {
+            try {
+              const vibe = JSON.parse(projectData.vibeBrief);
+              agentResults.set("vibe-brief", JSON.stringify(vibe, null, 2));
+              log("orchestrator", "Vibe brief injected via action step", { projectId });
+            } catch {
+              // Corrupt JSON — skip
+            }
+          }
+        } else if (act.actionKind === "mood-analysis") {
+          const moodResult = await analyzeMoodImages(projectPath, providers, apiKeys, signal);
+          if (moodResult) {
+            agentResults.set("mood-analysis", moodResult);
+            log("orchestrator", "Mood analysis injected via action step", { projectId });
+          }
+        }
+
+        broadcastAgentStatus(chatId, sk, "completed");
+        completedSet.add(sk);
+        completedAgents.push(sk);
+      } catch (err) {
+        logError("orchestrator", `Action step ${sk} failed`, err instanceof Error ? err.message : String(err));
+        broadcastAgentStatus(chatId, sk, "failed");
+        broadcastAgentError(chatId, sk, err instanceof Error ? err.message : String(err));
+        return false;
+      }
+    }
+
+    // Process checkpoint steps (one at a time — each pauses the pipeline)
     for (const cp of readyCheckpoints) {
       if (signal.aborted) break;
       const checkpointId = nanoid();
@@ -2057,7 +2127,7 @@ async function executePipelineSteps(ctx: {
       return false;
     }
 
-    // If only checkpoints were ready this round, continue to next iteration
+    // If only checkpoints/actions were ready this round, continue to next iteration
     if (readyAgents.length === 0) {
       remaining.length = 0;
       remaining.push(...notReady);
