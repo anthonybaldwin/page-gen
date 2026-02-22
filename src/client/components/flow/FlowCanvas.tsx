@@ -48,7 +48,7 @@ function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
       source: e.source,
       target: e.target,
       sourceHandle: e.sourceHandle,
-      type: isConditionBranch ? "default" : "smoothstep",
+      type: "smoothstep",
       label: isConditionBranch ? undefined : e.label,
       labelBgPadding: [4, 2] as [number, number],
       labelBgBorderRadius: 4,
