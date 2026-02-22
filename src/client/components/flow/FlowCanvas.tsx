@@ -40,21 +40,25 @@ function toRFNodes(flowNodes: FlowNode[]): Node[] {
 
 /** Convert our FlowEdge[] to React Flow Edge[] */
 function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
-  return flowEdges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    sourceHandle: e.sourceHandle,
-    type: "smoothstep",
-    label: e.label,
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 4,
-    labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.9 },
-    labelStyle: { fontSize: 10, fill: "hsl(var(--muted-foreground))" },
-    animated: true,
-    markerEnd: { type: MarkerType.ArrowClosed },
-    style: { strokeWidth: 1.5 },
-  }));
+  return flowEdges.map((e) => {
+    // Condition branch edges have labels shown on the node handles — skip edge labels
+    const isConditionBranch = e.sourceHandle === "true" || e.sourceHandle === "false";
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      type: "smoothstep",
+      label: isConditionBranch ? undefined : e.label,
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+      labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
+      labelStyle: { fontSize: 10, fill: "hsl(var(--foreground))" },
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { strokeWidth: 1.5 },
+    };
+  });
 }
 
 /** Convert React Flow Node[] back to our FlowNode[] */

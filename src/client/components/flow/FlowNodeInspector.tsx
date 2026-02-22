@@ -3,15 +3,17 @@ import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, PostActionNodeData, PostActionType } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS } from "../../../shared/flow-types.ts";
+import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
 
 interface FlowNodeInspectorProps {
   node: FlowNode | null;
   agentNames: string[];
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
   onDelete: (nodeId: string) => void;
+  pipelineDefaults?: PipelineConfig | null;
 }
 
-export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete }: FlowNodeInspectorProps) {
+export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipelineDefaults }: FlowNodeInspectorProps) {
   if (!node) {
     return (
       <div className="text-xs text-muted-foreground p-3 text-center">
@@ -39,7 +41,7 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete }: Flow
       <div className="text-[10px] text-muted-foreground font-mono">{node.id}</div>
 
       {node.data.type === "agent" && (
-        <AgentInspector data={node.data} nodeId={node.id} agentNames={agentNames} onUpdate={onUpdate} />
+        <AgentInspector data={node.data} nodeId={node.id} agentNames={agentNames} onUpdate={onUpdate} pipelineDefaults={pipelineDefaults} />
       )}
       {node.data.type === "condition" && (
         <ConditionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
@@ -48,17 +50,18 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete }: Flow
         <CheckpointInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
       {node.data.type === "post-action" && (
-        <PostActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
+        <PostActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} pipelineDefaults={pipelineDefaults} />
       )}
     </div>
   );
 }
 
-function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
+function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }: {
   data: AgentNodeData;
   nodeId: string;
   agentNames: string[];
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
+  pipelineDefaults?: PipelineConfig | null;
 }) {
   const [agentName, setAgentName] = useState(data.agentName);
   const [inputTemplate, setInputTemplate] = useState(data.inputTemplate);
@@ -110,7 +113,7 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
         />
       </label>
       <div className="border-t border-border pt-2 mt-2">
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Execution Limits</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
         <div className="grid grid-cols-2 gap-2 mt-1.5">
           <label className="block">
             <span className="text-[10px] text-muted-foreground">Max Output Tokens</span>
@@ -120,7 +123,7 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
               onChange={(e) => setMaxOutputTokens(e.target.value)}
               onBlur={save}
               className="mt-0.5 h-6 text-xs"
-              placeholder="default"
+              placeholder={String(pipelineDefaults?.defaultMaxOutputTokens ?? 8192)}
               min={1}
             />
           </label>
@@ -132,7 +135,7 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate }: {
               onChange={(e) => setMaxToolSteps(e.target.value)}
               onBlur={save}
               className="mt-0.5 h-6 text-xs"
-              placeholder="default"
+              placeholder={String(pipelineDefaults?.defaultMaxToolSteps ?? 10)}
               min={1}
             />
           </label>
@@ -264,10 +267,36 @@ const FIELD_LABELS: Record<string, string> = {
   maxUniqueErrors: "Max Unique Errors",
 };
 
-function PostActionInspector({ data, nodeId, onUpdate }: {
+/** Resolve the placeholder default for a post-action field based on action type */
+function getPostActionDefault(
+  field: string,
+  actionType: PostActionType,
+  defaults?: PipelineConfig | null,
+): string {
+  if (!defaults) return "";
+  switch (field) {
+    case "timeoutMs":
+      return actionType === "test-run"
+        ? String(defaults.testTimeoutMs)
+        : String(defaults.buildTimeoutMs);
+    case "maxAttempts":
+      return actionType === "remediation-loop"
+        ? String(defaults.maxRemediationCycles)
+        : String(defaults.maxBuildFixAttempts);
+    case "maxTestFailures":
+      return String(defaults.maxTestFailures);
+    case "maxUniqueErrors":
+      return String(defaults.maxUniqueErrors);
+    default:
+      return "";
+  }
+}
+
+function PostActionInspector({ data, nodeId, onUpdate, pipelineDefaults }: {
   data: PostActionNodeData;
   nodeId: string;
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
+  pipelineDefaults?: PipelineConfig | null;
 }) {
   const [actionType, setActionType] = useState<PostActionType>(data.actionType);
   const [label, setLabel] = useState(data.label);
@@ -327,11 +356,12 @@ function PostActionInspector({ data, nodeId, onUpdate }: {
       </label>
       {fields.length > 0 && (
         <div className="border-t border-border pt-2 mt-2">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Execution Limits</span>
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
           <div className="grid grid-cols-2 gap-2 mt-1.5">
             {fields.map((field) => {
               const fs = fieldState[field];
               if (!fs) return null;
+              const placeholder = getPostActionDefault(field, actionType, pipelineDefaults);
               return (
                 <label key={field} className="block">
                   <span className="text-[10px] text-muted-foreground">{FIELD_LABELS[field]}</span>
@@ -341,7 +371,7 @@ function PostActionInspector({ data, nodeId, onUpdate }: {
                     onChange={(e) => fs.set(e.target.value)}
                     onBlur={save}
                     className="mt-0.5 h-6 text-xs"
-                    placeholder="default"
+                    placeholder={placeholder}
                     min={1}
                   />
                 </label>

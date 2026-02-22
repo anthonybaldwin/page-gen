@@ -3,7 +3,7 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 
-interface PipelineConfig {
+export interface PipelineConfig {
   maxBuildFixAttempts: number;
   maxRemediationCycles: number;
   buildFixMaxOutputTokens: number;
@@ -30,40 +30,50 @@ interface FieldMeta {
   displaySuffix?: string;
 }
 
-const SECTIONS: { title: string; keys: ConfigKey[]; fields: Record<string, FieldMeta> }[] = [
+const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Record<string, FieldMeta> }[] = [
   {
-    title: "Pipeline Execution",
-    keys: ["maxBuildFixAttempts", "maxRemediationCycles", "buildFixMaxOutputTokens", "buildFixMaxToolSteps", "defaultMaxOutputTokens", "defaultMaxToolSteps"],
+    title: "Agent Defaults",
+    hint: "Fallback limits when a flow node doesn't specify its own",
+    keys: ["defaultMaxOutputTokens", "defaultMaxToolSteps"],
     fields: {
-      maxBuildFixAttempts: { label: "Max build-fix attempts", hint: "Fix cycles per build failure" },
-      maxRemediationCycles: { label: "Max remediation cycles", hint: "Code-review / fix rounds" },
-      buildFixMaxOutputTokens: { label: "Build-fix max output tokens", hint: "Token cap for fix agents" },
-      buildFixMaxToolSteps: { label: "Build-fix max tool steps", hint: "Tool step cap for fix agents" },
-      defaultMaxOutputTokens: { label: "Default max output tokens", hint: "Fallback for agents without explicit limits" },
-      defaultMaxToolSteps: { label: "Default max tool steps", hint: "Fallback for agents without explicit limits" },
+      defaultMaxOutputTokens: { label: "Max output tokens", hint: "Default token cap per agent" },
+      defaultMaxToolSteps: { label: "Max tool steps", hint: "Default tool step cap per agent" },
     },
   },
   {
-    title: "Timeouts",
-    keys: ["buildTimeoutMs", "testTimeoutMs"],
+    title: "Build",
+    hint: "Build checks and fix loops for Build & Fix pipelines",
+    keys: ["buildTimeoutMs", "maxBuildFixAttempts", "buildFixMaxOutputTokens", "buildFixMaxToolSteps", "maxUniqueErrors"],
     fields: {
       buildTimeoutMs: { label: "Build timeout", hint: "Vite build check timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
-      testTimeoutMs: { label: "Test timeout", hint: "Vitest run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
-    },
-  },
-  {
-    title: "Review & Testing",
-    keys: ["maxTestFailures", "maxUniqueErrors", "warningThreshold"],
-    fields: {
-      maxTestFailures: { label: "Max test failures", hint: "Test failures shown to fix agent" },
+      maxBuildFixAttempts: { label: "Max build-fix attempts", hint: "Fix cycles per build failure" },
+      buildFixMaxOutputTokens: { label: "Build-fix output tokens", hint: "Token cap for fix agents" },
+      buildFixMaxToolSteps: { label: "Build-fix tool steps", hint: "Tool step cap for fix agents" },
       maxUniqueErrors: { label: "Max unique errors", hint: "Unique errors shown to fix agent" },
-      warningThreshold: { label: "Usage warning threshold", hint: "Token warning at this % of limit", displaySuffix: "%" },
     },
   },
   {
-    title: "Versioning",
-    keys: ["maxVersionsRetained", "maxAgentVersionsPerRun"],
+    title: "Testing",
+    hint: "Test run limits for Build & Fix pipelines",
+    keys: ["testTimeoutMs", "maxTestFailures"],
     fields: {
+      testTimeoutMs: { label: "Test timeout", hint: "Vitest run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
+      maxTestFailures: { label: "Max test failures", hint: "Test failures shown to fix agent" },
+    },
+  },
+  {
+    title: "Remediation",
+    hint: "Code review / QA / security fix loop",
+    keys: ["maxRemediationCycles"],
+    fields: {
+      maxRemediationCycles: { label: "Max remediation cycles", hint: "Code-review / fix rounds" },
+    },
+  },
+  {
+    title: "General",
+    keys: ["warningThreshold", "maxVersionsRetained", "maxAgentVersionsPerRun"],
+    fields: {
+      warningThreshold: { label: "Usage warning threshold", hint: "Token warning at this % of limit", displaySuffix: "%" },
       maxVersionsRetained: { label: "Max versions retained", hint: "Git commits kept per project" },
       maxAgentVersionsPerRun: { label: "Max auto-versions per run", hint: "Auto-commits per pipeline run" },
     },
@@ -139,7 +149,7 @@ export function PipelineSettings() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Tune pipeline execution limits, timeouts, and versioning caps.
+          Global defaults — used when a flow node doesn't override the value.
         </p>
         {anyCustom && (
           <Button
@@ -156,9 +166,12 @@ export function PipelineSettings() {
 
       {SECTIONS.map((section) => (
         <div key={section.title}>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-3">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5 mt-3">
             {section.title}
           </h4>
+          {section.hint && (
+            <p className="text-[10px] text-muted-foreground/50 mb-2">{section.hint}</p>
+          )}
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             {section.keys.map((key) => {
               const meta = section.fields[key];

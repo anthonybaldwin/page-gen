@@ -4,7 +4,7 @@ import { Button } from "../ui/button.tsx";
 import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
-import { PipelineSettings } from "./PipelineSettings.tsx";
+import { PipelineSettings, type PipelineConfig } from "./PipelineSettings.tsx";
 import { Trash2 } from "lucide-react";
 import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
 import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
@@ -29,17 +29,20 @@ export function FlowEditorTab() {
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [subTab, setSubTab] = useState<PipelineSubTab>("editor");
+  const [pipelineDefaults, setPipelineDefaults] = useState<PipelineConfig | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [tmpls, bindings, agents] = await Promise.all([
+      const [tmpls, bindings, agents, pipelineCfg] = await Promise.all([
         api.get<FlowTemplate[]>("/settings/flow/templates"),
         api.get<Record<string, string>>("/settings/flow/active"),
         api.get<ResolvedAgentConfig[]>("/settings/agents"),
+        api.get<{ settings: PipelineConfig; defaults: PipelineConfig }>("/settings/pipeline"),
       ]);
       setTemplates(tmpls);
       setActiveBindings(bindings);
       setAgentNames(agents.map((a) => a.name));
+      setPipelineDefaults(pipelineCfg.settings);
 
       // Auto-select the active template for the current intent
       const activeId = bindings[activeIntent];
@@ -214,7 +217,7 @@ export function FlowEditorTab() {
           ))}
         </div>
         <p className="text-[11px] text-muted-foreground/60">
-          Active template replaces the hardcoded pipeline logic.
+          Edit agent order, conditions, and per-node limits. Override Defaults on individual nodes.
         </p>
       </div>
 
@@ -309,6 +312,7 @@ export function FlowEditorTab() {
               agentNames={agentNames}
               onUpdate={handleNodeUpdate}
               onDelete={handleNodeDelete}
+              pipelineDefaults={pipelineDefaults}
             />
           </div>
 
