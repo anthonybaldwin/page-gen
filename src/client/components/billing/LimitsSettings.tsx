@@ -126,7 +126,7 @@ export function LimitsSettings() {
       })}
 
       <Button onClick={handleSave} disabled={saving}>
-        {saving ? "Saving..." : saved ? "Saved" : "Save Limits"}
+        {saving ? "Saving..." : saved ? "Saved" : "Save Billing Limits"}
       </Button>
     </div>
   );

@@ -32,17 +32,20 @@ interface FieldMeta {
 
 const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Record<string, FieldMeta> }[] = [
   {
-    title: "Agent Defaults",
-    hint: "Fallback limits when a flow node doesn't specify its own",
-    keys: ["defaultMaxOutputTokens", "defaultMaxToolSteps"],
+    title: "General",
+    hint: "Agent defaults and versioning",
+    keys: ["defaultMaxOutputTokens", "defaultMaxToolSteps", "warningThreshold", "maxVersionsRetained", "maxAgentVersionsPerRun"],
     fields: {
       defaultMaxOutputTokens: { label: "Max output tokens", hint: "Default token cap per agent" },
       defaultMaxToolSteps: { label: "Max tool steps", hint: "Default tool step cap per agent" },
+      warningThreshold: { label: "Usage warning threshold", hint: "Token warning at this % of limit", displaySuffix: "%" },
+      maxVersionsRetained: { label: "Max versions retained", hint: "Git commits kept per project" },
+      maxAgentVersionsPerRun: { label: "Max auto-versions per run", hint: "Auto-commits per pipeline run" },
     },
   },
   {
     title: "Build",
-    hint: "Build checks and fix loops for Build & Fix pipelines",
+    hint: "Build checks and fix loops",
     keys: ["buildTimeoutMs", "maxBuildFixAttempts", "buildFixMaxOutputTokens", "buildFixMaxToolSteps", "maxUniqueErrors"],
     fields: {
       buildTimeoutMs: { label: "Build timeout", hint: "Vite build check timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
@@ -54,7 +57,7 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
   },
   {
     title: "Testing",
-    hint: "Test run limits for Build & Fix pipelines",
+    hint: "Test run limits",
     keys: ["testTimeoutMs", "maxTestFailures"],
     fields: {
       testTimeoutMs: { label: "Test timeout", hint: "Vitest run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
@@ -67,15 +70,6 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
     keys: ["maxRemediationCycles"],
     fields: {
       maxRemediationCycles: { label: "Max remediation cycles", hint: "Code-review / fix rounds" },
-    },
-  },
-  {
-    title: "General",
-    keys: ["warningThreshold", "maxVersionsRetained", "maxAgentVersionsPerRun"],
-    fields: {
-      warningThreshold: { label: "Usage warning threshold", hint: "Token warning at this % of limit", displaySuffix: "%" },
-      maxVersionsRetained: { label: "Max versions retained", hint: "Git commits kept per project" },
-      maxAgentVersionsPerRun: { label: "Max auto-versions per run", hint: "Auto-commits per pipeline run" },
     },
   },
 ];
@@ -164,9 +158,10 @@ export function PipelineSettings() {
         )}
       </div>
 
-      {SECTIONS.map((section) => (
+      {SECTIONS.map((section, i) => (
         <div key={section.title}>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5 mt-3">
+          {i > 0 && <hr className="border-border my-4" />}
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
             {section.title}
           </h4>
           {section.hint && (

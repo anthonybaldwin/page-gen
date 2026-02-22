@@ -39,7 +39,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               API Keys
             </TabsTrigger>
             <TabsTrigger value="limits" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-              Limits
+              Billing
             </TabsTrigger>
             <TabsTrigger value="models" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Agents
