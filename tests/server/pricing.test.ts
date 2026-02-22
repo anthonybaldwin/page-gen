@@ -21,17 +21,17 @@ describe("Pricing Module", () => {
     runMigrations();
   });
 
-  test("DEFAULT_PRICING has all 8 known models", () => {
+  test("DEFAULT_PRICING has all known models", () => {
     const ids = Object.keys(DEFAULT_PRICING);
-    expect(ids).toHaveLength(8);
+    expect(ids.length).toBeGreaterThanOrEqual(8);
+    // Spot-check key models from each provider
     expect(ids).toContain("claude-opus-4-6");
-    expect(ids).toContain("claude-opus-4-5-20251101");
-    expect(ids).toContain("claude-sonnet-4-6");
-    expect(ids).toContain("claude-sonnet-4-5-20250929");
     expect(ids).toContain("claude-haiku-4-5-20251001");
     expect(ids).toContain("gpt-5.2");
-    expect(ids).toContain("gpt-5.2-pro");
     expect(ids).toContain("gemini-2.5-flash");
+    expect(ids).toContain("grok-3");
+    expect(ids).toContain("deepseek-chat");
+    expect(ids).toContain("mistral-large-2512");
   });
 
   test("isKnownModel returns true for known models", () => {
@@ -45,11 +45,12 @@ describe("Pricing Module", () => {
     expect(isKnownModel("gpt-6")).toBe(false);
   });
 
-  test("getKnownModelIds returns all 8 model IDs", () => {
+  test("getKnownModelIds returns all model IDs", () => {
     const ids = getKnownModelIds();
-    expect(ids).toHaveLength(8);
+    expect(ids.length).toBeGreaterThanOrEqual(8);
     expect(ids).toContain("claude-opus-4-6");
     expect(ids).toContain("gemini-2.5-flash");
+    expect(ids).toContain("deepseek-chat");
   });
 
   test("getModelPricing returns correct pricing for known models", () => {

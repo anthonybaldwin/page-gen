@@ -1,6 +1,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createXai } from "@ai-sdk/xai";
+import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createMistral } from "@ai-sdk/mistral";
 import type { Context } from "hono";
 import { log, logWarn } from "../services/logger.ts";
 import { PROVIDERS } from "../../shared/providers.ts";
@@ -10,6 +13,9 @@ const SDK_FACTORIES: Record<string, (opts: { apiKey: string; baseURL?: string; f
   anthropic: (opts) => createAnthropic(opts),
   openai:    (opts) => createOpenAI(opts),
   google:    (opts) => createGoogleGenerativeAI(opts),
+  xai:       (opts) => createXai(opts),
+  deepseek:  (opts) => createDeepSeek(opts),
+  mistral:   (opts) => createMistral(opts),
 };
 
 /** Dynamic provider map: providerId → SDK instance (callable with model id). */
