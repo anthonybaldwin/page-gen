@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageList, ChatMessageItem, isVisibleChatMessage } from "./MessageList.tsx";
+import { MessageList, ChatMessageItem, isVisibleChatMessage, getCardMetadataType } from "./MessageList.tsx";
+import { VibeMoodCard } from "./VibeMoodCard.tsx";
 import { MessageInput } from "./MessageInput.tsx";
 import { AgentThinkingMessage } from "./AgentThinkingMessage.tsx";
 import { LimitsSettings } from "../billing/LimitsSettings.tsx";
@@ -35,6 +36,7 @@ export function ChatWindow() {
     message: string;
     checkpointType: "approve" | "design_direction";
     options: DesignOption[];
+    receivedAt: number;
     resolved?: { selectedIndex: number; timedOut?: boolean };
   } | null>(null);
 
@@ -69,8 +71,17 @@ export function ChatWindow() {
         running: boolean;
         executions: Array<{ agentName: string; status: string; error?: string | null; output: string | null; startedAt: number }>;
         interruptedPipelineId?: string | null;
+        pendingCheckpoint?: {
+          checkpointId: string;
+          label: string;
+          message: string;
+          checkpointType: "approve" | "design_direction";
+          options: DesignOption[];
+          receivedAt: number;
+          resolved?: { selectedIndex: number; timedOut?: boolean };
+        } | null;
       }>(`/agents/status?chatId=${activeChat.id}`)
-      .then(({ running, executions, interruptedPipelineId }) => {
+      .then(({ running, executions, interruptedPipelineId, pendingCheckpoint }) => {
         if (running) setThinking(true);
         // Reconstruct thinking blocks from execution history
         if (executions && executions.length > 0) {
@@ -80,6 +91,18 @@ export function ChatWindow() {
             (e) => e.status === "failed" && e.error === "Server restarted — pipeline interrupted"
           ));
           if (wasInterrupted) setInterrupted(true);
+        }
+        // Restore checkpoint card on refresh
+        if (pendingCheckpoint) {
+          setCheckpoint({
+            checkpointId: pendingCheckpoint.checkpointId,
+            label: pendingCheckpoint.label,
+            message: pendingCheckpoint.message,
+            checkpointType: pendingCheckpoint.checkpointType,
+            options: pendingCheckpoint.options,
+            receivedAt: pendingCheckpoint.receivedAt,
+            resolved: pendingCheckpoint.resolved,
+          });
         }
       })
       .catch(() => {});
@@ -98,14 +121,14 @@ export function ChatWindow() {
 
       // Agent completed and produced a chat message
       if (msg.type === "chat_message") {
-        const payload = msg.payload as { chatId: string; agentName: string; content: string };
+        const payload = msg.payload as { chatId: string; agentName: string; content: string; metadata?: Record<string, unknown> | null };
         addMessage({
           id: nanoid(),
           chatId: payload.chatId,
           role: "assistant",
           content: payload.content,
           agentName: payload.agentName,
-          metadata: null,
+          metadata: payload.metadata ?? null,
           createdAt: Date.now(),
         });
       }
@@ -240,6 +263,7 @@ export function ChatWindow() {
           message: string;
           checkpointType: "approve" | "design_direction";
           options: DesignOption[];
+          receivedAt?: number;
         };
         setCheckpoint({
           checkpointId: payload.checkpointId,
@@ -247,6 +271,7 @@ export function ChatWindow() {
           message: payload.message,
           checkpointType: payload.checkpointType,
           options: payload.options,
+          receivedAt: payload.receivedAt ?? Date.now(),
         });
       }
 
@@ -489,19 +514,11 @@ export function ChatWindow() {
           blocks={blocks}
           thinking={thinking}
           onToggle={toggleExpanded}
+          checkpoint={checkpoint}
+          chatId={activeChat.id}
+          projectId={activeProject?.id}
+          onCheckpointSelect={handleCheckpointSelect}
         />
-        {checkpoint && activeChat && (
-          <CheckpointCard
-            chatId={activeChat.id}
-            checkpointId={checkpoint.checkpointId}
-            label={checkpoint.label}
-            message={checkpoint.message}
-            checkpointType={checkpoint.checkpointType}
-            options={checkpoint.options}
-            resolved={checkpoint.resolved}
-            onSelect={handleCheckpointSelect}
-          />
-        )}
         <div ref={messagesEndRef} />
       </div>
       {showVibeIntake && activeProject && (
@@ -536,13 +553,31 @@ function MergedTimeline({
   blocks,
   thinking,
   onToggle,
+  checkpoint,
+  chatId,
+  projectId,
+  onCheckpointSelect,
 }: {
   messages: Message[];
   blocks: ThinkingBlock[];
   thinking: boolean;
   onToggle: (id: string) => void;
+  checkpoint?: {
+    checkpointId: string;
+    label: string;
+    message: string;
+    checkpointType: "approve" | "design_direction";
+    options: DesignOption[];
+    receivedAt: number;
+    resolved?: { selectedIndex: number; timedOut?: boolean };
+  } | null;
+  chatId?: string;
+  projectId?: string;
+  onCheckpointSelect?: (checkpointId: string, selectedIndex: number) => void;
 }) {
-  if (blocks.length === 0) {
+  const hasTimeline = blocks.length > 0 || checkpoint;
+
+  if (!hasTimeline) {
     return (
       <>
         <MessageList messages={messages} />
@@ -551,37 +586,80 @@ function MergedTimeline({
     );
   }
 
-  const visibleMessages = messages.filter(isVisibleChatMessage);
+  // Separate visible messages and vibe/mood card messages
+  const visibleMessages: Message[] = [];
+  const cardMessages: Message[] = [];
+  for (const msg of messages) {
+    const cardType = getCardMetadataType(msg);
+    if (cardType) {
+      cardMessages.push(msg);
+    } else if (isVisibleChatMessage(msg)) {
+      visibleMessages.push(msg);
+    }
+  }
+
   const items: Array<
     | { type: "message"; id: string; at: number; msg: Message }
     | { type: "block"; id: string; at: number; block: ThinkingBlock }
+    | { type: "card"; id: string; at: number; msg: Message }
+    | { type: "checkpoint"; id: string; at: number }
   > = [
     ...visibleMessages.map((msg) => ({ type: "message" as const, id: msg.id, at: msg.createdAt, msg })),
     ...blocks.map((block) => ({ type: "block" as const, id: block.id, at: block.startedAt, block })),
+    ...cardMessages.map((msg) => ({ type: "card" as const, id: msg.id, at: msg.createdAt, msg })),
   ];
+
+  // Add checkpoint as a timeline item so it sorts correctly
+  if (checkpoint) {
+    items.push({ type: "checkpoint", id: `cp-${checkpoint.checkpointId}`, at: checkpoint.receivedAt });
+  }
 
   items.sort((a, b) => {
     if (a.at !== b.at) return a.at - b.at;
     // Stable tie-breaker: user/system/assistant messages should appear before
     // same-timestamp thinking blocks for natural chat flow.
-    if (a.type !== b.type) return a.type === "message" ? -1 : 1;
+    // Checkpoint sorts after messages but before blocks at same timestamp.
+    const priority: Record<string, number> = { message: 0, card: 1, checkpoint: 2, block: 3 };
+    if (a.type !== b.type) return (priority[a.type] ?? 0) - (priority[b.type] ?? 0);
     return a.id.localeCompare(b.id);
   });
 
   return (
     <>
       <div className="py-2">
-        {items.map((item) =>
-          item.type === "message" ? (
-            <ChatMessageItem key={item.id} msg={item.msg} />
-          ) : (
-            <AgentThinkingMessage
-              key={item.id}
-              block={item.block}
-              onToggle={() => onToggle(item.block.id)}
-            />
-          )
-        )}
+        {items.map((item) => {
+          if (item.type === "message") {
+            return <ChatMessageItem key={item.id} msg={item.msg} />;
+          }
+          if (item.type === "card") {
+            return <VibeMoodCard key={item.id} msg={item.msg} projectId={projectId} />;
+          }
+          if (item.type === "checkpoint" && checkpoint && chatId && onCheckpointSelect) {
+            return (
+              <CheckpointCard
+                key={item.id}
+                chatId={chatId}
+                checkpointId={checkpoint.checkpointId}
+                label={checkpoint.label}
+                message={checkpoint.message}
+                checkpointType={checkpoint.checkpointType}
+                options={checkpoint.options}
+                resolved={checkpoint.resolved}
+                onSelect={onCheckpointSelect}
+              />
+            );
+          }
+          if (item.type === "block") {
+            return (
+              <AgentThinkingMessage
+                key={item.id}
+                block={item.block}
+                onToggle={() => onToggle(item.block.id)}
+              />
+            );
+          }
+          return null;
+        })}
       </div>
       {thinking && <ThinkingIndicator />}
     </>

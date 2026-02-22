@@ -3,18 +3,39 @@ import type { Message } from "../../../shared/types.ts";
 const MarkdownContent = React.lazy(() => import("./MarkdownContent.tsx").then(m => ({ default: m.MarkdownContent })));
 import { Badge } from "../ui/badge.tsx";
 
-function isAgentOutput(msg: Message): boolean {
-  if (!msg.metadata) return false;
+function getMetadataType(msg: Message): string | null {
+  if (!msg.metadata) return null;
   try {
     const meta = typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
-    return meta?.type === "agent_output";
+    return meta?.type ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
+/** Messages hidden from the plain chat list (rendered as cards or thinking blocks instead). */
+const HIDDEN_METADATA_TYPES = new Set(["agent_output", "vibe-brief", "mood-analysis"]);
+
 export function isVisibleChatMessage(msg: Message): boolean {
-  return !isAgentOutput(msg);
+  const metaType = getMetadataType(msg);
+  return !metaType || !HIDDEN_METADATA_TYPES.has(metaType);
+}
+
+/** Check if a message should render as a structured vibe/mood card. */
+export function getCardMetadataType(msg: Message): "vibe-brief" | "mood-analysis" | null {
+  const metaType = getMetadataType(msg);
+  if (metaType === "vibe-brief" || metaType === "mood-analysis") return metaType;
+  return null;
+}
+
+/** Parse metadata from a message, handling both string and object forms. */
+export function parseMetadata(msg: Message): Record<string, unknown> | null {
+  if (!msg.metadata) return null;
+  try {
+    return typeof msg.metadata === "string" ? JSON.parse(msg.metadata) : msg.metadata;
+  } catch {
+    return null;
+  }
 }
 
 export function ChatMessageItem({ msg }: { msg: Message }) {

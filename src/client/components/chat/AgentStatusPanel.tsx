@@ -234,21 +234,6 @@ export function AgentStatusPanel({ chatId }: Props) {
         }));
       }
 
-      if (msg.type === "pipeline_checkpoint") {
-        // Show checkpoint status on the orchestrator
-        setAgents((prev) => ({
-          ...prev,
-          orchestrator: {
-            ...prev.orchestrator,
-            name: "orchestrator",
-            displayName: "Orchestrator",
-            status: "awaiting_checkpoint",
-            stream: prev.orchestrator?.stream || "",
-            startedAt: prev.orchestrator?.startedAt,
-          },
-        }));
-      }
-
       if (msg.type === "pipeline_checkpoint_resolved") {
         // Resume orchestrator running status
         setAgents((prev) => ({
