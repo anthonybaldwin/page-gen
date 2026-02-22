@@ -82,7 +82,18 @@ function ensureProjectHasIndexHtml(projectPath: string) {
   writeFileSync(indexPath, html, "utf-8");
 }
 
-function ensureProjectHasPackageJson(projectPath: string) {
+/** Convert a human-readable project name into a valid npm package name. */
+function toPackageName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")       // spaces → dashes
+    .replace(/[^a-z0-9._-]/g, "") // strip invalid chars
+    .replace(/^[._-]+/, "")     // no leading dots/dashes/underscores
+    || "project";               // fallback if nothing left
+}
+
+function ensureProjectHasPackageJson(projectPath: string, projectName?: string) {
   const pkgPath = join(projectPath, "package.json");
 
   // Merge with any agent-generated package.json
@@ -117,7 +128,7 @@ function ensureProjectHasPackageJson(projectPath: string) {
   if (!devDeps["@testing-library/user-event"]) devDeps["@testing-library/user-event"] = "^14.0.0";
 
   const pkg = {
-    name: (existing.name as string) || "preview-project",
+    name: (existing.name as string) || (projectName ? toPackageName(projectName) : "preview-project"),
     private: true,
     type: "module",
     ...existing,
@@ -307,7 +318,7 @@ function removeConflictingTailwindConfigs(projectPath: string) {
  * Prepare a project for preview: scaffold config, install deps.
  * Called by orchestrator after first file extraction, and as a safety net by startPreviewServer.
  */
-export async function prepareProjectForPreview(projectPath: string, chatId?: string): Promise<string | null> {
+export async function prepareProjectForPreview(projectPath: string, chatId?: string, projectName?: string): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -317,7 +328,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
   }
 
   removeConflictingTailwindConfigs(fullPath);
-  ensureProjectHasPackageJson(fullPath);
+  ensureProjectHasPackageJson(fullPath, projectName);
   ensureProjectHasViteConfig(fullPath);
   ensureProjectHasVitestConfig(fullPath);
   ensureProjectHasTsConfig(fullPath);
@@ -327,7 +338,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
   return await installProjectDependencies(fullPath, chatId);
 }
 
-export async function startPreviewServer(projectId: string, projectPath: string): Promise<{ url: string; port: number }> {
+export async function startPreviewServer(projectId: string, projectPath: string, projectName?: string): Promise<{ url: string; port: number }> {
   // If already running, check if process is still alive
   const existing = activeServers.get(projectId);
   if (existing) {
@@ -344,7 +355,7 @@ export async function startPreviewServer(projectId: string, projectPath: string)
   const fullPath = join(process.cwd(), projectPath);
 
   // Full preparation — scaffolds everything and installs deps
-  await prepareProjectForPreview(projectPath);
+  await prepareProjectForPreview(projectPath, undefined, projectName);
 
   const port = allocatePort();
   const host = process.env.PREVIEW_HOST || DEFAULT_PREVIEW_HOST;

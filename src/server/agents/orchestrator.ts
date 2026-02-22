@@ -1178,7 +1178,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       // fallback extraction catches models that don't use tools properly
       const nativeFiles = result.filesWritten || [];
       const alreadyWritten = new Set(nativeFiles);
-      const fallbackFiles = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId, alreadyWritten);
+      const fallbackFiles = extractAndWriteFiles(step.agentName, result.content, projectPath, projectId, alreadyWritten, projectName);
       if (fallbackFiles.length > 0) {
         logWarn("orchestrator", `${step.agentName} used text fallback for ${fallbackFiles.length} files`);
       }
@@ -2011,7 +2011,7 @@ async function executePipelineSteps(ctx: {
           if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
           const maxFixes = act.maxAttempts ?? effectiveSetting("maxBuildFixAttempts", actionOverrides);
 
-          let buildErrors = await checkProjectBuild(projectPath, chatId, stepOverrides);
+          let buildErrors = await checkProjectBuild(projectPath, chatId, stepOverrides, projectName);
           let fixAttempt = 0;
           while (buildErrors && fixAttempt < maxFixes && !signal.aborted) {
             fixAttempt++;
@@ -2024,7 +2024,7 @@ async function executePipelineSteps(ctx: {
               agentResults.set(`${sk}-fix-${fixAttempt}`, fixResult);
               completedAgents.push(`${sk} (build fix #${fixAttempt})`);
             }
-            buildErrors = await checkProjectBuild(projectPath, undefined, stepOverrides);
+            buildErrors = await checkProjectBuild(projectPath, undefined, stepOverrides, projectName);
           }
           if (!buildErrors) {
             broadcast({ type: "preview_ready", payload: { projectId } });
@@ -2043,7 +2043,7 @@ async function executePipelineSteps(ctx: {
 
           const hasTestFiles = testFilesExist(projectPath);
           if (hasTestFiles) {
-            let testResult = await runProjectTests(projectPath, chatId, projectId, undefined, stepOverrides);
+            let testResult = await runProjectTests(projectPath, chatId, projectId, undefined, stepOverrides, projectName);
             let fixAttempt = 0;
             while (testResult && testResult.failed > 0 && fixAttempt < maxFixes && !signal.aborted) {
               fixAttempt++;
@@ -2062,7 +2062,7 @@ async function executePipelineSteps(ctx: {
                 ?.filter((t) => t.status === "failed")
                 .map((t) => t.suite)
                 .filter((v, i, a) => a.indexOf(v) === i);
-              testResult = await runProjectTests(projectPath, chatId, projectId, failedFiles, stepOverrides);
+              testResult = await runProjectTests(projectPath, chatId, projectId, failedFiles, stepOverrides, projectName);
             }
             const passed = testResult ? testResult.passed : 0;
             const failed = testResult ? testResult.failed : 0;
@@ -2779,7 +2779,7 @@ async function runFixAgent(
 
     // Extract and write remediated files (hybrid: native + fallback)
     const nativeRemediation = result.filesWritten || [];
-    const fallbackRemediation = extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId, new Set(nativeRemediation));
+    const fallbackRemediation = extractAndWriteFiles(agentName, result.content, ctx.projectPath, ctx.projectId, new Set(nativeRemediation), ctx.projectName);
     const totalFiles = nativeRemediation.length + fallbackRemediation.length;
 
     return { content: result.content, filesWritten: totalFiles };
@@ -3381,7 +3381,8 @@ function extractAndWriteFiles(
   agentOutput: string,
   projectPath: string,
   projectId: string,
-  alreadyWritten?: Set<string>
+  alreadyWritten?: Set<string>,
+  projectName?: string,
 ): string[] {
   if (!agentHasFileTools(agentName)) return [];
 
@@ -3424,7 +3425,7 @@ function extractAndWriteFiles(
     // NOTE: preview_ready is NOT broadcast here — it's only sent after a successful build check
     if (!previewPrepStarted.has(projectId)) {
       previewPrepStarted.add(projectId);
-      prepareProjectForPreview(projectPath)
+      prepareProjectForPreview(projectPath, undefined, projectName)
         .then(() => {
           log("orchestrator", `Project ${projectId} scaffolded for preview (waiting for build check)`);
         })
@@ -3441,7 +3442,7 @@ function extractAndWriteFiles(
  * Run a Vite build check on the project to detect compile errors.
  * Returns error output string if there are errors, null if build succeeds.
  */
-async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: ActionOverrides): Promise<string | null> {
+async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: ActionOverrides, projectName?: string): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -3453,7 +3454,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string, overrides
   }
 
   // Wait for any pending preview prep (which includes bun install)
-  const installError = await prepareProjectForPreview(projectPath, chatId);
+  const installError = await prepareProjectForPreview(projectPath, chatId, projectName);
 
   if (installError) {
     log("build", "Dependency install failed — skipping vite build check", { chars: installError.length });
@@ -3684,7 +3685,7 @@ async function runBuildFix(params: {
       .where(eq(schema.agentExecutions.id, execId));
 
     const nativeFix = result.filesWritten || [];
-    extractAndWriteFiles(fixAgent, result.content, projectPath, projectId, new Set(nativeFix));
+    extractAndWriteFiles(fixAgent, result.content, projectPath, projectId, new Set(nativeFix), projectName);
 
     broadcastAgentStatus(chatId, fixAgent, "completed", { phase: "build-fix" });
     return result.content;
@@ -3829,13 +3830,14 @@ export async function runProjectTests(
   projectId: string,
   failedTestFiles?: string[],
   overrides?: ActionOverrides,
+  projectName?: string,
 ): Promise<TestRunResult | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
 
   // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
-  await prepareProjectForPreview(projectPath);
+  await prepareProjectForPreview(projectPath, undefined, projectName);
 
   log("test", "Running tests", { path: fullPath });
 

@@ -45,4 +45,26 @@ describe("prepareProjectForPreview", () => {
     expect(pkg.devDependencies["happy-dom"]).toBeDefined();
     expect(pkg.devDependencies["@testing-library/react"]).toBeDefined();
   }, 30000);
+
+  test("uses project name as package name when provided", async () => {
+    await prepareProjectForPreview(TEST_PROJECT_PATH, undefined, "My Cool App!");
+    const pkgPath = join(TEST_PROJECT_PATH, "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("my-cool-app");
+  }, 30000);
+
+  test("does not overwrite existing package name", async () => {
+    const pkgPath = join(TEST_PROJECT_PATH, "package.json");
+    writeFileSync(pkgPath, JSON.stringify({ name: "custom-name" }), "utf-8");
+    await prepareProjectForPreview(TEST_PROJECT_PATH, undefined, "Different Name");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("custom-name");
+  }, 30000);
+
+  test("falls back to preview-project when no name provided", async () => {
+    await prepareProjectForPreview(TEST_PROJECT_PATH);
+    const pkgPath = join(TEST_PROJECT_PATH, "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("preview-project");
+  }, 30000);
 });
