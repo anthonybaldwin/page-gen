@@ -928,6 +928,11 @@ export interface ActionStep {
   label: string;
   dependsOn?: string[];
   instanceId?: string;
+  // Per-node settings (copied from ActionNodeData by resolver)
+  timeoutMs?: number;
+  maxAttempts?: number;
+  maxTestFailures?: number;
+  maxUniqueErrors?: number;
 }
 
 export type PlanStep = AgentStep | CheckpointStep | ActionStep;

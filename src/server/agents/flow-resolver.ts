@@ -248,23 +248,26 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
       nodeToStepKey.set(nodeId, agentData.agentName);
     }
 
-    // Action nodes: vibe-intake/mood-analysis become executable steps;
-    // build-check/test-run/remediation collect overrides only (handled by finishPipeline)
+    // Action nodes: ALL action kinds become direct executable steps
     if (node.data.type === "action") {
-      const actionKind = node.data.kind as ActionKind;
-      if (actionKind === "vibe-intake" || actionKind === "mood-analysis") {
-        const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
-        steps.push({
-          kind: "action",
-          actionKind,
-          label: node.data.label,
-          dependsOn: deps.length > 0 ? deps : undefined,
-          instanceId: nodeId,
-        });
-        nodeToStepKey.set(nodeId, nodeId);
-      } else {
-        collectActionOverrides(node.data, actionOverrides);
-      }
+      const actionData = node.data as ActionNodeData;
+      const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
+      steps.push({
+        kind: "action",
+        actionKind: actionData.kind,
+        label: actionData.label,
+        dependsOn: deps.length > 0 ? deps : undefined,
+        instanceId: nodeId,
+        // Copy per-node settings so execution handlers can read them
+        timeoutMs: actionData.timeoutMs,
+        maxAttempts: actionData.maxAttempts,
+        maxTestFailures: actionData.maxTestFailures,
+        maxUniqueErrors: actionData.maxUniqueErrors,
+      });
+      nodeToStepKey.set(nodeId, nodeId);
+
+      // Also collect overrides for backwards compat (used by utility functions like deduplicateErrors)
+      collectActionOverrides(actionData, actionOverrides);
     }
 
     // Checkpoint nodes: emit as checkpoint steps

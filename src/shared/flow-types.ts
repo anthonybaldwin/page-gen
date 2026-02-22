@@ -55,7 +55,7 @@ export interface CheckpointNodeData {
   timeoutMs?: number;
 }
 
-export type ActionKind = "build-check" | "test-run" | "remediation" | "vibe-intake" | "mood-analysis";
+export type ActionKind = "build-check" | "test-run" | "remediation" | "summary" | "vibe-intake" | "mood-analysis";
 
 export interface ActionNodeData {
   type: "action";

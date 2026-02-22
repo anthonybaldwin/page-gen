@@ -19,6 +19,7 @@ const ACTION_LABELS: Record<ActionKind, string> = {
   "build-check": "Build Check",
   "test-run": "Test Run",
   "remediation": "Remediation",
+  "summary": "Summary",
   "vibe-intake": "Vibe Brief",
   "mood-analysis": "Mood Analysis",
 };

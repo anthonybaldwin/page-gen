@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Hammer, FlaskConical, RefreshCw, Sparkles, Image } from "lucide-react";
+import { Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText } from "lucide-react";
 import type { ActionNodeData } from "../../../../shared/flow-types.ts";
 
 type ActionNodeProps = NodeProps & { data: ActionNodeData };
@@ -9,6 +9,7 @@ const KIND_CONFIG: Record<string, { icon: typeof Hammer; color: string; ringColo
   "build-check": { icon: Hammer, color: "text-orange-500", ringColor: "ring-orange-500" },
   "test-run": { icon: FlaskConical, color: "text-emerald-500", ringColor: "ring-emerald-500" },
   "remediation": { icon: RefreshCw, color: "text-violet-500", ringColor: "ring-violet-500" },
+  "summary": { icon: FileText, color: "text-amber-500", ringColor: "ring-amber-500" },
   "vibe-intake": { icon: Sparkles, color: "text-pink-500", ringColor: "ring-pink-500" },
   "mood-analysis": { icon: Image, color: "text-sky-500", ringColor: "ring-sky-500" },
 };

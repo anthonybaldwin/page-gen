@@ -289,6 +289,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
                   case "build-check": return "#f97316";
                   case "test-run": return "#10b981";
                   case "remediation": return "#8b5cf6";
+                  case "summary": return "#f59e0b";
                   case "vibe-intake": return "#ec4899";
                   case "mood-analysis": return "#0ea5e9";
                   default: return "#f97316";
