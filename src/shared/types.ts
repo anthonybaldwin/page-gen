@@ -146,11 +146,16 @@ export interface ContentSearchResult {
   matches: ContentSearchMatch[];
 }
 
-export type ToolName = "write_file" | "write_files" | "read_file" | "list_files" | "save_version";
-/** All valid tool names. */
-export const ALL_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", "list_files", "save_version"];
+export const BUILTIN_TOOL_NAMES = ["write_file", "write_files", "read_file", "list_files", "save_version"] as const;
+export type BuiltinToolName = typeof BUILTIN_TOOL_NAMES[number];
+
+/** Tool name — string to allow custom tools alongside built-in ones. */
+export type ToolName = string;
+
+/** All built-in tool names. */
+export const ALL_TOOLS: string[] = [...BUILTIN_TOOL_NAMES];
 /** File-ops tools only (excludes save_version). */
-export const FILE_TOOLS: ToolName[] = ["write_file", "write_files", "read_file", "list_files"];
+export const FILE_TOOLS: string[] = ["write_file", "write_files", "read_file", "list_files"];
 
 export interface AgentToolConfig {
   name: AgentName;
