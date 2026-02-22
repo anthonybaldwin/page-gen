@@ -271,6 +271,7 @@ export function FlowEditorTab() {
           <div className="flex gap-0 rounded-lg border border-border overflow-hidden">
             <div className="flex-1 min-w-0">
               <FlowCanvas
+                key={selectedTemplate.id}
                 template={{ ...selectedTemplate, nodes: editNodes, edges: editEdges }}
                 onChange={handleCanvasChange}
                 onNodeSelect={setSelectedNodeId}

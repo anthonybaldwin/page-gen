@@ -128,18 +128,15 @@ flowRoutes.post("/validate", async (c) => {
   return c.json({ valid: !errors.some((e) => e.type === "error"), errors });
 });
 
-// --- Regenerate default templates (replaces existing defaults) ---
+// --- Reset all templates and regenerate defaults ---
 flowRoutes.post("/defaults", (c) => {
-  // Delete all existing default templates and clear their active bindings
-  const existing = getAllFlowTemplates().filter((t) => t.isDefault);
-  const bindings = getActiveBindings();
+  // Delete ALL existing templates and clear all active bindings
+  const existing = getAllFlowTemplates();
   for (const tmpl of existing) {
-    // Clear active binding if it pointed to this default template
-    const activeFor = Object.entries(bindings).filter(([, tid]) => tid === tmpl.id);
-    for (const [intent] of activeFor) {
-      clearActiveBinding(intent as OrchestratorIntent);
-    }
     deleteFlowTemplate(tmpl.id);
+  }
+  for (const intent of ["build", "fix", "question"] as OrchestratorIntent[]) {
+    clearActiveBinding(intent);
   }
 
   // Generate fresh defaults and set as active
@@ -149,6 +146,6 @@ flowRoutes.post("/defaults", (c) => {
     setActiveBinding(template.intent, template.id);
   }
 
-  log("flow", `Default templates regenerated (replaced ${existing.length} old defaults)`, { count: defaults.length });
+  log("flow", `Default templates reset (deleted ${existing.length} old, created ${defaults.length} new)`);
   return c.json({ ok: true, templates: defaults });
 });
