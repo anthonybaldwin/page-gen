@@ -66,7 +66,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </TabsList>
         </div>
 
-        {/* Content area — flex column so height-filling tabs work */}
+        {/* Content — flex column; tall tabs fill space, others scroll */}
         <div className="min-h-0 flex-1 flex flex-col p-4">
           <TabsContent value="keys" className="mt-0 flex-1 overflow-y-auto"><ApiKeySettings /></TabsContent>
           <TabsContent value="limits" className="mt-0 flex-1 overflow-y-auto">
