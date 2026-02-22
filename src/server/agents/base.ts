@@ -282,6 +282,10 @@ export async function runAgent(
   broadcastAgentStatus(cid, broadcastName, "running");
   broadcastAgentThinking(cid, broadcastName, broadcastDisplayName, "started");
 
+  // Hoisted outside try so the catch block can attach partial tokens to crash errors
+  let accInputTokens = 0;
+  let accOutputTokens = 0;
+
   try {
     const { cacheablePrefix, dynamicSuffix } = buildSplitPrompt(input);
     const builtPrompt = cacheablePrefix ? `${cacheablePrefix}\n${dynamicSuffix}` : dynamicSuffix;
@@ -344,10 +348,6 @@ export async function runAgent(
     let fullText = "";
     let pendingChunk = "";
     let lastBroadcast = 0;
-    // Accumulate per-step token usage so we have actuals even if totalUsage
-    // rejects on abort. This captures every completed step's real usage.
-    let accInputTokens = 0;
-    let accOutputTokens = 0;
     const THROTTLE_MS = 150;
     const filesWritten: string[] = [];
     let streamErrorCount = 0;

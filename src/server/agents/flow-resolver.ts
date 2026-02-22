@@ -186,6 +186,8 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
   const activeNodes = new Set<string>(sorted);
   // Track condition results for pruning
   const conditionResults = new Map<string, boolean>();
+  // Track edge IDs pruned by condition evaluation (so multi-edge targets are handled correctly)
+  const prunedEdgeIds = new Set<string>();
 
   // First pass: evaluate conditions and prune
   for (const nodeId of sorted) {
@@ -199,15 +201,18 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
       const result = evaluateCondition(node.data, ctx);
       conditionResults.set(nodeId, result);
 
-      // Prune edges based on condition result
+      // Collect which edges are killed by this condition, then prune targets
       const edges = outEdges.get(nodeId) ?? [];
+      const deadTargets = new Set<string>();
       for (const edge of edges) {
         const handle = edge.sourceHandle;
-        if (handle === "true" && !result) {
-          pruneSubgraph(edge.target, activeNodes, outEdges, inEdges, nodeMap);
-        } else if (handle === "false" && result) {
-          pruneSubgraph(edge.target, activeNodes, outEdges, inEdges, nodeMap);
+        if ((handle === "true" && !result) || (handle === "false" && result)) {
+          prunedEdgeIds.add(edge.id);
+          deadTargets.add(edge.target);
         }
+      }
+      for (const target of deadTargets) {
+        pruneSubgraph(target, activeNodes, outEdges, inEdges, nodeMap, template.edges, prunedEdgeIds);
       }
     }
   }
@@ -295,7 +300,11 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
 
 /**
  * Prune a node and all its exclusive descendants from the active set.
- * A descendant is only pruned if ALL its incoming edges come from pruned nodes.
+ * A descendant is only pruned if ALL its incoming edges come from pruned nodes
+ * (or are in the set of edges being pruned by this condition evaluation).
+ *
+ * `prunedEdgeIds` tracks which specific edges triggered this prune pass so that
+ * nodes with multiple incoming edges (some pruned, some still live) are kept.
  */
 function pruneSubgraph(
   startId: string,
@@ -303,16 +312,22 @@ function pruneSubgraph(
   outEdges: Map<string, FlowEdge[]>,
   inEdges: Map<string, string[]>,
   nodeMap: Map<string, FlowNode>,
+  allTemplateEdges: FlowEdge[],
+  prunedEdgeIds: Set<string>,
 ): void {
   const queue = [startId];
   while (queue.length > 0) {
     const nodeId = queue.shift()!;
     if (!activeNodes.has(nodeId)) continue;
 
-    // Only prune if all incoming edges come from pruned/inactive nodes
-    const inSources = inEdges.get(nodeId) ?? [];
-    const allIncomingPruned = inSources.every((src) => !activeNodes.has(src) || src === nodeId);
-    if (!allIncomingPruned && nodeId !== startId) continue;
+    // Check ALL incoming edges: a node is only prunable if every incoming
+    // edge is either (a) from an already-pruned node, or (b) in the set of
+    // edges being pruned by the current condition evaluation.
+    const incomingEdges = allTemplateEdges.filter((e) => e.target === nodeId);
+    const allIncomingDead = incomingEdges.every(
+      (e) => !activeNodes.has(e.source) || prunedEdgeIds.has(e.id) || e.source === nodeId,
+    );
+    if (!allIncomingDead) continue;
 
     activeNodes.delete(nodeId);
 

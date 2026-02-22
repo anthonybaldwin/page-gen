@@ -56,6 +56,12 @@ Full docs live in the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)*
 - [Docker](https://github.com/anthonybaldwin/page-gen/wiki/Docker) — Containerization, volumes, ports
 - [Logging](https://github.com/anthonybaldwin/page-gen/wiki/Logging) — Structured NDJSON logging
 
+## TODO
+
+- [ ] **Go-to-definition** — Ctrl+Click / F12 to jump to where a function/variable is defined across files (only if easy CodeMirror plugin)
+- [ ] **Type checking** — Surface TypeScript errors inline in the editor (only if easy CodeMirror plugin)
+- [ ] **Git history in editor** — Show file-level git log/blame inline (only if easy plugin, since we already have git)
+
 ## ADRs
 
 Architecture Decision Records in [`docs/adr/`](docs/adr/):

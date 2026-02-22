@@ -56,11 +56,11 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <TabsTrigger value="pricing" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Models
             </TabsTrigger>
-            <TabsTrigger value="git" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-              Git
-            </TabsTrigger>
             <TabsTrigger value="appearance" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
               Appearance
+            </TabsTrigger>
+            <TabsTrigger value="git" className="rounded-b-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+              Git
             </TabsTrigger>
           </TabsList>
         </div>
@@ -76,8 +76,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           <TabsContent value="pricing" className="mt-0 overflow-y-auto"><PricingSettings /></TabsContent>
           <TabsContent value="prompts" className="mt-0 min-h-[80vh] flex flex-col"><PromptEditor /></TabsContent>
           <TabsContent value="tools" className="mt-0 overflow-y-auto"><ToolSettings /></TabsContent>
-          <TabsContent value="git" className="mt-0 overflow-y-auto"><GitSettings /></TabsContent>
           <TabsContent value="appearance" className="mt-0 overflow-y-auto"><AppearanceSettings /></TabsContent>
+          <TabsContent value="git" className="mt-0 overflow-y-auto"><GitSettings /></TabsContent>
         </div>
       </Tabs>
     </div>
