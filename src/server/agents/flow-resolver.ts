@@ -263,6 +263,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         maxAttempts: actionData.maxAttempts,
         maxTestFailures: actionData.maxTestFailures,
         maxUniqueErrors: actionData.maxUniqueErrors,
+        // LLM configuration (for agentic action kinds)
+        systemPrompt: actionData.systemPrompt,
+        maxOutputTokens: actionData.maxOutputTokens,
       });
       nodeToStepKey.set(nodeId, nodeId);
 

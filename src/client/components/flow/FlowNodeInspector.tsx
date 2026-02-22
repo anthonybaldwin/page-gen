@@ -601,12 +601,21 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
 }
 
 const KIND_DESCRIPTIONS: Record<string, string> = {
-  "build-check": "Runs `vite build` to verify the project compiles. If errors are found, a dev agent automatically attempts to fix them (up to Max Attempts).",
-  "test-run": "Runs the project's test suite (vitest). If tests fail, a dev agent attempts to fix them and re-runs only the failed tests.",
-  "remediation": "Detects issues from review agents (code-review, QA, security), routes fixes to the appropriate dev agent, then re-runs only affected reviewers. Repeats up to Max Cycles.",
-  "summary": "Generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
-  "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context.",
-  "mood-analysis": "Analyzes uploaded mood board images using a vision model and extracts color palette, style descriptors, and mood keywords.",
+  "build-check": "Runs `vite build` to verify the project compiles. If errors are found, a build-fix agent attempts to fix them (up to Max Attempts). Configure the build-fix agent's prompt in Settings > System Prompts.",
+  "test-run": "Runs the project's test suite (vitest). If tests fail, a build-fix agent attempts to fix them and re-runs only the failed tests. Configure the build-fix agent's prompt in Settings > System Prompts.",
+  "remediation": "Detects issues from review agents (code-review, QA, security), routes fixes to the appropriate dev agent, then re-runs only affected reviewers. Repeats up to Max Cycles. Configure agent prompts in Settings > System Prompts.",
+  "summary": "LLM call — generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
+  "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context. No LLM call.",
+  "mood-analysis": "LLM call (vision) — analyzes uploaded mood board images and extracts color palette, style descriptors, and mood keywords as structured JSON.",
+};
+
+/** Action kinds that make direct LLM calls and support system prompt / maxOutputTokens overrides */
+const AGENTIC_KINDS = new Set(["summary", "mood-analysis"]);
+
+/** Default max output tokens per agentic kind */
+const KIND_DEFAULT_MAX_TOKENS: Record<string, number> = {
+  "summary": 1024,
+  "mood-analysis": 1000,
 };
 
 const KIND_IO: Record<string, { input: string; outputKey: string }> = {
@@ -648,6 +657,12 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     maxTestFailures: data.maxTestFailures?.toString() ?? "",
     maxUniqueErrors: data.maxUniqueErrors?.toString() ?? "",
   });
+  // LLM config state (for agentic kinds)
+  const [useCustomPrompt, setUseCustomPrompt] = useState(!!data.systemPrompt);
+  const [systemPrompt, setSystemPrompt] = useState(data.systemPrompt ?? "");
+  const [maxOutputTokens, setMaxOutputTokens] = useState(data.maxOutputTokens?.toString() ?? "");
+
+  const isAgentic = AGENTIC_KINDS.has(data.kind);
 
   useEffect(() => {
     setLabel(data.label);
@@ -657,9 +672,12 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       maxTestFailures: data.maxTestFailures?.toString() ?? "",
       maxUniqueErrors: data.maxUniqueErrors?.toString() ?? "",
     });
+    setUseCustomPrompt(!!data.systemPrompt);
+    setSystemPrompt(data.systemPrompt ?? "");
+    setMaxOutputTokens(data.maxOutputTokens?.toString() ?? "");
   }, [data]);
 
-  const save = () => {
+  const save = useCallback(() => {
     onUpdate(nodeId, {
       ...data,
       label,
@@ -667,8 +685,27 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       maxAttempts: overrides.maxAttempts ? parseInt(overrides.maxAttempts) : undefined,
       maxTestFailures: overrides.maxTestFailures ? parseInt(overrides.maxTestFailures) : undefined,
       maxUniqueErrors: overrides.maxUniqueErrors ? parseInt(overrides.maxUniqueErrors) : undefined,
+      systemPrompt: useCustomPrompt && systemPrompt ? systemPrompt : undefined,
+      maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
     });
-  };
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, onUpdate]);
+
+  const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
+    setUseCustomPrompt(enabled);
+    if (!enabled) {
+      setSystemPrompt("");
+      onUpdate(nodeId, {
+        ...data,
+        label,
+        timeoutMs: overrides.timeoutMs ? parseInt(overrides.timeoutMs) : undefined,
+        maxAttempts: overrides.maxAttempts ? parseInt(overrides.maxAttempts) : undefined,
+        maxTestFailures: overrides.maxTestFailures ? parseInt(overrides.maxTestFailures) : undefined,
+        maxUniqueErrors: overrides.maxUniqueErrors ? parseInt(overrides.maxUniqueErrors) : undefined,
+        systemPrompt: undefined,
+        maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+      });
+    }
+  }, [nodeId, data, label, overrides, maxOutputTokens, onUpdate]);
 
   const fields = KIND_FIELDS[data.kind] ?? [];
   const ioInfo = KIND_IO[data.kind];
@@ -682,6 +719,69 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
+
+      {/* LLM Configuration (for agentic kinds) */}
+      {isAgentic && (
+        <div className="border-t border-border pt-2 mt-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">LLM Configuration</span>
+
+          {/* System Prompt */}
+          <div className="mt-1.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">System Prompt</span>
+                {useCustomPrompt && (
+                  <span className="text-[10px] px-1 py-0.5 rounded bg-primary/20 text-primary">
+                    custom
+                  </span>
+                )}
+              </div>
+              {useCustomPrompt && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleCustomPrompt(false)}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+            {useCustomPrompt ? (
+              <textarea
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                onBlur={save}
+                rows={5}
+                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+                placeholder="Enter custom system prompt..."
+              />
+            ) : (
+              <div
+                className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground rounded border border-transparent hover:border-border px-1 py-0.5"
+                onClick={() => handleToggleCustomPrompt(true)}
+              >
+                <span>Using default prompt</span>
+                <span className="text-primary/60">Customize</span>
+              </div>
+            )}
+          </div>
+
+          {/* Max Output Tokens */}
+          <label className="block mt-2">
+            <span className="text-[10px] text-muted-foreground">Max Output Tokens</span>
+            <Input
+              type="number"
+              value={maxOutputTokens}
+              onChange={(e) => setMaxOutputTokens(e.target.value)}
+              onBlur={save}
+              className="mt-0.5 h-6 text-xs"
+              placeholder={String(KIND_DEFAULT_MAX_TOKENS[data.kind] ?? 1024)}
+              min={1}
+            />
+          </label>
+        </div>
+      )}
+
       {ioInfo && (
         <>
           <div className="border-t border-border pt-2 mt-2">

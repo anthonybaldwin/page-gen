@@ -66,6 +66,9 @@ export interface ActionNodeData {
   maxAttempts?: number;     // remediation (cycles), build-check (fix attempts)
   maxTestFailures?: number; // test-run
   maxUniqueErrors?: number; // build-check, test-run
+  // LLM configuration (for agentic action kinds: summary, mood-analysis)
+  systemPrompt?: string;       // custom system prompt override
+  maxOutputTokens?: number;    // max output tokens for the LLM call
 }
 
 export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData;

@@ -192,6 +192,52 @@ describe("resolveFlowTemplate (action steps)", () => {
     expect(buildCheck!.maxAttempts).toBeUndefined();
   });
 
+  test("systemPrompt is copied to ActionStep when set", () => {
+    const template = generateBuildDefault();
+    const summaryNode = template.nodes.find(
+      (n) => n.data.type === "action" && n.data.kind === "summary"
+    );
+    if (summaryNode && summaryNode.data.type === "action") {
+      summaryNode.data.systemPrompt = "Custom summary instructions here.";
+    }
+
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.systemPrompt).toBe("Custom summary instructions here.");
+  });
+
+  test("systemPrompt is undefined when not set on node", () => {
+    const template = generateBuildDefault();
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.systemPrompt).toBeUndefined();
+  });
+
+  test("maxOutputTokens is copied to ActionStep when set", () => {
+    const template = generateBuildDefault();
+    const summaryNode = template.nodes.find(
+      (n) => n.data.type === "action" && n.data.kind === "summary"
+    );
+    if (summaryNode && summaryNode.data.type === "action") {
+      summaryNode.data.maxOutputTokens = 2048;
+    }
+
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.maxOutputTokens).toBe(2048);
+  });
+
+  test("maxOutputTokens is undefined when not set on node", () => {
+    const template = generateBuildDefault();
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.maxOutputTokens).toBeUndefined();
+  });
+
   test("action overrides are still collected for backwards compat", () => {
     const template = generateBuildDefault();
     const buildCheckNode = template.nodes.find(

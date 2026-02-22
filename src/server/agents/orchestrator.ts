@@ -358,6 +358,7 @@ async function analyzeMoodImages(
   providers: ProviderInstance,
   apiKeys: Record<string, string>,
   signal: AbortSignal,
+  opts?: { systemPrompt?: string; maxOutputTokens?: number },
 ): Promise<string | null> {
   const moodDir = join(projectPath, "mood");
   if (!existsSync(moodDir)) return null;
@@ -391,8 +392,19 @@ async function analyzeMoodImages(
 
   try {
     const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+    const defaultPrompt = `Analyze these inspiration/mood board images. Extract a structured JSON response with:
+{
+  "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
+  "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
+  "textureNotes": "description of textures and materials",
+  "typographyHints": "description of typography style if visible",
+  "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
+  "layoutPatterns": "description of layout patterns observed"
+}
+Return ONLY the JSON.`;
     const result = await generateText({
       model: visionProvider(modelId),
+      ...(opts?.systemPrompt ? { system: opts.systemPrompt } : {}),
       messages: [{
         role: "user",
         content: [
@@ -403,20 +415,11 @@ async function analyzeMoodImages(
           })),
           {
             type: "text" as const,
-            text: `Analyze these inspiration/mood board images. Extract a structured JSON response with:
-{
-  "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
-  "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
-  "textureNotes": "description of textures and materials",
-  "typographyHints": "description of typography style if visible",
-  "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
-  "layoutPatterns": "description of layout patterns observed"
-}
-Return ONLY the JSON.`,
+            text: opts?.systemPrompt ? "Analyze the attached mood board images." : defaultPrompt,
           },
         ],
       }],
-      maxOutputTokens: 1000,
+      maxOutputTokens: opts?.maxOutputTokens ?? 1000,
       abortSignal: signal,
     });
     log("orchestrator", "Mood analysis completed", { imageCount: imageParts.length });
@@ -933,6 +936,9 @@ export interface ActionStep {
   maxAttempts?: number;
   maxTestFailures?: number;
   maxUniqueErrors?: number;
+  // LLM configuration (for agentic action kinds: summary, mood-analysis)
+  systemPrompt?: string;
+  maxOutputTokens?: number;
 }
 
 export type PlanStep = AgentStep | CheckpointStep | ActionStep;
@@ -1931,7 +1937,10 @@ async function executePipelineSteps(ctx: {
             }
           }
         } else if (act.actionKind === "mood-analysis") {
-          const moodResult = await analyzeMoodImages(projectPath, providers, apiKeys, signal);
+          const moodResult = await analyzeMoodImages(projectPath, providers, apiKeys, signal, {
+            systemPrompt: act.systemPrompt,
+            maxOutputTokens: act.maxOutputTokens,
+          });
           if (moodResult) {
             agentResults.set("mood-analysis", moodResult);
             log("orchestrator", "Mood analysis injected via action step", { projectId });
@@ -2029,6 +2038,8 @@ async function executePipelineSteps(ctx: {
           const summary = await generateSummary({
             userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys,
             buildFailed,
+            customSystemPrompt: act.systemPrompt,
+            customMaxOutputTokens: act.maxOutputTokens,
           });
 
           await db.insert(schema.messages).values({
@@ -2344,11 +2355,13 @@ interface SummaryInput {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   buildFailed?: boolean;
+  customSystemPrompt?: string;
+  customMaxOutputTokens?: number;
 }
 
 async function generateSummary(input: SummaryInput): Promise<string> {
-  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed } = input;
-  const systemPrompt = buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT;
+  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed, customSystemPrompt, customMaxOutputTokens } = input;
+  const systemPrompt = customSystemPrompt ?? (buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT);
 
   const fallback = () => Array.from(agentResults.entries())
     .map(([agent, output]) => `**${agent}:** ${output}`)
@@ -2377,7 +2390,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       model: summaryModel,
       system: systemPrompt,
       prompt,
-      maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
+      maxOutputTokens: customMaxOutputTokens ?? SUMMARY_MAX_OUTPUT_TOKENS,
       agentName: "orchestrator:summary",
       provider: summaryConfig.provider,
       modelId: summaryConfig.model,
