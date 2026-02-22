@@ -201,15 +201,15 @@ body {
 }
 
 .react-flow__minimap-mask {
-  fill: rgba(0, 0, 0, 0.2) !important;
-  stroke: var(--muted-foreground) !important;
+  fill: rgba(0, 0, 0, 0.25) !important;
+  stroke: var(--primary) !important;
   stroke-opacity: 0.5 !important;
   stroke-width: 2 !important;
 }
 
 .dark .react-flow__minimap-mask {
-  fill: rgba(0, 0, 0, 0.6) !important;
-  stroke-opacity: 0.4 !important;
+  fill: rgba(0, 0, 0, 0.7) !important;
+  stroke-opacity: 0.6 !important;
 }
 
 /* React Flow edge/node selection in dark mode */
