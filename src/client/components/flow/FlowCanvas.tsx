@@ -283,7 +283,17 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
               case "agent": return isDark ? "#818cf8" : "#6366f1";
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
-              case "action": return "#f97316";
+              case "action": {
+                const kind = (node.data as Record<string, unknown>)?.kind;
+                switch (kind) {
+                  case "build-check": return "#f97316";
+                  case "test-run": return "#10b981";
+                  case "remediation": return "#8b5cf6";
+                  case "vibe-intake": return "#ec4899";
+                  case "mood-analysis": return "#0ea5e9";
+                  default: return "#f97316";
+                }
+              }
               default: return isDark ? "#aaa" : "#888";
             }
           }}
