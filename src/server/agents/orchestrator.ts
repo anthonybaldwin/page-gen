@@ -2054,6 +2054,111 @@ async function executePipelineSteps(ctx: {
             agentResults.set("mood-analysis", moodResult);
             log("orchestrator", "Mood analysis injected via action step", { projectId });
           }
+        } else if (act.actionKind === "build-check") {
+          // Build check: run vite build, if errors → run build-fix agent up to maxAttempts
+          const stepOverrides: ActionOverrides = { ...actionOverrides };
+          if (act.timeoutMs !== undefined) stepOverrides.buildTimeoutMs = act.timeoutMs;
+          if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
+          const maxFixes = act.maxAttempts ?? effectiveSetting("maxBuildFixAttempts", actionOverrides);
+
+          let buildErrors = await checkProjectBuild(projectPath, chatId, stepOverrides);
+          let fixAttempt = 0;
+          while (buildErrors && fixAttempt < maxFixes && !signal.aborted) {
+            fixAttempt++;
+            log("orchestrator", `Build check: fix attempt ${fixAttempt}/${maxFixes}`);
+            const fixResult = await runBuildFix({
+              buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
+              userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides: stepOverrides,
+            });
+            if (fixResult) {
+              agentResults.set(`${sk}-fix-${fixAttempt}`, fixResult);
+              completedAgents.push(`${sk} (build fix #${fixAttempt})`);
+            }
+            buildErrors = await checkProjectBuild(projectPath, undefined, stepOverrides);
+          }
+          if (!buildErrors) {
+            broadcast({ type: "preview_ready", payload: { projectId } });
+            maybeStartBackend(projectId, projectPath);
+            agentResults.set(sk, "Build succeeded");
+          } else {
+            agentResults.set(sk, `Build failed: ${buildErrors.slice(0, 500)}`);
+          }
+        } else if (act.actionKind === "test-run") {
+          // Test run: run vitest, if failures → fix + smart re-run, up to maxAttempts
+          const stepOverrides: ActionOverrides = { ...actionOverrides };
+          if (act.timeoutMs !== undefined) stepOverrides.testTimeoutMs = act.timeoutMs;
+          if (act.maxTestFailures !== undefined) stepOverrides.maxTestFailures = act.maxTestFailures;
+          if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
+          const maxFixes = act.maxAttempts ?? 2;
+
+          const hasTestFiles = testFilesExist(projectPath);
+          if (hasTestFiles) {
+            let testResult = await runProjectTests(projectPath, chatId, projectId, undefined, stepOverrides);
+            let fixAttempt = 0;
+            while (testResult && testResult.failed > 0 && fixAttempt < maxFixes && !signal.aborted) {
+              fixAttempt++;
+              log("orchestrator", `Test run: fix attempt ${fixAttempt}/${maxFixes}`);
+              const testFixResult = await runBuildFix({
+                buildErrors: formatTestFailures(testResult.failures, stepOverrides),
+                chatId, projectId, projectPath, projectName, chatTitle,
+                userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides: stepOverrides,
+              });
+              if (testFixResult) {
+                agentResults.set(`${sk}-fix-${fixAttempt}`, testFixResult);
+                completedAgents.push(`${sk} (test fix #${fixAttempt})`);
+              }
+              // Smart re-run: only re-run failed test files
+              const failedFiles = testResult.testDetails
+                ?.filter((t) => t.status === "failed")
+                .map((t) => t.suite)
+                .filter((v, i, a) => a.indexOf(v) === i);
+              testResult = await runProjectTests(projectPath, chatId, projectId, failedFiles, stepOverrides);
+            }
+            const passed = testResult ? testResult.passed : 0;
+            const failed = testResult ? testResult.failed : 0;
+            agentResults.set(sk, `Tests: ${passed} passed, ${failed} failed`);
+          } else {
+            const skipped = {
+              chatId, projectId, passed: 0, failed: 0, total: 0, duration: 0,
+              failures: [] as Array<{ name: string; error: string }>,
+              testDetails: [] as Array<{ suite: string; name: string; status: "passed" | "failed" | "skipped"; error?: string; duration?: number }>,
+              skipped: true, skipReason: "Tests skipped: no test files found",
+            };
+            broadcastTestResults(skipped);
+            log("orchestrator", "Tests skipped: no test files found");
+            agentResults.set(sk, "Tests skipped: no test files found");
+          }
+        } else if (act.actionKind === "remediation") {
+          // Remediation: detect review issues → fix → re-review, up to maxAttempts cycles
+          const stepOverrides: ActionOverrides = { ...actionOverrides };
+          if (act.maxAttempts !== undefined) stepOverrides.maxRemediationCycles = act.maxAttempts;
+
+          await runRemediationLoop({
+            chatId, projectId, projectPath, projectName, chatTitle,
+            userMessage, chatHistory, agentResults, completedAgents, callCounter,
+            providers, apiKeys, signal, actionOverrides: stepOverrides,
+          });
+          agentResults.set(sk, "Remediation complete");
+        } else if (act.actionKind === "summary") {
+          // Summary: generate final recap using all agent outputs
+          const buildCheckResult = agentResults.get("build-check") ?? "";
+          const buildFailed = buildCheckResult.startsWith("Build failed");
+
+          const summary = await generateSummary({
+            userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys,
+            buildFailed,
+          });
+
+          await db.insert(schema.messages).values({
+            id: nanoid(), chatId, role: "assistant",
+            content: summary,
+            agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+          });
+          broadcast({
+            type: "chat_message",
+            payload: { chatId, agentName: "orchestrator", content: summary },
+          });
+          agentResults.set(sk, summary);
         }
 
         broadcastAgentStatus(chatId, sk, "completed");
