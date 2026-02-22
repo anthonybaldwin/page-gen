@@ -180,7 +180,9 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     [onEdgesChange, nodes, onChange, setEdges],
   );
 
-  /** Apply highlight: bolden matched edges, fade the rest */
+  const HIGHLIGHT_COLOR = "#3b82f6"; // blue-500
+
+  /** Apply highlight: bolden + recolor matched edges, fade the rest */
   const highlightEdges = useCallback(
     (match: (e: Edge) => boolean) => {
       setEdges(current =>
@@ -189,7 +191,13 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           return {
             ...e,
             zIndex: hit ? 1000 : 0,
-            style: { ...e.style, strokeWidth: hit ? 2.5 : 1, opacity: hit ? 1 : 0.4 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: hit ? HIGHLIGHT_COLOR : undefined },
+            style: {
+              ...e.style,
+              strokeWidth: hit ? 2.5 : 1,
+              opacity: hit ? 1 : 0.4,
+              stroke: hit ? HIGHLIGHT_COLOR : (e.style?.stroke ?? undefined),
+            },
           };
         }),
       );
@@ -197,13 +205,22 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     [setEdges],
   );
 
+  /** Restore original branch colors (green for true, red for false) */
   const resetEdgeStyles = useCallback(() => {
     setEdges(current =>
-      current.map(e => ({
-        ...e,
-        zIndex: 0,
-        style: { ...e.style, strokeWidth: 1.5, opacity: 1 },
-      })),
+      current.map(e => {
+        const branchColor = e.sourceHandle === "true"
+          ? "#22c55e"
+          : e.sourceHandle === "false"
+            ? "#ef4444"
+            : undefined;
+        return {
+          ...e,
+          zIndex: 0,
+          markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
+          style: { ...e.style, strokeWidth: 1.5, opacity: 1, stroke: branchColor ?? undefined },
+        };
+      }),
     );
   }, [setEdges]);
 
