@@ -159,7 +159,7 @@ export function PipelineSettings() {
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 mt-3">
             {section.title}
           </h4>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             {section.keys.map((key) => {
               const meta = section.fields[key];
               if (!meta) return null;

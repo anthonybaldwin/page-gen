@@ -17,9 +17,21 @@ import type { OrchestratorIntent } from "../../shared/types.ts";
 
 export const flowRoutes = new Hono();
 
-// --- List all flow templates ---
+// --- List all flow templates (auto-seed defaults on first access) ---
 flowRoutes.get("/templates", (c) => {
-  return c.json(getAllFlowTemplates());
+  let templates = getAllFlowTemplates();
+  if (templates.length === 0) {
+    const defaults = generateAllDefaults();
+    for (const template of defaults) {
+      saveFlowTemplate(template);
+    }
+    for (const template of defaults) {
+      setActiveBinding(template.intent, template.id);
+    }
+    templates = defaults;
+    log("flow", "Auto-seeded default templates on first access", { count: defaults.length });
+  }
+  return c.json(templates);
 });
 
 // --- Get a single flow template ---
@@ -116,21 +128,27 @@ flowRoutes.post("/validate", async (c) => {
   return c.json({ valid: !errors.some((e) => e.type === "error"), errors });
 });
 
-// --- Regenerate default templates ---
+// --- Regenerate default templates (replaces existing defaults) ---
 flowRoutes.post("/defaults", (c) => {
+  // Delete all existing default templates and clear their active bindings
+  const existing = getAllFlowTemplates().filter((t) => t.isDefault);
+  const bindings = getActiveBindings();
+  for (const tmpl of existing) {
+    // Clear active binding if it pointed to this default template
+    const activeFor = Object.entries(bindings).filter(([, tid]) => tid === tmpl.id);
+    for (const [intent] of activeFor) {
+      clearActiveBinding(intent as OrchestratorIntent);
+    }
+    deleteFlowTemplate(tmpl.id);
+  }
+
+  // Generate fresh defaults and set as active
   const defaults = generateAllDefaults();
   for (const template of defaults) {
     saveFlowTemplate(template);
+    setActiveBinding(template.intent, template.id);
   }
 
-  // Set as active if no active binding exists
-  const bindings = getActiveBindings();
-  for (const template of defaults) {
-    if (!bindings[template.intent]) {
-      setActiveBinding(template.intent, template.id);
-    }
-  }
-
-  log("flow", `Default templates regenerated`, { count: defaults.length });
+  log("flow", `Default templates regenerated (replaced ${existing.length} old defaults)`, { count: defaults.length });
   return c.json({ ok: true, templates: defaults });
 });

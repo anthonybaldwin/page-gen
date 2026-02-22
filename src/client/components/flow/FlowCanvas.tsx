@@ -45,7 +45,12 @@ function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
     source: e.source,
     target: e.target,
     sourceHandle: e.sourceHandle,
+    type: "smoothstep",
     label: e.label,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 4,
+    labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.9 },
+    labelStyle: { fontSize: 10, fill: "hsl(var(--muted-foreground))" },
     animated: true,
     markerEnd: { type: MarkerType.ArrowClosed },
     style: { strokeWidth: 1.5 },
@@ -157,6 +162,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         fitView
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
+          type: "smoothstep",
           animated: true,
           markerEnd: { type: MarkerType.ArrowClosed },
           style: { strokeWidth: 1.5 },

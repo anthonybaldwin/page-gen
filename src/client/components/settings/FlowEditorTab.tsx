@@ -4,6 +4,7 @@ import { Button } from "../ui/button.tsx";
 import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
+import { Trash2 } from "lucide-react";
 import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
 import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
 import type { OrchestratorIntent } from "../../../shared/types.ts";
@@ -22,6 +23,7 @@ export function FlowEditorTab() {
   const [errors, setErrors] = useState<ValidationError[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [validated, setValidated] = useState(false);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -60,6 +62,7 @@ export function FlowEditorTab() {
     setActiveIntent(intent);
     setSelectedNodeId(null);
     setErrors([]);
+    setValidated(false);
   };
 
   const handleTemplateSelect = (template: FlowTemplate) => {
@@ -69,12 +72,14 @@ export function FlowEditorTab() {
     setSelectedNodeId(null);
     setDirty(false);
     setErrors([]);
+    setValidated(false);
   };
 
   const handleCanvasChange = (nodes: FlowNode[], edges: FlowEdge[]) => {
     setEditNodes(nodes);
     setEditEdges(edges);
     setDirty(true);
+    setValidated(false);
   };
 
   const handleAddNode = (node: FlowNode) => {
@@ -99,6 +104,7 @@ export function FlowEditorTab() {
     const tmpl = { ...selectedTemplate, nodes: editNodes, edges: editEdges };
     const result = validateFlowTemplate(tmpl, agentNames);
     setErrors(result);
+    setValidated(true);
   };
 
   const handleSave = async () => {
@@ -140,13 +146,17 @@ export function FlowEditorTab() {
     }
   };
 
-  const handleToggleEnabled = async (template: FlowTemplate) => {
+  const handleDeleteTemplate = async (template: FlowTemplate) => {
     try {
-      const updated = { ...template, enabled: !template.enabled, updatedAt: Date.now() };
-      await api.put(`/settings/flow/templates/${updated.id}`, updated);
+      await api.delete(`/settings/flow/templates/${template.id}`);
+      if (selectedTemplate?.id === template.id) {
+        setSelectedTemplate(null);
+        setEditNodes([]);
+        setEditEdges([]);
+      }
       await refresh();
     } catch (err) {
-      console.error("[flow-editor] Toggle failed:", err);
+      console.error("[flow-editor] Delete failed:", err);
     }
   };
 
@@ -198,23 +208,23 @@ export function FlowEditorTab() {
                   key={tmpl.id}
                   className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
                     isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
-                  } ${!tmpl.enabled ? "opacity-50" : ""}`}
+                  }`}
                   onClick={() => handleTemplateSelect(tmpl)}
                 >
+                  {/* Radio-style indicator */}
+                  <div
+                    className={`w-3 h-3 rounded-full border-2 shrink-0 ${
+                      isActive ? "border-primary bg-primary" : "border-muted-foreground/40"
+                    }`}
+                  />
                   <div className="min-w-0">
                     <div className="text-xs font-medium truncate">{tmpl.name}</div>
                     <div className="text-[10px] text-muted-foreground">{tmpl.nodes.length} nodes</div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleToggleEnabled(tmpl); }}
-                      className={`w-8 h-4 rounded-full transition-colors ${tmpl.enabled ? "bg-primary" : "bg-muted"}`}
-                    >
-                      <div className={`w-3 h-3 rounded-full bg-white transition-transform ${tmpl.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
-                    </button>
                     {isActive ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">active</span>
-                    ) : tmpl.enabled ? (
+                    ) : (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -223,7 +233,19 @@ export function FlowEditorTab() {
                       >
                         Set Active
                       </Button>
-                    ) : null}
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl); }}
+                      disabled={isActive}
+                      className={`p-0.5 rounded transition-colors ${
+                        isActive
+                          ? "text-muted-foreground/30 cursor-not-allowed"
+                          : "text-muted-foreground hover:text-destructive"
+                      }`}
+                      title={isActive ? "Cannot delete active template" : "Delete template"}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
                 </div>
               );
@@ -243,6 +265,7 @@ export function FlowEditorTab() {
             saving={saving}
             errors={errors}
             dirty={dirty}
+            validated={validated}
           />
 
           <div className="flex gap-0 rounded-lg border border-border overflow-hidden">

@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Plus, Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, Settings } from "lucide-react";
+import { Plus, Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, Settings, CheckCircle2 } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -12,6 +12,7 @@ interface FlowToolbarProps {
   saving: boolean;
   errors: ValidationError[];
   dirty: boolean;
+  validated?: boolean;
 }
 
 function makeNewNode(type: FlowNodeType): FlowNode {
@@ -41,7 +42,7 @@ function makeNewNode(type: FlowNodeType): FlowNode {
   };
 }
 
-export function FlowToolbar({ onAddNode, onValidate, onSave, onResetDefaults, saving, errors, dirty }: FlowToolbarProps) {
+export function FlowToolbar({ onAddNode, onValidate, onSave, onResetDefaults, saving, errors, dirty, validated }: FlowToolbarProps) {
   const errorCount = errors.filter((e) => e.type === "error").length;
   const warningCount = errors.filter((e) => e.type === "warning").length;
 
@@ -66,6 +67,12 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onResetDefaults, sa
       <Button variant="outline" size="sm" onClick={onValidate} className="h-7 text-xs gap-1">
         <Check className="h-3 w-3" /> Validate
       </Button>
+
+      {validated && errors.length === 0 && (
+        <span className="flex items-center gap-0.5 text-xs text-emerald-600">
+          <CheckCircle2 className="h-3 w-3" /> Valid
+        </span>
+      )}
 
       {(errorCount > 0 || warningCount > 0) && (
         <div className="flex items-center gap-1 text-xs">
