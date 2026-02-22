@@ -216,22 +216,45 @@ export function FlowEditorTab() {
   const selectedNode = editNodes.find((n) => n.id === selectedNodeId) ?? null;
 
   return (
-    <div className="flex flex-col gap-2 flex-1 min-h-0">
-      {/* Sub-tab toggle: Flow Editor | Defaults */}
-      <div className="flex items-center gap-1">
-        {(["editor", "defaults"] as PipelineSubTab[]).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setSubTab(tab)}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${
-              subTab === tab
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            {tab === "editor" ? "Flow Editor" : "Defaults"}
-          </button>
-        ))}
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      {/* Sub-tab toggle + intent tabs on one row */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1">
+          {(["editor", "defaults"] as PipelineSubTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setSubTab(tab)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                subTab === tab
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              {tab === "editor" ? "Flow Editor" : "Defaults"}
+            </button>
+          ))}
+        </div>
+
+        {subTab === "editor" && (
+          <>
+            <div className="w-px h-4 bg-border" />
+            <div className="flex items-center gap-1">
+              {(["build", "fix", "question"] as IntentTab[]).map((intent) => (
+                <button
+                  key={intent}
+                  onClick={() => handleIntentChange(intent)}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                    activeIntent === intent
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {intent.charAt(0).toUpperCase() + intent.slice(1)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {subTab === "defaults" && (
@@ -241,27 +264,6 @@ export function FlowEditorTab() {
       )}
 
       {subTab === "editor" && <>
-      {/* Intent tabs + description in one row */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1">
-          {(["build", "fix", "question"] as IntentTab[]).map((intent) => (
-            <button
-              key={intent}
-              onClick={() => handleIntentChange(intent)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                activeIntent === intent
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
-              }`}
-            >
-              {intent.charAt(0).toUpperCase() + intent.slice(1)}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground/60">
-          Edit agent order, conditions, and per-node limits. Override Defaults on individual nodes.
-        </p>
-      </div>
 
       {/* Template picker */}
       <div>
