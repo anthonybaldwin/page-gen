@@ -274,6 +274,16 @@ export function generateQuestionDefault(): FlowTemplate {
   };
 }
 
+/** Generate a default template for a specific intent. */
+export function generateDefaultForIntent(intent: string): FlowTemplate | null {
+  switch (intent) {
+    case "build": return generateBuildDefault();
+    case "fix": return generateFixDefault();
+    case "question": return generateQuestionDefault();
+    default: return null;
+  }
+}
+
 /** Generate all three default templates. */
 export function generateAllDefaults(): FlowTemplate[] {
   return [generateBuildDefault(), generateFixDefault(), generateQuestionDefault()];

@@ -5,11 +5,12 @@ import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
 import { PipelineSettings, type PipelineConfig } from "./PipelineSettings.tsx";
-import { Trash2 } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
 import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
 import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
 import type { OrchestratorIntent } from "../../../shared/types.ts";
 import type { ResolvedAgentConfig } from "../../../shared/types.ts";
+import { nanoid } from "nanoid";
 
 type IntentTab = OrchestratorIntent;
 type PipelineSubTab = "editor" | "defaults";
@@ -143,16 +144,57 @@ export function FlowEditorTab() {
     }
   };
 
-  const handleResetDefaults = async () => {
+  const handleReset = async () => {
+    if (!selectedTemplate) return;
+    if (!window.confirm(`Reset "${selectedTemplate.name}" to its default layout? This will discard all customizations.`)) return;
     try {
-      await api.post<{ ok: boolean; templates: FlowTemplate[] }>("/settings/flow/defaults", {});
+      const res = await api.post<{ ok: boolean; template: FlowTemplate }>(`/settings/flow/templates/${selectedTemplate.id}/reset`, {});
+      if (res.template) {
+        setSelectedTemplate(res.template);
+        setEditNodes(res.template.nodes);
+        setEditEdges(res.template.edges);
+        setDirty(false);
+        setErrors([]);
+        setValidated(false);
+      }
       await refresh();
     } catch (err) {
-      console.error("[flow-editor] Reset defaults failed:", err);
+      console.error("[flow-editor] Reset failed:", err);
+    }
+  };
+
+  const handleAddPipeline = async () => {
+    const name = window.prompt("Pipeline name:", `Custom ${activeIntent.charAt(0).toUpperCase() + activeIntent.slice(1)} Pipeline`);
+    if (!name) return;
+    const now = Date.now();
+    const newTemplate: FlowTemplate = {
+      id: `${activeIntent}-${nanoid(8)}`,
+      name,
+      description: "",
+      intent: activeIntent,
+      version: 1,
+      enabled: true,
+      nodes: [],
+      edges: [],
+      createdAt: now,
+      updatedAt: now,
+      isDefault: false,
+    };
+    try {
+      await api.post("/settings/flow/templates", newTemplate);
+      await refresh();
+      // Select the new template
+      setSelectedTemplate(newTemplate);
+      setEditNodes([]);
+      setEditEdges([]);
+      setDirty(false);
+    } catch (err) {
+      console.error("[flow-editor] Create pipeline failed:", err);
     }
   };
 
   const handleDeleteTemplate = async (template: FlowTemplate) => {
+    if (!window.confirm(`Delete "${template.name}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/settings/flow/templates/${template.id}`);
       if (selectedTemplate?.id === template.id) {
@@ -223,65 +265,83 @@ export function FlowEditorTab() {
 
       {/* Template picker */}
       <div>
-        {intentTemplates.length === 0 ? (
-          <div className="text-xs text-muted-foreground">
-            No templates for this intent.{" "}
-            <button onClick={handleResetDefaults} className="text-primary hover:underline">Generate defaults</button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {intentTemplates.map((tmpl) => {
-              const isActive = activeBindings[activeIntent] === tmpl.id;
-              const isSelected = selectedTemplate?.id === tmpl.id;
-              return (
+        <div className="flex flex-wrap gap-2 items-center">
+          {intentTemplates.length === 0 && (
+            <div className="text-xs text-muted-foreground">
+              No pipelines for {activeIntent}.{" "}
+              <button
+                onClick={async () => {
+                  try {
+                    await api.post("/settings/flow/defaults", {});
+                    await refresh();
+                  } catch (err) {
+                    console.error("[flow-editor] Generate default failed:", err);
+                  }
+                }}
+                className="text-primary hover:underline"
+              >
+                Generate default
+              </button>
+            </div>
+          )}
+          {intentTemplates.map((tmpl) => {
+            const isActive = activeBindings[activeIntent] === tmpl.id;
+            const isSelected = selectedTemplate?.id === tmpl.id;
+            return (
+              <div
+                key={tmpl.id}
+                className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors ${
+                  isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                }`}
+                onClick={() => handleTemplateSelect(tmpl)}
+              >
+                {/* Radio-style indicator */}
                 <div
-                  key={tmpl.id}
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors ${
-                    isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                  className={`w-3 h-3 rounded-full border-2 shrink-0 ${
+                    isActive ? "border-primary bg-primary" : "border-muted-foreground/40"
                   }`}
-                  onClick={() => handleTemplateSelect(tmpl)}
-                >
-                  {/* Radio-style indicator */}
-                  <div
-                    className={`w-3 h-3 rounded-full border-2 shrink-0 ${
-                      isActive ? "border-primary bg-primary" : "border-muted-foreground/40"
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{tmpl.name}</div>
-                    <div className="text-[10px] text-muted-foreground">{tmpl.nodes.length} nodes</div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isActive ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">active</span>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => { e.stopPropagation(); handleSetActive(tmpl.id); }}
-                        className="h-5 px-1.5 text-[10px]"
-                      >
-                        Set Active
-                      </Button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl); }}
-                      disabled={isActive}
-                      className={`p-0.5 rounded transition-colors ${
-                        isActive
-                          ? "text-muted-foreground/30 cursor-not-allowed"
-                          : "text-muted-foreground hover:text-destructive"
-                      }`}
-                      title={isActive ? "Cannot delete active template" : "Delete template"}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium truncate">{tmpl.name}</div>
+                  <div className="text-[10px] text-muted-foreground">{tmpl.nodes.length} nodes</div>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <div className="flex items-center gap-1 shrink-0">
+                  {isActive ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">active</span>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); handleSetActive(tmpl.id); }}
+                      className="h-5 px-1.5 text-[10px]"
+                    >
+                      Set Active
+                    </Button>
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl); }}
+                    disabled={isActive}
+                    className={`p-0.5 rounded transition-colors ${
+                      isActive
+                        ? "text-muted-foreground/30 cursor-not-allowed"
+                        : "text-muted-foreground hover:text-destructive"
+                    }`}
+                    title={isActive ? "Cannot delete active template" : "Delete template"}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {/* Add pipeline button */}
+          <button
+            onClick={handleAddPipeline}
+            className="flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+          >
+            <Plus className="h-3 w-3" /> New Pipeline
+          </button>
+        </div>
       </div>
 
       {/* Canvas + Inspector */}
@@ -291,7 +351,7 @@ export function FlowEditorTab() {
             onAddNode={handleAddNode}
             onValidate={handleValidate}
             onSave={handleSave}
-            onResetDefaults={handleResetDefaults}
+            onReset={handleReset}
             saving={saving}
             errors={errors}
             dirty={dirty}

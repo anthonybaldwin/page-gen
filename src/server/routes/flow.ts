@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { log } from "../services/logger.ts";
 import { validateFlowTemplate } from "../../shared/flow-validation.ts";
-import { generateAllDefaults } from "../agents/flow-defaults.ts";
+import { generateAllDefaults, generateDefaultForIntent } from "../agents/flow-defaults.ts";
 import {
   getFlowTemplate,
   getAllFlowTemplates,
@@ -40,6 +40,22 @@ flowRoutes.get("/templates/:id", (c) => {
   const template = getFlowTemplate(id);
   if (!template) return c.json({ error: "Template not found" }, 404);
   return c.json(template);
+});
+
+// --- Create a new (possibly empty) flow template ---
+flowRoutes.post("/templates", async (c) => {
+  const body = await c.req.json<FlowTemplate>();
+  if (!body.id || !body.name?.trim() || !body.intent) {
+    return c.json({ error: "id, name, and intent are required" }, 400);
+  }
+  const existing = getFlowTemplate(body.id);
+  if (existing) {
+    return c.json({ error: "Template with this ID already exists" }, 400);
+  }
+  body.updatedAt = Date.now();
+  saveFlowTemplate(body);
+  log("flow", `Template created: ${body.name}`, { id: body.id, intent: body.intent });
+  return c.json({ ok: true });
 });
 
 // --- Create or update a flow template ---
@@ -128,24 +144,49 @@ flowRoutes.post("/validate", async (c) => {
   return c.json({ valid: !errors.some((e) => e.type === "error"), errors });
 });
 
-// --- Reset all templates and regenerate defaults ---
-flowRoutes.post("/defaults", (c) => {
-  // Delete ALL existing templates and clear all active bindings
-  const existing = getAllFlowTemplates();
-  for (const tmpl of existing) {
-    deleteFlowTemplate(tmpl.id);
-  }
-  for (const intent of ["build", "fix", "question"] as OrchestratorIntent[]) {
-    clearActiveBinding(intent);
-  }
+// --- Reset a single template to its intent's default ---
+flowRoutes.post("/templates/:id/reset", (c) => {
+  const id = c.req.param("id");
+  const template = getFlowTemplate(id);
+  if (!template) return c.json({ error: "Template not found" }, 404);
 
-  // Generate fresh defaults and set as active
+  const fresh = generateDefaultForIntent(template.intent);
+  if (!fresh) return c.json({ error: `No default template for intent "${template.intent}"` }, 400);
+
+  // Replace content but keep the same ID, name, and bindings
+  const reset: FlowTemplate = {
+    ...fresh,
+    id: template.id,
+    name: template.name,
+    createdAt: template.createdAt,
+    updatedAt: Date.now(),
+  };
+  saveFlowTemplate(reset);
+
+  log("flow", `Template reset to default: ${reset.name}`, { id: reset.id, intent: reset.intent });
+  return c.json({ ok: true, template: reset });
+});
+
+// --- Seed missing default templates (only for intents with no templates) ---
+flowRoutes.post("/defaults", (c) => {
+  const existing = getAllFlowTemplates();
+  const existingIntents = new Set(existing.map((t) => t.intent));
+
   const defaults = generateAllDefaults();
+  const created: FlowTemplate[] = [];
+
   for (const template of defaults) {
+    if (existingIntents.has(template.intent)) continue;
     saveFlowTemplate(template);
     setActiveBinding(template.intent, template.id);
+    created.push(template);
   }
 
-  log("flow", `Default templates reset (deleted ${existing.length} old, created ${defaults.length} new)`);
-  return c.json({ ok: true, templates: defaults });
+  if (created.length === 0) {
+    log("flow", "No missing defaults to seed — all intents already have templates");
+  } else {
+    log("flow", `Seeded ${created.length} missing default templates`, { intents: created.map((t) => t.intent) });
+  }
+
+  return c.json({ ok: true, templates: [...existing, ...created] });
 });

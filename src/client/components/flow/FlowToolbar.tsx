@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Plus, Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, Settings, CheckCircle2 } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, Settings, CheckCircle2 } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -8,7 +8,7 @@ interface FlowToolbarProps {
   onAddNode: (node: FlowNode) => void;
   onValidate: () => void;
   onSave: () => void;
-  onResetDefaults: () => void;
+  onReset: () => void;
   saving: boolean;
   errors: ValidationError[];
   dirty: boolean;
@@ -42,7 +42,7 @@ function makeNewNode(type: FlowNodeType): FlowNode {
   };
 }
 
-export function FlowToolbar({ onAddNode, onValidate, onSave, onResetDefaults, saving, errors, dirty, validated }: FlowToolbarProps) {
+export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, errors, dirty, validated }: FlowToolbarProps) {
   const errorCount = errors.filter((e) => e.type === "error").length;
   const warningCount = errors.filter((e) => e.type === "warning").length;
 
@@ -90,8 +90,8 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onResetDefaults, sa
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onResetDefaults} className="h-7 text-xs gap-1">
-          <RotateCcw className="h-3 w-3" /> Reset Defaults
+        <Button variant="ghost" size="sm" onClick={onReset} className="h-7 text-xs gap-1">
+          <RotateCcw className="h-3 w-3" /> Reset
         </Button>
         {dirty && (
           <Button size="sm" onClick={onSave} disabled={saving || errorCount > 0} className="h-7 text-xs">
