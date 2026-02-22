@@ -95,25 +95,35 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Sync externally-added nodes (e.g. from toolbar)
+  // Sync external node changes (additions from toolbar, deletions from inspector/reset)
+  const templateNodeIds = template.nodes.map(n => n.id).join(",");
   useEffect(() => {
     setNodes(current => {
+      const templateIds = new Set(template.nodes.map(n => n.id));
       const currentIds = new Set(current.map(n => n.id));
+      // Remove nodes no longer in template
+      let updated = current.filter(n => templateIds.has(n.id));
+      // Add nodes new to template
       const added = template.nodes.filter(n => !currentIds.has(n.id));
-      if (added.length === 0) return current;
-      return [...current, ...toRFNodes(added)];
+      if (added.length > 0) updated = [...updated, ...toRFNodes(added)];
+      if (updated.length === current.length && added.length === 0) return current;
+      return updated;
     });
-  }, [template.nodes.length, setNodes]);
+  }, [templateNodeIds, setNodes]);
 
-  // Sync externally-added edges
+  // Sync external edge changes
+  const templateEdgeIds = template.edges.map(e => e.id).join(",");
   useEffect(() => {
     setEdges(current => {
+      const templateIds = new Set(template.edges.map(e => e.id));
       const currentIds = new Set(current.map(e => e.id));
+      let updated = current.filter(e => templateIds.has(e.id));
       const added = template.edges.filter(e => !currentIds.has(e.id));
-      if (added.length === 0) return current;
-      return [...current, ...toRFEdges(added)];
+      if (added.length > 0) updated = [...updated, ...toRFEdges(added)];
+      if (updated.length === current.length && added.length === 0) return current;
+      return updated;
     });
-  }, [template.edges.length, setEdges]);
+  }, [templateEdgeIds, setEdges]);
 
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
