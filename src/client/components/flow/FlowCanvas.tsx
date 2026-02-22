@@ -62,7 +62,7 @@ function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
       labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
       labelStyle: { fontSize: 10, fill: "hsl(var(--foreground))" },
       animated: true,
-      markerEnd: isConditionBranch ? undefined : { type: MarkerType.ArrowClosed },
+      markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
       style: { strokeWidth: 1.5, ...(branchColor ? { stroke: branchColor } : {}) },
     };
   });
@@ -191,7 +191,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           return {
             ...e,
             zIndex: hit ? 1000 : 0,
-            markerEnd: undefined,
+            markerEnd: { type: MarkerType.ArrowClosed, color: hit ? HIGHLIGHT_COLOR : undefined },
             style: {
               ...e.style,
               strokeWidth: hit ? 2.5 : 1,
@@ -217,7 +217,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         return {
           ...e,
           zIndex: 0,
-          markerEnd: branchColor ? undefined : { type: MarkerType.ArrowClosed },
+          markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
           style: { ...e.style, strokeWidth: 1.5, opacity: 1, stroke: branchColor ?? undefined },
         };
       }),
