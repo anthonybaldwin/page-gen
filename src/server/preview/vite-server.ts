@@ -20,6 +20,8 @@ const OUR_PKG = JSON.parse(readFileSync(join(import.meta.dirname, "../../../pack
 const OUR_DEPS: Record<string, string> = { ...OUR_PKG.dependencies, ...OUR_PKG.devDependencies };
 
 const activeServers = new Map<string, { port: number; process: ReturnType<typeof Bun.spawn> }>();
+// Per-project stop mutex — prevents a POST (start) from racing with an in-progress DELETE (stop)
+const pendingStops = new Map<string, Promise<void>>();
 
 // --- Port pool ---
 
@@ -352,6 +354,14 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
 }
 
 export async function startPreviewServer(projectId: string, projectPath: string, projectName?: string): Promise<{ url: string; port: number }> {
+  // Wait for any in-progress stop to finish before starting — prevents the new
+  // server from colliding with an old Vite process that is still being killed.
+  const pendingStop = pendingStops.get(projectId);
+  if (pendingStop) {
+    log("preview", `Waiting for pending stop of ${projectId} before starting`);
+    await pendingStop;
+  }
+
   // If already running, check if process is still alive
   const existing = activeServers.get(projectId);
   if (existing) {
@@ -423,44 +433,51 @@ export async function stopPreviewServer(projectId: string) {
   const { port, process: proc } = entry;
   activeServers.delete(projectId);
 
-  // Kill the entire process tree — proc.kill() only kills the parent (bunx)
-  // and orphans the Vite child, leaving the port occupied.
-  if (process.platform === "win32" && proc.pid) {
-    try {
-      Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {
-        stdout: "ignore", stderr: "ignore",
-      });
-    } catch {
-      proc.kill();
-    }
-  } else if (proc.pid) {
-    // Unix: kill the process group (negative PID) to get all children
-    try {
-      process.kill(-proc.pid, "SIGTERM");
-    } catch {
-      proc.kill();
-    }
-  } else {
-    proc.kill();
-  }
-
-  // Wait for the process to actually exit before releasing the port
-  const deadline = Date.now() + VITE_SHUTDOWN_DEADLINE;
-  while (proc.exitCode === null && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, VITE_SHUTDOWN_POLL));
-  }
-  if (proc.exitCode === null) {
-    log("preview", `Process for ${projectId} didn't exit in ${VITE_SHUTDOWN_DEADLINE}ms — force-killing`);
-    if (process.platform !== "win32" && proc.pid) {
-      try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
+  // Register the stop as a pending operation so concurrent starts wait for it
+  const stopPromise = (async () => {
+    // Kill the entire process tree — proc.kill() only kills the parent (bunx)
+    // and orphans the Vite child, leaving the port occupied.
+    if (process.platform === "win32" && proc.pid) {
+      try {
+        Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {
+          stdout: "ignore", stderr: "ignore",
+        });
+      } catch {
+        proc.kill();
+      }
+    } else if (proc.pid) {
+      // Unix: kill the process group (negative PID) to get all children
+      try {
+        process.kill(-proc.pid, "SIGTERM");
+      } catch {
+        proc.kill();
+      }
     } else {
-      proc.kill(9);
+      proc.kill();
     }
-    await new Promise((r) => setTimeout(r, 200));
-  }
 
-  releasePort(port);
-  log("preview", `Stopped preview server for ${projectId} (port ${port})`);
+    // Wait for the process to actually exit before releasing the port
+    const deadline = Date.now() + VITE_SHUTDOWN_DEADLINE;
+    while (proc.exitCode === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, VITE_SHUTDOWN_POLL));
+    }
+    if (proc.exitCode === null) {
+      log("preview", `Process for ${projectId} didn't exit in ${VITE_SHUTDOWN_DEADLINE}ms — force-killing`);
+      if (process.platform !== "win32" && proc.pid) {
+        try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
+      } else {
+        proc.kill(9);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    releasePort(port);
+    log("preview", `Stopped preview server for ${projectId} (port ${port})`);
+  })();
+
+  pendingStops.set(projectId, stopPromise);
+  await stopPromise;
+  pendingStops.delete(projectId);
 }
 
 export async function stopAllPreviewServers() {

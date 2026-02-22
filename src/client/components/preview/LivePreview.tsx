@@ -128,6 +128,7 @@ export function LivePreview() {
     setReady(false);
     setServerAlive(true);
     healthFailsRef.current = 0;
+    inFlightRef.current = false; // unblock new project start (gen check prevents stale responses)
 
     if (!activeProject) return;
 
