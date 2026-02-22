@@ -5,7 +5,11 @@ import { CustomToolEditor } from "./CustomToolEditor.tsx";
 import type { CustomToolDefinition } from "../../../shared/custom-tool-types.ts";
 import { Wrench, Plus, Trash2, Pencil } from "lucide-react";
 
-export function CustomToolSection() {
+interface CustomToolSectionProps {
+  onToolsChanged?: () => void;
+}
+
+export function CustomToolSection({ onToolsChanged }: CustomToolSectionProps) {
   const [tools, setTools] = useState<CustomToolDefinition[]>([]);
   const [editingTool, setEditingTool] = useState<CustomToolDefinition | undefined>();
   const [showEditor, setShowEditor] = useState(false);
@@ -27,6 +31,7 @@ export function CustomToolSection() {
     try {
       await api.put(`/settings/custom-tools/${tool.name}`, { ...tool, enabled: !tool.enabled });
       await refresh();
+      onToolsChanged?.();
     } catch (err) {
       console.error("[custom-tools] Toggle failed:", err);
     }
@@ -36,6 +41,7 @@ export function CustomToolSection() {
     try {
       await api.delete(`/settings/custom-tools/${name}`);
       await refresh();
+      onToolsChanged?.();
     } catch (err) {
       console.error("[custom-tools] Delete failed:", err);
     }
@@ -55,6 +61,7 @@ export function CustomToolSection() {
     setShowEditor(false);
     setEditingTool(undefined);
     refresh();
+    onToolsChanged?.();
   };
 
   if (showEditor) {

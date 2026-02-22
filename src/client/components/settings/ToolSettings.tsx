@@ -121,7 +121,7 @@ export function ToolSettings() {
         Control which tools each agent can use during pipeline runs. Changes take effect on the next run.
       </p>
 
-      <CustomToolSection />
+      <CustomToolSection onToolsChanged={refresh} />
 
       <hr className="border-border" />
 
