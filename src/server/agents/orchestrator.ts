@@ -1695,130 +1695,24 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     return;
   }
 
-  // --- Build mode: full pipeline (vibe → mood → research → architect → dev → styling → review) ---
-
-  // Vibe brief intake — visible pipeline step
-  broadcastAgentStatus(chatId, "vibe-intake", "running");
-  const projectData = await db
-    .select({ vibeBrief: schema.projects.vibeBrief })
-    .from(schema.projects)
-    .where(eq(schema.projects.id, projectId))
-    .get();
-  if (projectData?.vibeBrief) {
-    try {
-      const vibe = JSON.parse(projectData.vibeBrief);
-      agentResults.set("vibe-brief", JSON.stringify(vibe, null, 2));
-      log("orchestrator", "Vibe brief injected", { projectId, adjectives: vibe.adjectives });
-    } catch {
-      // Corrupt JSON — skip injection
-    }
-  }
-  broadcastAgentStatus(chatId, "vibe-intake", "completed");
-
-  // Mood board analysis — visible pipeline step
-  if (!signal.aborted) {
-    broadcastAgentStatus(chatId, "mood-analysis", "running");
-    const moodAnalysis = await analyzeMoodImages(projectPath, providers, apiKeys, signal);
-    if (moodAnalysis) {
-      agentResults.set("mood-analysis", moodAnalysis);
-      log("orchestrator", "Mood analysis injected", { projectId });
-    }
-    broadcastAgentStatus(chatId, "mood-analysis", "completed");
-  }
-
-  // Phase 1: Run research first so architect gets structured requirements
-  log("orchestrator", "Running research agent");
-  const researchResult = await runPipelineStep({
-    step: {
-      kind: "agent",
-      agentName: "research",
-      input: `Analyze this request and produce structured requirements: ${userMessage}`,
-    },
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal,
-  });
-
-  if (signal.aborted) {
-    await db.insert(schema.messages).values({
-      id: nanoid(), chatId, role: "system",
-      content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-    });
-    broadcastAgentStatus(chatId, "orchestrator", "stopped");
-    abortControllers.delete(chatId);
-    return;
-  }
-
-  // Phase 2: Run architect with research output available in agentResults
-  log("orchestrator", "Running architect agent");
-  const architectResult = await runPipelineStep({
-    step: {
-      kind: "agent",
-      agentName: "architect",
-      input: `Design the component architecture, design system, and test plan for this request. Use the research agent's structured requirements from Previous Agent Outputs. Original request: ${userMessage}`,
-    },
-    chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal,
-  });
-
-  if (!architectResult && !researchResult) {
-    broadcastAgentError(chatId, "orchestrator", "Pipeline failed — all initial agents encountered errors.");
-    broadcastAgentStatus(chatId, "orchestrator", "failed");
-    abortControllers.delete(chatId);
-    return;
-  }
-
-  if (signal.aborted) {
-    await db.insert(schema.messages).values({
-      id: nanoid(), chatId, role: "system",
-      content: `Pipeline stopped by user. Completed agents: ${completedAgents.join(", ") || "none"}.`,
-      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-    });
-    broadcastAgentStatus(chatId, "orchestrator", "stopped");
-    abortControllers.delete(chatId);
-    return;
-  }
-
-  // If architect failed but research succeeded, we can still try the fallback single-dev pipeline
-  if (!architectResult) {
-    log("orchestrator", "Architect failed but research succeeded — using fallback pipeline");
-  }
-
-  // Phase 3: Build single frontend-dev pipeline (research + architect already completed)
-  const researchOutput = agentResults.get("research") || "";
-
-  log("orchestrator", "Building single frontend-dev pipeline");
-  // Try flow template first, fall back to hardcoded plan
+  // --- Build mode: resolve flow template and let it drive everything ---
   const buildTemplate = getActiveFlowTemplate("build");
   let plan: ExecutionPlan;
   if (buildTemplate) {
     log("orchestrator", `Using flow template "${buildTemplate.name}" for build intent`);
     plan = resolveFlowTemplate(buildTemplate, {
-      intent: "build", scope: classification.scope,
-      needsBackend: researchOutput ? needsBackend(researchOutput) : false,
-      hasFiles: false, userMessage,
+      intent: "build",
+      scope: classification.scope,
+      needsBackend: classification.scope === "backend" || classification.scope === "full",
+      hasFiles: projectHasFiles(projectPath),
+      userMessage,
     });
     if (plan.steps.length === 0) {
       log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
-      plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+      plan = buildExecutionPlan(userMessage, "", "build", classification.scope);
     }
   } else {
-    plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
-  }
-  // Remove steps that already ran (vibe-intake, mood-analysis, architect)
-  const alreadyRan = new Set(["architect", "vibe-intake", "mood-analysis"]);
-  plan.steps = plan.steps.filter((s) => {
-    if (isAgentStep(s) && s.agentName === "architect") return false;
-    if (isActionStep(s) && alreadyRan.has(s.actionKind)) return false;
-    return true;
-  });
-  // Rewrite deps that pointed to already-ran steps
-  for (const step of plan.steps) {
-    if (step.dependsOn) {
-      step.dependsOn = step.dependsOn.filter((d) => !alreadyRan.has(d));
-    }
+    plan = buildExecutionPlan(userMessage, "", "build", classification.scope);
   }
 
   // Persist pipeline run
@@ -1830,7 +1724,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     intent: "build",
     scope: classification.scope,
     userMessage,
-    plannedAgents: JSON.stringify(["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds]),
+    plannedAgents: JSON.stringify(allStepIds),
     status: "running",
     startedAt: Date.now(),
     completedAt: null,
@@ -1838,10 +1732,10 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   broadcast({
     type: "pipeline_plan",
-    payload: { chatId, agents: ["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds] },
+    payload: { chatId, agents: allStepIds },
   });
 
-  // Execute build pipeline (research + architect already completed)
+  // Execute build pipeline — all steps driven by the flow template
   const pipelineOk = await executePipelineSteps({
     plan, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
@@ -1955,16 +1849,6 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   }
 
   // Rebuild execution plan
-  const researchOutput = agentResults.get("research") || "";
-
-  // For build mode, if research hasn't completed, we can't resume — start fresh
-  if (intent === "build" && !agentResults.has("research")) {
-    log("orchestrator", "Research not completed — cannot resume, starting fresh");
-    await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
-    abortControllers.delete(chatId);
-    return runOrchestration(input);
-  }
-
   let plan: ExecutionPlan;
   if (intent === "fix") {
     if (scope === "styling" || scope === "frontend") {
@@ -1989,26 +1873,19 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
       }
     }
   } else {
-    // Build mode: try flow template first
+    // Build mode: resolve flow template and let it drive everything
     const buildTmpl = getActiveFlowTemplate("build");
     if (buildTmpl) {
       plan = resolveFlowTemplate(buildTmpl, {
-        intent: "build", scope, needsBackend: researchOutput ? needsBackend(researchOutput) : false,
-        hasFiles: false, userMessage: originalMessage,
+        intent: "build",
+        scope,
+        needsBackend: scope === "backend" || scope === "full",
+        hasFiles: projectHasFiles(projectPath),
+        userMessage: originalMessage,
       });
-      if (plan.steps.length === 0) plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+      if (plan.steps.length === 0) plan = buildExecutionPlan(originalMessage, "", "build", scope);
     } else {
-      plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
-    }
-    // Remove steps that already ran (vibe-intake, mood-analysis, architect)
-    const resumeAlreadyRan = new Set(["architect", "vibe-intake", "mood-analysis"]);
-    plan.steps = plan.steps.filter((s) => {
-      if (isAgentStep(s) && s.agentName === "architect") return false;
-      if (isActionStep(s) && resumeAlreadyRan.has(s.actionKind)) return false;
-      return true;
-    });
-    for (const step of plan.steps) {
-      if (step.dependsOn) step.dependsOn = step.dependsOn.filter((d) => !resumeAlreadyRan.has(d));
+      plan = buildExecutionPlan(originalMessage, "", "build", scope);
     }
   }
 
@@ -2022,10 +1899,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   } else {
     // Broadcast pipeline plan showing all agents (completed + remaining)
     const allStepIds = plan.steps.map((s) => stepKey(s));
-    const allAgentNames = intent === "build"
-      ? ["vibe-intake", "mood-analysis", "research", "architect", ...allStepIds]
-      : allStepIds;
-    broadcast({ type: "pipeline_plan", payload: { chatId, agents: allAgentNames } });
+    broadcast({ type: "pipeline_plan", payload: { chatId, agents: allStepIds } });
 
     // Broadcast completed status for already-done agents
     for (const name of completedAgents) {

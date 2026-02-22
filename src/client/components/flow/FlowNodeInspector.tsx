@@ -572,15 +572,30 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
         <span className="text-xs text-muted-foreground">Skip in YOLO mode</span>
       </label>
 
-      {/* Data Flow summary */}
-      <div className="border-t border-border pt-2 mt-2">
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Data Flow</span>
-        <div className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
-          {checkpointType === "design_direction"
-            ? "Receives architect output \u2192 Extracts design directions \u2192 User selects one \u2192 Passes selected design_system to downstream nodes"
-            : "Pauses the pipeline and waits for user approval before continuing."}
+      {/* Structured Input / Output */}
+      {checkpointType === "design_direction" ? (
+        <>
+          <div className="border-t border-border pt-2 mt-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Input</span>
+            <div className="mt-1">
+              <code className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded">{"{{output:architect}}"}</code>
+            </div>
+          </div>
+          <div className="border-t border-border pt-2 mt-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              Output key: <code className="font-mono bg-muted px-1.5 py-0.5 rounded">design_system</code>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="border-t border-border pt-2 mt-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Behavior</span>
+          <div className="text-[10px] text-muted-foreground mt-1">
+            Pauses the pipeline and waits for user approval before continuing. No input/output — pass-through only.
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -593,9 +608,9 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "mood-analysis": "Analyzes uploaded mood board images using a vision model and extracts color palette, style descriptors, and mood keywords.",
 };
 
-const KIND_OUTPUTS: Record<string, string> = {
-  "vibe-intake": "Produces: vibe-brief (JSON: adjectives, metaphor, target user)",
-  "mood-analysis": "Produces: mood-analysis (JSON: palette, style descriptors, mood keywords)",
+const KIND_IO: Record<string, { input: string; outputKey: string }> = {
+  "vibe-intake": { input: "DB project vibe brief", outputKey: "vibe-brief" },
+  "mood-analysis": { input: "Mood board images on disk", outputKey: "mood-analysis" },
 };
 
 /** Which override fields to show per action kind */
@@ -650,7 +665,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   };
 
   const fields = KIND_FIELDS[data.kind] ?? [];
-  const outputInfo = KIND_OUTPUTS[data.kind];
+  const ioInfo = KIND_IO[data.kind];
 
   return (
     <div className="space-y-2">
@@ -661,11 +676,19 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
-      {outputInfo && (
-        <div className="border-t border-border pt-2 mt-2">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
-          <div className="text-[10px] text-muted-foreground mt-1">{outputInfo}</div>
-        </div>
+      {ioInfo && (
+        <>
+          <div className="border-t border-border pt-2 mt-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Input</span>
+            <div className="text-[10px] text-muted-foreground mt-1">{ioInfo.input}</div>
+          </div>
+          <div className="border-t border-border pt-2 mt-2">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
+            <div className="text-[10px] text-muted-foreground mt-1">
+              Output key: <code className="font-mono bg-muted px-1.5 py-0.5 rounded">{ioInfo.outputKey}</code>
+            </div>
+          </div>
+        </>
       )}
       {fields.length > 0 && (
         <div className="border-t border-border pt-2 mt-2">
