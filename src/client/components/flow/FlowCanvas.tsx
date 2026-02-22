@@ -185,25 +185,29 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
       if (selectedNodes.length === 1 && selectedNodes[0]) {
         const nodeId = selectedNodes[0].id;
         onNodeSelect(nodeId);
-        // Elevate connected edges so they render on top of unrelated edges
+        // Fade unconnected edges so connected ones are clearly visible
         setEdges(current =>
-          current.map(e => ({
-            ...e,
-            zIndex: (e.source === nodeId || e.target === nodeId) ? 1000 : 0,
-            style: {
-              ...e.style,
-              strokeWidth: (e.source === nodeId || e.target === nodeId) ? 2.5 : 1.5,
-            },
-          })),
+          current.map(e => {
+            const connected = e.source === nodeId || e.target === nodeId;
+            return {
+              ...e,
+              zIndex: connected ? 1000 : 0,
+              style: {
+                ...e.style,
+                strokeWidth: connected ? 2.5 : 1,
+                opacity: connected ? 1 : 0.15,
+              },
+            };
+          }),
         );
       } else {
         onNodeSelect(null);
-        // Reset all edge z-index and stroke
+        // Restore all edges
         setEdges(current =>
           current.map(e => ({
             ...e,
             zIndex: 0,
-            style: { ...e.style, strokeWidth: 1.5 },
+            style: { ...e.style, strokeWidth: 1.5, opacity: 1 },
           })),
         );
       }
