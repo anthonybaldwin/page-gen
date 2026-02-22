@@ -23,7 +23,7 @@ export function ChatMessageItem({ msg }: { msg: Message }) {
       <div
         className={`max-w-[80%] rounded-lg px-4 py-2 text-sm overflow-hidden ${
           msg.role === "user"
-            ? "bg-[#34DD4F] text-white"
+            ? "bg-[#65C466] text-white"
             : msg.role === "system"
               ? "bg-muted text-muted-foreground italic"
               : "bg-card border border-border text-card-foreground"
