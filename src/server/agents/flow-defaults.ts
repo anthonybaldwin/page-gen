@@ -224,6 +224,34 @@ export function generateFixDefault(): FlowTemplate {
   nodes.push(devFix);
   edges.push(makeEdge("cond-frontend", "dev-fix", "false"));
 
+  // Build check after quick paths
+  col++;
+  const buildCheckQuick = makeNode("build-check-quick", "action", {
+    type: "action",
+    kind: "build-check",
+    label: "Build Check",
+  }, col * X_SPACING, Y_CENTER - Y_SPACING * 0.75);
+  nodes.push(buildCheckQuick);
+  edges.push(makeEdge("styling-quick", "build-check-quick"));
+  edges.push(makeEdge("frontend-quick", "build-check-quick"));
+
+  // Build check + test run after full fix dev
+  const buildCheckFix = makeNode("build-check-fix", "action", {
+    type: "action",
+    kind: "build-check",
+    label: "Build Check",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  nodes.push(buildCheckFix);
+  edges.push(makeEdge("dev-fix", "build-check-fix"));
+
+  const testRunFix = makeNode("test-run-fix", "action", {
+    type: "action",
+    kind: "test-run",
+    label: "Test Run",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING * 1.5);
+  nodes.push(testRunFix);
+  edges.push(makeEdge("dev-fix", "test-run-fix"));
+
   // Reviewers (for full fix path)
   col++;
   const codeReview = makeNode("code-review-fix", "agent", {
@@ -232,7 +260,8 @@ export function generateFixDefault(): FlowTemplate {
     inputTemplate: "Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: {{userMessage}}",
   }, col * X_SPACING, Y_CENTER + Y_SPACING - Y_SPACING / 2);
   nodes.push(codeReview);
-  edges.push(makeEdge("dev-fix", "code-review-fix"));
+  edges.push(makeEdge("build-check-fix", "code-review-fix"));
+  edges.push(makeEdge("test-run-fix", "code-review-fix"));
 
   const securityFix = makeNode("security-fix", "agent", {
     type: "agent",
@@ -240,7 +269,8 @@ export function generateFixDefault(): FlowTemplate {
     inputTemplate: "Security review all code changes (provided in Previous Agent Outputs). Original request: {{userMessage}}",
   }, col * X_SPACING, Y_CENTER + Y_SPACING + Y_SPACING / 2);
   nodes.push(securityFix);
-  edges.push(makeEdge("dev-fix", "security-fix"));
+  edges.push(makeEdge("build-check-fix", "security-fix"));
+  edges.push(makeEdge("test-run-fix", "security-fix"));
 
   // Remediation
   col++;
