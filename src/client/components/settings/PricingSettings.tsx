@@ -77,7 +77,7 @@ export function PricingSettings() {
           <p className="text-[11px] text-muted-foreground/60 mb-2">
             Multipliers applied to input price for cache token billing, per provider.
           </p>
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
             {cacheMultipliers.map((cm) => (
               <CacheMultiplierCard
                 key={cm.provider}
@@ -99,7 +99,7 @@ export function PricingSettings() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.provider}
           </h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
             {group.models.map((model) => {
               const info = pricing.find((p) => p.model === model.id);
               return (
@@ -122,7 +122,7 @@ export function PricingSettings() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             Custom Models
           </h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
             {customPricing.map((p) => (
               <ModelPricingCard
                 key={p.model}
@@ -270,10 +270,10 @@ function ModelPricingCard({
   const hasPricing = input != null && output != null;
 
   return (
-    <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
+    <div className="rounded-lg bg-muted/50 border border-border/50 p-2.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{modelId}</span>
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <span className="text-xs font-medium text-foreground truncate">{modelId}</span>
           {pricingInfo?.isOverridden && pricingInfo.isKnown && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
               override
@@ -406,10 +406,10 @@ function CacheMultiplierCard({
   const [editRead, setEditRead] = useState("");
 
   return (
-    <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
+    <div className="rounded-lg bg-muted/50 border border-border/50 p-2.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{info.provider}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-medium text-foreground">{info.provider}</span>
           {info.isOverridden && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
               override

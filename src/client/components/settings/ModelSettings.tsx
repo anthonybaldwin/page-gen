@@ -106,7 +106,7 @@ export function ModelSettings() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.label}
           </h3>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
             {group.agents.map((config) => (
                 <AgentModelCard
                   key={config.name}
@@ -249,10 +249,10 @@ function AgentModelCard({
   }
 
   return (
-    <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">{config.displayName}</span>
+    <div className="rounded-lg bg-muted/50 border border-border/50 p-2.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-medium text-foreground">{config.displayName}</span>
           {!config.isBuiltIn && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">
               custom agent
@@ -444,7 +444,7 @@ function AgentModelCard({
         </div>
       )}
 
-      <p className="text-[11px] text-muted-foreground/60 mt-1.5">{config.description}</p>
+      <p className="text-[10px] text-muted-foreground/50 mt-1 leading-tight">{config.description}</p>
     </div>
   );
 }

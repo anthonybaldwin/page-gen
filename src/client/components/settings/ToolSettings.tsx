@@ -126,7 +126,7 @@ export function ToolSettings() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {group.label}
           </h3>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
             {group.agents.map((config) => {
               const agentName = config.name;
               const local = localTools[agentName] || [];
@@ -135,11 +135,11 @@ export function ToolSettings() {
               return (
                 <div
                   key={agentName}
-                  className="rounded-lg bg-muted/50 border border-border/50 p-3"
+                  className="rounded-lg bg-muted/50 border border-border/50 p-2.5"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-foreground">
                         {config.displayName}
                       </span>
                       {config.isOverridden && (
@@ -178,7 +178,7 @@ export function ToolSettings() {
                     </div>
                   </div>
 
-                  <div className="flex gap-4 flex-wrap">
+                  <div className="flex gap-x-3 gap-y-1.5 flex-wrap">
                     {allToolNames.map((tool) => (
                       <label
                         key={tool}
