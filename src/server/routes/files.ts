@@ -134,6 +134,55 @@ fileRoutes.get("/tree/:projectId", (c) => {
   return c.json(tree);
 });
 
+// Serve raw binary file (images, fonts, etc.)
+const MIME_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  svg: "image/svg+xml",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  eot: "application/vnd.ms-fontobject",
+  otf: "font/otf",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  webm: "video/webm",
+  pdf: "application/pdf",
+  zip: "application/zip",
+};
+
+fileRoutes.get("/raw/:projectId/*", (c) => {
+  const projectId = c.req.param("projectId");
+  const filePath = c.req.path.replace(`/api/files/raw/${projectId}/`, "");
+  const fullPath = join("./projects", projectId, filePath);
+
+  const resolved = join(process.cwd(), fullPath);
+  const projectRoot = join(process.cwd(), "projects", projectId);
+  if (!resolved.startsWith(projectRoot)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  if (!existsSync(fullPath)) return c.json({ error: "File not found" }, 404);
+
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeType = MIME_TYPES[ext] ?? "application/octet-stream";
+  const content = readFileSync(fullPath);
+
+  return new Response(content as unknown as BodyInit, {
+    headers: {
+      "Content-Type": mimeType,
+      "Cache-Control": "no-cache",
+    },
+  });
+});
+
 // Read file content
 fileRoutes.get("/read/:projectId/*", (c) => {
   const projectId = c.req.param("projectId");

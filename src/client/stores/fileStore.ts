@@ -1,6 +1,20 @@
 import { create } from "zustand";
 import { api } from "../lib/api.ts";
 
+const BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
+  "woff", "woff2", "ttf", "eot", "otf",
+  "mp3", "mp4", "wav", "ogg", "webm", "avi",
+  "pdf", "zip", "tar", "gz", "rar", "7z",
+  "exe", "dll", "so", "dylib", "bin",
+  "lock", "db", "sqlite", "sqlite3",
+]);
+
+function isBinaryFile(path: string): boolean {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return BINARY_EXTENSIONS.has(ext);
+}
+
 type ActiveTab = "preview" | "editor";
 
 interface OpenFile {
@@ -113,14 +127,15 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
     }
 
-    // New file — add entry in loading state
+    // New file — add entry in loading state (binary files skip content fetch)
+    const binary = isBinaryFile(path);
     const newFile: OpenFile = {
       path,
       projectId,
       originalContent: "",
       currentContent: "",
       isDirty: false,
-      isLoading: true,
+      isLoading: !binary,
       isSaving: false,
       externallyChanged: false,
       isPreview,
@@ -132,6 +147,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       activeTab: "editor",
       ...deriveActive(newOpenFiles, path),
     });
+
+    // Binary files are rendered by dedicated preview components — no text fetch needed
+    if (binary) return;
 
     try {
       const data = await api.get<{ content: string }>(`/files/read/${projectId}/${path}`);
