@@ -254,12 +254,26 @@ function buildQuickEditInput(scope: IntentScope, originalRequest: string): strin
  * as a readable section for downstream agents. Mutates the result object
  * by adding a "design-system" key if the architect output contains one.
  */
+
+/** Strip markdown code fences (```json ... ```) and parse JSON. */
+function parseJSONSafe(text: string): unknown | null {
+  try {
+    let jsonStr = text.trim();
+    const fenceMatch = jsonStr.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    if (fenceMatch) jsonStr = fenceMatch[1]!.trim();
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
 function injectDesignSystem(result: Record<string, string>): void {
   const architectOutput = result["architect"];
   if (!architectOutput) return;
 
   try {
-    const parsed = JSON.parse(architectOutput);
+    const parsed = parseJSONSafe(architectOutput) as Record<string, unknown> | null;
+    if (!parsed) return;
     if (parsed.design_system) {
       const ds = parsed.design_system;
       const lines: string[] = ["## Design System (from architect)"];
@@ -295,7 +309,8 @@ function injectDesignSystem(result: Record<string, string>): void {
  */
 function parseDesignOptions(architectOutput: string): import("../../shared/types.ts").DesignOption[] {
   try {
-    const parsed = JSON.parse(architectOutput);
+    const parsed = parseJSONSafe(architectOutput) as Record<string, unknown> | null;
+    if (!parsed) return [];
     if (Array.isArray(parsed.design_directions) && parsed.design_directions.length > 0) {
       return parsed.design_directions.map((d: Record<string, unknown>) => ({
         name: (d.name as string) || "Option",
@@ -334,7 +349,8 @@ function spliceSelectedDesignSystem(
   const architectOutput = agentResults.get("architect");
   if (!architectOutput) return;
   try {
-    const parsed = JSON.parse(architectOutput);
+    const parsed = parseJSONSafe(architectOutput) as Record<string, unknown> | null;
+    if (!parsed) return;
     parsed.design_system = selected.design_system;
     delete parsed.design_directions;
     agentResults.set("architect", JSON.stringify(parsed, null, 2));
@@ -1930,7 +1946,26 @@ async function executePipelineSteps(ctx: {
           if (projectData?.vibeBrief) {
             try {
               const vibe = JSON.parse(projectData.vibeBrief);
-              agentResults.set("vibe-brief", JSON.stringify(vibe, null, 2));
+              const vibeJson = JSON.stringify(vibe, null, 2);
+              agentResults.set("vibe-brief", vibeJson);
+
+              // Surface as a chat message
+              const lines: string[] = ["**Vibe Brief**"];
+              if (vibe.adjectives?.length) lines.push(`**Feel:** ${vibe.adjectives.join(", ")}`);
+              if (vibe.metaphor) lines.push(`**Metaphor:** ${vibe.metaphor}`);
+              if (vibe.targetUser) lines.push(`**Target user:** ${vibe.targetUser}`);
+              if (vibe.antiReferences?.length) lines.push(`**Avoid:** ${vibe.antiReferences.join(", ")}`);
+              const vibeMessage = lines.join("\n");
+              await db.insert(schema.messages).values({
+                id: nanoid(), chatId, role: "assistant",
+                content: vibeMessage,
+                agentName: "vibe-intake", metadata: null, createdAt: Date.now(),
+              });
+              broadcast({
+                type: "chat_message",
+                payload: { chatId, agentName: "vibe-intake", content: vibeMessage },
+              });
+
               log("orchestrator", "Vibe brief injected via action step", { projectId });
             } catch {
               // Corrupt JSON — skip
@@ -1943,6 +1978,30 @@ async function executePipelineSteps(ctx: {
           });
           if (moodResult) {
             agentResults.set("mood-analysis", moodResult);
+
+            // Surface as a chat message — format the JSON nicely
+            let moodMessage = "**Mood Analysis**\n";
+            try {
+              const mood = JSON.parse(moodResult);
+              if (mood.palette?.length) moodMessage += `**Palette:** ${mood.palette.join(", ")}\n`;
+              if (mood.styleDescriptors?.length) moodMessage += `**Style:** ${mood.styleDescriptors.join(", ")}\n`;
+              if (mood.moodKeywords?.length) moodMessage += `**Mood:** ${mood.moodKeywords.join(", ")}\n`;
+              if (mood.textureNotes) moodMessage += `**Textures:** ${mood.textureNotes}\n`;
+              if (mood.typographyHints) moodMessage += `**Typography:** ${mood.typographyHints}\n`;
+              if (mood.layoutPatterns) moodMessage += `**Layout:** ${mood.layoutPatterns}`;
+            } catch {
+              moodMessage += moodResult.slice(0, 500);
+            }
+            await db.insert(schema.messages).values({
+              id: nanoid(), chatId, role: "assistant",
+              content: moodMessage,
+              agentName: "mood-analysis", metadata: null, createdAt: Date.now(),
+            });
+            broadcast({
+              type: "chat_message",
+              payload: { chatId, agentName: "mood-analysis", content: moodMessage },
+            });
+
             log("orchestrator", "Mood analysis injected via action step", { projectId });
           }
         } else if (act.actionKind === "build-check") {
