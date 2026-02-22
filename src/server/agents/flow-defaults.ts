@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 5;
+export const FLOW_DEFAULTS_VERSION = 6;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
