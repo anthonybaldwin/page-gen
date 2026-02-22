@@ -45,7 +45,7 @@ export function GitSettings() {
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-xs text-muted-foreground mb-1 block">Name</label>
           <Input

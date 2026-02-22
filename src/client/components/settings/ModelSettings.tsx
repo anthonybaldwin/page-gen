@@ -97,9 +97,24 @@ export function ModelSettings() {
 
   return (
     <div className="space-y-6">
-      <p className="text-xs text-muted-foreground">
-        Override the provider, model, and execution limits for each agent. Changes take effect on the next pipeline run.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Override the provider, model, and execution limits for each agent. Changes take effect on the next pipeline run.
+        </p>
+        {!showAddForm && (
+          <Button variant="outline" size="sm" onClick={() => setShowAddForm(true)} className="text-xs shrink-0 ml-4">
+            + Add Custom Agent
+          </Button>
+        )}
+      </div>
+
+      {showAddForm && (
+        <AddAgentForm
+          knownModels={knownModels}
+          onCreated={() => { setShowAddForm(false); refresh(); }}
+          onCancel={() => setShowAddForm(false)}
+        />
+      )}
 
       {buildAgentGroups(configs).map((group) => (
         <div key={group.label}>
@@ -124,25 +139,6 @@ export function ModelSettings() {
           </div>
         </div>
       ))}
-
-      <div className="border-t border-border/50 pt-4">
-        {showAddForm ? (
-          <AddAgentForm
-            knownModels={knownModels}
-            onCreated={() => { setShowAddForm(false); refresh(); }}
-            onCancel={() => setShowAddForm(false)}
-          />
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAddForm(true)}
-            className="text-xs"
-          >
-            + Add Custom Agent
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
@@ -250,73 +246,39 @@ function AgentModelCard({
 
   return (
     <div className="rounded-lg bg-muted/50 border border-border/50 p-2.5">
+      {/* Row 1: Name + badges + actions */}
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-medium text-foreground">{config.displayName}</span>
           {!config.isBuiltIn && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">
-              custom agent
-            </span>
-          )}
-          {config.isOverridden && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              custom model
-            </span>
-          )}
-          {hasLimitsOverride && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              limits
-            </span>
+            <span className="text-[10px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">custom</span>
           )}
           {isReasoningModel && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
-              reasoning
-            </span>
+            <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-400">reasoning</span>
           )}
         </div>
         <div className="flex items-center gap-1">
           {onDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(config.name)}
-              disabled={saving}
-              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
-            >
-              Delete
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onDelete(config.name)} disabled={saving}
+              className="h-5 px-1.5 text-[10px] text-destructive hover:text-destructive">Delete</Button>
           )}
           {hasLimitsOverride && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLimitsReset}
-              disabled={savingLimits}
-              className="h-6 px-2 text-xs text-muted-foreground"
-            >
-              Reset limits
-            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLimitsReset} disabled={savingLimits}
+              className="h-5 px-1.5 text-[10px] text-muted-foreground">Reset limits</Button>
           )}
           {config.isOverridden && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onReset(config.name)}
-              disabled={saving}
-              className="h-6 px-2 text-xs text-muted-foreground"
-            >
-              Reset model
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onReset(config.name)} disabled={saving}
+              className="h-5 px-1.5 text-[10px] text-muted-foreground">Reset model</Button>
           )}
         </div>
       </div>
 
-      <div className="flex gap-2">
+      {/* Row 2: Provider + Model dropdowns */}
+      <div className="flex gap-1.5">
         <Select
           value={provider}
           onValueChange={(val) => {
             setProvider(val);
-            // When switching providers, pick first model that matches allowed categories
             const newModels = knownModels.find((p) => p.provider === val)?.models || [];
             const filtered = allowedCategories && allowedCategories.length > 0
               ? newModels.filter((m) => allowedCategories.includes((m.category ?? "text") as string))
@@ -325,7 +287,7 @@ function AgentModelCard({
             if (firstModel) setModel(firstModel.id);
           }}
         >
-          <SelectTrigger className="h-8 text-xs w-[120px]">
+          <SelectTrigger className="h-7 text-[11px] w-[100px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -336,7 +298,7 @@ function AgentModelCard({
         </Select>
 
         <Select value={model} onValueChange={setModel}>
-          <SelectTrigger className="h-8 text-xs flex-1">
+          <SelectTrigger className="h-7 text-[11px] flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -360,91 +322,49 @@ function AgentModelCard({
         </Select>
 
         {isDirty && (
-          <Button
-            size="sm"
-            onClick={() => onSave(config.name, provider, model)}
-            disabled={saving}
-            className="h-8 text-xs"
-          >
+          <Button size="sm" onClick={() => onSave(config.name, provider, model)} disabled={saving} className="h-7 text-[11px]">
             {saving ? "..." : "Save"}
           </Button>
         )}
       </div>
 
-      <div className="mt-1.5">
-        {pricingInfo ? (
-          <span className="text-[11px] text-muted-foreground">
-            ${pricingInfo.input} input / ${pricingInfo.output} output per 1M tokens
-          </span>
-        ) : (
-          <span className="text-[11px] text-amber-400">Pricing not configured</span>
-        )}
-      </div>
-
-      {limits && (
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] text-muted-foreground block mb-1">Max output tokens</label>
-            <Input
-              type="number"
-              min="1"
-              value={editing ? editMaxTokens : limits.maxOutputTokens}
-              onChange={(e) => setEditMaxTokens(e.target.value)}
-              onFocus={() => { if (!editing) openEdit(); }}
-              disabled={savingLimits}
-              readOnly={!editing}
-              className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-            />
-            {!editing && (
-              <span className="text-[10px] text-muted-foreground/50 mt-0.5 block">
-                default: {limits.defaultMaxOutputTokens.toLocaleString()}
-              </span>
-            )}
-          </div>
-          <div>
-            <label className="text-[10px] text-muted-foreground block mb-1">Max tool steps</label>
-            <Input
-              type="number"
-              min="1"
-              value={editing ? editMaxSteps : limits.maxToolSteps}
-              onChange={(e) => setEditMaxSteps(e.target.value)}
-              onFocus={() => { if (!editing) openEdit(); }}
-              disabled={savingLimits}
-              readOnly={!editing}
-              className={`h-7 text-xs ${!editing ? "cursor-pointer bg-transparent border-border/30" : ""} ${hasLimitsOverride && !editing ? "border-l-2 border-l-primary" : ""}`}
-            />
-            {!editing && (
-              <span className="text-[10px] text-muted-foreground/50 mt-0.5 block">
-                default: {limits.defaultMaxToolSteps}
-              </span>
-            )}
-          </div>
+      {/* Row 3: Pricing + limits inline (or expanded edit) */}
+      {!editing ? (
+        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
+          {pricingInfo ? (
+            <span>${pricingInfo.input}/${pricingInfo.output} per 1M</span>
+          ) : (
+            <span className="text-amber-400">No pricing</span>
+          )}
+          {limits && (
+            <>
+              <span className="text-border">·</span>
+              <button onClick={openEdit} className="hover:text-foreground transition-colors" title="Click to edit limits">
+                tokens: {limits.maxOutputTokens.toLocaleString()} · steps: {limits.maxToolSteps}
+                {hasLimitsOverride && <span className="text-primary ml-1">*</span>}
+              </button>
+            </>
+          )}
         </div>
-      )}
-
-      {editing && (
-        <div className="flex items-center gap-2 mt-2">
-          <Button
-            size="sm"
-            onClick={handleLimitsSave}
-            disabled={savingLimits}
-            className="h-7 text-xs"
-          >
+      ) : (
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex items-center gap-1">
+            <label className="text-[10px] text-muted-foreground">Tokens:</label>
+            <Input type="number" min="1" value={editMaxTokens} onChange={(e) => setEditMaxTokens(e.target.value)}
+              disabled={savingLimits} className="w-20 h-6 text-[11px]" />
+          </div>
+          <div className="flex items-center gap-1">
+            <label className="text-[10px] text-muted-foreground">Steps:</label>
+            <Input type="number" min="1" value={editMaxSteps} onChange={(e) => setEditMaxSteps(e.target.value)}
+              disabled={savingLimits} className="w-16 h-6 text-[11px]" />
+          </div>
+          <Button size="sm" onClick={handleLimitsSave} disabled={savingLimits} className="h-6 px-2 text-[10px]">
             {savingLimits ? "..." : "Save"}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setEditing(false)}
-            disabled={savingLimits}
-            className="h-7 text-xs text-muted-foreground"
-          >
-            Cancel
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={savingLimits}
+            className="h-6 px-1.5 text-[10px] text-muted-foreground">Cancel</Button>
         </div>
       )}
-
-      <p className="text-[10px] text-muted-foreground/50 mt-1 leading-tight">{config.description}</p>
     </div>
   );
 }

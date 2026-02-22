@@ -121,6 +121,10 @@ export function ToolSettings() {
         Control which tools each agent can use during pipeline runs. Changes take effect on the next run.
       </p>
 
+      <CustomToolSection />
+
+      <hr className="border-border" />
+
       {buildAgentGroups(configs).map((group) => (
         <div key={group.label}>
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
@@ -204,9 +208,6 @@ export function ToolSettings() {
         </div>
       ))}
 
-      <hr className="border-border" />
-
-      <CustomToolSection />
     </div>
   );
 }
