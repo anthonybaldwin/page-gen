@@ -5,8 +5,8 @@ import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides } from "../agents/registry.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
-import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride } from "../services/pricing.ts";
-import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS } from "../../shared/providers.ts";
+import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory } from "../services/pricing.ts";
+import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
 import type { AgentName, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
@@ -345,10 +345,10 @@ settingsRoutes.get("/pricing", (c) => {
   return c.json(getAllPricing());
 });
 
-// Upsert pricing override for a model (optional provider for custom models)
+// Upsert pricing override for a model (optional provider and category for custom models)
 settingsRoutes.put("/pricing/:model", async (c) => {
   const model = c.req.param("model");
-  const body = await c.req.json<{ input: number; output: number; provider?: string }>();
+  const body = await c.req.json<{ input: number; output: number; provider?: string; category?: ModelCategory }>();
 
   if (typeof body.input !== "number" || typeof body.output !== "number") {
     return c.json({ error: "input and output must be numbers" }, 400);
@@ -358,7 +358,10 @@ settingsRoutes.put("/pricing/:model", async (c) => {
   }
 
   upsertPricing(model, body.input, body.output, body.provider);
-  log("settings", `Pricing overridden: ${model}`, { model, input: body.input, output: body.output, provider: body.provider });
+  if (body.category) {
+    upsertModelCategory(model, body.category);
+  }
+  log("settings", `Pricing overridden: ${model}`, { model, input: body.input, output: body.output, provider: body.provider, category: body.category });
   return c.json({ ok: true });
 });
 
@@ -404,12 +407,13 @@ settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
 
 // Get known models grouped by provider with pricing info (includes custom models)
 settingsRoutes.get("/models", (c) => {
-  const providerGroups: { provider: string; models: { id: string; pricing: { input: number; output: number } | null }[] }[] =
+  const providerGroups: { provider: string; models: { id: string; pricing: { input: number; output: number } | null; category: ModelCategory }[] }[] =
     PROVIDER_IDS.map((id) => ({
       provider: id,
       models: getModelsForProvider(id).map((m) => ({
         id: m.id,
         pricing: DEFAULT_PRICING[m.id] || null,
+        category: (m.category ?? "text") as ModelCategory,
       })),
     }));
 
@@ -424,7 +428,7 @@ settingsRoutes.get("/models", (c) => {
       group = { provider: p.provider, models: [] };
       providerGroups.push(group);
     }
-    group.models.push({ id: p.model, pricing: { input: p.input, output: p.output } });
+    group.models.push({ id: p.model, pricing: { input: p.input, output: p.output }, category: (p.category ?? "text") as ModelCategory });
   }
 
   return c.json(providerGroups);

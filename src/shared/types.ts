@@ -97,6 +97,7 @@ export interface ModelPricing {
   output: number;
   isOverridden: boolean;
   isKnown: boolean;
+  category?: string;
 }
 
 export interface CacheMultiplierInfo {

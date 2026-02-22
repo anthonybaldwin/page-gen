@@ -182,10 +182,26 @@ export const PROVIDER_VOICES: Record<string, VoiceDef[]> = {
 // Model definitions
 // ---------------------------------------------------------------------------
 
+export type ModelCategory = "text" | "code" | "reasoning" | "voice" | "image" | "realtime";
+
+export const CATEGORY_LABELS: Record<ModelCategory, string> = {
+  text: "Text",
+  code: "Code",
+  reasoning: "Reasoning",
+  voice: "Voice",
+  image: "Image",
+  realtime: "Realtime",
+};
+
+/** Display order for categories in dropdowns. */
+export const CATEGORY_ORDER: ModelCategory[] = ["text", "code", "reasoning", "voice", "image", "realtime"];
+
 export interface ModelDef {
   id: string;
   provider: string;
   pricing: { input: number; output: number };
+  /** Model category — defaults to "text" if omitted. */
+  category?: ModelCategory;
   /**
    * Voice support. Omit for non-voice models.
    *  - `"all"` → model supports every voice in PROVIDER_VOICES[provider]
@@ -235,11 +251,11 @@ export const MODELS: ModelDef[] = [
   { id: "gpt-5-nano-2025-08-07",       provider: "openai", pricing: { input: 0.05, output: 0.4 } },
   { id: "gpt-5-pro",                   provider: "openai", pricing: { input: 15,   output: 120 } },
   // Codex (coding-optimized)
-  { id: "gpt-5.2-codex",               provider: "openai", pricing: { input: 1.75, output: 14 } },
-  { id: "gpt-5.1-codex",               provider: "openai", pricing: { input: 1.25, output: 10 } },
-  { id: "gpt-5.1-codex-mini",          provider: "openai", pricing: { input: 0.25, output: 2 } },
-  { id: "gpt-5.1-codex-max",           provider: "openai", pricing: { input: 1.25, output: 10 } },
-  { id: "gpt-5-codex",                 provider: "openai", pricing: { input: 1.25, output: 10 } },
+  { id: "gpt-5.2-codex",               provider: "openai", pricing: { input: 1.75, output: 14 }, category: "code" },
+  { id: "gpt-5.1-codex",               provider: "openai", pricing: { input: 1.25, output: 10 }, category: "code" },
+  { id: "gpt-5.1-codex-mini",          provider: "openai", pricing: { input: 0.25, output: 2 }, category: "code" },
+  { id: "gpt-5.1-codex-max",           provider: "openai", pricing: { input: 1.25, output: 10 }, category: "code" },
+  { id: "gpt-5-codex",                 provider: "openai", pricing: { input: 1.25, output: 10 }, category: "code" },
   // GPT-4.1 family
   { id: "gpt-4.1-2025-04-14",          provider: "openai", pricing: { input: 2,    output: 8 } },
   { id: "gpt-4.1-mini-2025-04-14",     provider: "openai", pricing: { input: 0.4,  output: 1.6 } },
@@ -248,22 +264,22 @@ export const MODELS: ModelDef[] = [
   { id: "gpt-4o-2024-11-20",           provider: "openai", pricing: { input: 2.5,  output: 10 } },
   { id: "gpt-4o-mini-2024-07-18",      provider: "openai", pricing: { input: 0.15, output: 0.6 } },
   // O-series reasoning
-  { id: "o3-pro-2025-06-10",           provider: "openai", pricing: { input: 20,   output: 80 } },
-  { id: "o3-2025-04-16",               provider: "openai", pricing: { input: 2,    output: 8 } },
-  { id: "o3-mini-2025-01-31",          provider: "openai", pricing: { input: 1.1,  output: 4.4 } },
-  { id: "o4-mini-2025-04-16",          provider: "openai", pricing: { input: 1.1,  output: 4.4 } },
-  { id: "o1",                          provider: "openai", pricing: { input: 15,   output: 60 } },
-  { id: "o1-pro",                      provider: "openai", pricing: { input: 150,  output: 600 } },
-  { id: "o1-mini",                     provider: "openai", pricing: { input: 1.1,  output: 4.4 } },
+  { id: "o3-pro-2025-06-10",           provider: "openai", pricing: { input: 20,   output: 80 }, category: "reasoning" },
+  { id: "o3-2025-04-16",               provider: "openai", pricing: { input: 2,    output: 8 }, category: "reasoning" },
+  { id: "o3-mini-2025-01-31",          provider: "openai", pricing: { input: 1.1,  output: 4.4 }, category: "reasoning" },
+  { id: "o4-mini-2025-04-16",          provider: "openai", pricing: { input: 1.1,  output: 4.4 }, category: "reasoning" },
+  { id: "o1",                          provider: "openai", pricing: { input: 15,   output: 60 }, category: "reasoning" },
+  { id: "o1-pro",                      provider: "openai", pricing: { input: 150,  output: 600 }, category: "reasoning" },
+  { id: "o1-mini",                     provider: "openai", pricing: { input: 1.1,  output: 4.4 }, category: "reasoning" },
   // Voice / TTS (text input tokens → audio output tokens)
-  { id: "gpt-4o-mini-tts-2025-12-15",  provider: "openai", pricing: { input: 0.6,  output: 12 }, voices: "all" },
+  { id: "gpt-4o-mini-tts-2025-12-15",  provider: "openai", pricing: { input: 0.6,  output: 12 }, category: "voice", voices: "all" },
   // Audio (multimodal text + audio; text token pricing shown)
-  { id: "gpt-4o-audio-preview",        provider: "openai", pricing: { input: 2.5,  output: 10 }, voices: "all" },
-  { id: "gpt-4o-mini-audio-preview",   provider: "openai", pricing: { input: 0.15, output: 0.6 }, voices: "all" },
+  { id: "gpt-4o-audio-preview",        provider: "openai", pricing: { input: 2.5,  output: 10 }, category: "voice", voices: "all" },
+  { id: "gpt-4o-mini-audio-preview",   provider: "openai", pricing: { input: 0.15, output: 0.6 }, category: "voice", voices: "all" },
   // Realtime voice (text token pricing; audio tokens priced separately at ~5-8x)
-  { id: "gpt-realtime",                provider: "openai", pricing: { input: 4,    output: 16 },
+  { id: "gpt-realtime",                provider: "openai", pricing: { input: 4,    output: 16 }, category: "realtime",
     voices: ["alloy", "ash", "ballad", "cedar", "coral", "echo", "marin", "sage", "shimmer", "verse"] },
-  { id: "gpt-realtime-mini",           provider: "openai", pricing: { input: 0.6,  output: 2.4 },
+  { id: "gpt-realtime-mini",           provider: "openai", pricing: { input: 0.6,  output: 2.4 }, category: "realtime",
     voices: ["alloy", "ash", "ballad", "cedar", "coral", "echo", "marin", "sage", "shimmer", "verse"] },
 
   // -------------------------------------------------------------------------
@@ -274,37 +290,37 @@ export const MODELS: ModelDef[] = [
   { id: "gemini-3-pro-preview",        provider: "google", pricing: { input: 2,    output: 12 } },
   { id: "gemini-3-flash-preview",      provider: "google", pricing: { input: 0.5,  output: 3 } },
   // Gemini 3 image generation (multimodal; text token pricing)
-  { id: "gemini-3-pro-image-preview",  provider: "google", pricing: { input: 2,    output: 12 } },
+  { id: "gemini-3-pro-image-preview",  provider: "google", pricing: { input: 2,    output: 12 }, category: "image" },
   // Gemini 2.5 (stable)
   { id: "gemini-2.5-pro",              provider: "google", pricing: { input: 1.25, output: 10 } },
   { id: "gemini-2.5-flash",            provider: "google", pricing: { input: 0.3,  output: 2.5 } },
   { id: "gemini-2.5-flash-lite",       provider: "google", pricing: { input: 0.1,  output: 0.4 } },
   // Voice / TTS (text input tokens → audio output tokens)
-  { id: "gemini-2.5-flash-preview-tts", provider: "google", pricing: { input: 0.5,  output: 10 }, voices: "all" },
-  { id: "gemini-2.5-pro-preview-tts",   provider: "google", pricing: { input: 1,    output: 20 }, voices: "all" },
+  { id: "gemini-2.5-flash-preview-tts", provider: "google", pricing: { input: 0.5,  output: 10 }, category: "voice", voices: "all" },
+  { id: "gemini-2.5-pro-preview-tts",   provider: "google", pricing: { input: 1,    output: 20 }, category: "voice", voices: "all" },
 
   // -------------------------------------------------------------------------
   // xAI (Grok)
   // -------------------------------------------------------------------------
   // Grok 4 family
   { id: "grok-4-0709",                 provider: "xai", pricing: { input: 3,    output: 15 } },
-  { id: "grok-4-1-fast-reasoning",     provider: "xai", pricing: { input: 0.2,  output: 0.5 } },
+  { id: "grok-4-1-fast-reasoning",     provider: "xai", pricing: { input: 0.2,  output: 0.5 }, category: "reasoning" },
   { id: "grok-4-1-fast-non-reasoning", provider: "xai", pricing: { input: 0.2,  output: 0.5 } },
-  { id: "grok-4-fast-reasoning",       provider: "xai", pricing: { input: 0.2,  output: 0.5 } },
+  { id: "grok-4-fast-reasoning",       provider: "xai", pricing: { input: 0.2,  output: 0.5 }, category: "reasoning" },
   { id: "grok-4-fast-non-reasoning",   provider: "xai", pricing: { input: 0.2,  output: 0.5 } },
   // Coding
-  { id: "grok-code-fast-1",            provider: "xai", pricing: { input: 0.2,  output: 1.5 } },
+  { id: "grok-code-fast-1",            provider: "xai", pricing: { input: 0.2,  output: 1.5 }, category: "code" },
   // Grok 3 family
   { id: "grok-3",                      provider: "xai", pricing: { input: 3,    output: 15 } },
   { id: "grok-3-mini",                 provider: "xai", pricing: { input: 0.3,  output: 0.5 } },
   // Vision
-  { id: "grok-2-vision-1212",          provider: "xai", pricing: { input: 2,    output: 10 } },
+  { id: "grok-2-vision-1212",          provider: "xai", pricing: { input: 2,    output: 10 }, category: "image" },
 
   // -------------------------------------------------------------------------
   // DeepSeek
   // -------------------------------------------------------------------------
   { id: "deepseek-chat",               provider: "deepseek", pricing: { input: 0.28, output: 0.42 } },
-  { id: "deepseek-reasoner",           provider: "deepseek", pricing: { input: 0.28, output: 0.42 } },
+  { id: "deepseek-reasoner",           provider: "deepseek", pricing: { input: 0.28, output: 0.42 }, category: "reasoning" },
 
   // -------------------------------------------------------------------------
   // Mistral AI
@@ -319,15 +335,15 @@ export const MODELS: ModelDef[] = [
   { id: "ministral-8b-2512",           provider: "mistral", pricing: { input: 0.15, output: 0.15 } },
   { id: "ministral-14b-2512",          provider: "mistral", pricing: { input: 0.2,  output: 0.2 } },
   // Coding (agentic + completion)
-  { id: "devstral-2512",               provider: "mistral", pricing: { input: 0.4,  output: 2 } },
-  { id: "devstral-medium-2507",        provider: "mistral", pricing: { input: 0.4,  output: 2 } },
-  { id: "devstral-small-2-25-12",      provider: "mistral", pricing: { input: 0.1,  output: 0.3 } },
-  { id: "codestral-2508",              provider: "mistral", pricing: { input: 0.3,  output: 0.9 } },
+  { id: "devstral-2512",               provider: "mistral", pricing: { input: 0.4,  output: 2 }, category: "code" },
+  { id: "devstral-medium-2507",        provider: "mistral", pricing: { input: 0.4,  output: 2 }, category: "code" },
+  { id: "devstral-small-2-25-12",      provider: "mistral", pricing: { input: 0.1,  output: 0.3 }, category: "code" },
+  { id: "codestral-2508",              provider: "mistral", pricing: { input: 0.3,  output: 0.9 }, category: "code" },
   // Multimodal / vision
-  { id: "pixtral-large-2411",          provider: "mistral", pricing: { input: 2,    output: 6 } },
+  { id: "pixtral-large-2411",          provider: "mistral", pricing: { input: 2,    output: 6 }, category: "image" },
   // Reasoning
-  { id: "magistral-medium-2509",       provider: "mistral", pricing: { input: 2,    output: 5 } },
-  { id: "magistral-small-2509",        provider: "mistral", pricing: { input: 0.5,  output: 1.5 } },
+  { id: "magistral-medium-2509",       provider: "mistral", pricing: { input: 2,    output: 5 }, category: "reasoning" },
+  { id: "magistral-small-2509",        provider: "mistral", pricing: { input: 0.5,  output: 1.5 }, category: "reasoning" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -400,4 +416,14 @@ export function getVoicesForModel(modelId: string): VoiceDef[] {
 /** Check if a model supports voice output. */
 export function isVoiceModel(modelId: string): boolean {
   return !!MODEL_MAP[modelId]?.voices;
+}
+
+/** Get the category for a known model (defaults to "text"). */
+export function getModelCategory(modelId: string): ModelCategory {
+  return MODEL_MAP[modelId]?.category ?? "text";
+}
+
+/** Check if a model is a reasoning model (chain-of-thought). */
+export function isReasoningModel(modelId: string): boolean {
+  return getModelCategory(modelId) === "reasoning";
 }

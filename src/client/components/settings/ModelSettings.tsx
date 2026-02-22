@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from "../ui/select.tsx";
 import type { ResolvedAgentConfig, AgentLimitsConfig, ModelPricing, AgentGroup } from "../../../shared/types.ts";
-import { PROVIDER_IDS } from "../../../shared/providers.ts";
+import { PROVIDER_IDS, CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
@@ -22,7 +22,7 @@ function buildAgentGroups(configs: ResolvedAgentConfig[]) {
 
 interface ProviderModels {
   provider: string;
-  models: Array<{ id: string; pricing: { input: number; output: number } | null }>;
+  models: Array<{ id: string; pricing: { input: number; output: number } | null; category?: string }>;
 }
 
 interface PricingInfo extends ModelPricing {
@@ -153,7 +153,25 @@ function AgentModelCard({
     modelOptions.unshift(model);
   }
 
+  // Group models by category for dropdown
+  const modelsByCategory = new Map<ModelCategory, string[]>();
+  for (const m of providerModels) {
+    const cat = (m.category ?? "text") as ModelCategory;
+    if (!modelsByCategory.has(cat)) modelsByCategory.set(cat, []);
+    modelsByCategory.get(cat)!.push(m.id);
+  }
+  // Ensure current model appears even if not in providerModels
+  if (model && !providerModels.find((m) => m.id === model)) {
+    const cat: ModelCategory = "text";
+    if (!modelsByCategory.has(cat)) modelsByCategory.set(cat, []);
+    modelsByCategory.get(cat)!.unshift(model);
+  }
+  const sortedCategories = CATEGORY_ORDER.filter((c) => modelsByCategory.has(c));
+  const hasMultipleCategories = sortedCategories.length > 1;
+
   const pricingInfo = pricing.find((p) => p.model === model);
+  const selectedModelCategory = providerModels.find((m) => m.id === model)?.category ?? pricingInfo?.category ?? "text";
+  const isReasoningModel = selectedModelCategory === "reasoning";
   const hasLimitsOverride = !!limits?.isOverridden;
 
   function openEdit() {
@@ -201,6 +219,11 @@ function AgentModelCard({
           {hasLimitsOverride && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
               limits
+            </span>
+          )}
+          {isReasoningModel && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
+              reasoning
             </span>
           )}
         </div>
@@ -254,9 +277,22 @@ function AgentModelCard({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {modelOptions.map((m) => (
-              <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
-            ))}
+            {hasMultipleCategories ? (
+              sortedCategories.map((cat) => (
+                <SelectGroup key={cat}>
+                  <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70 px-2 py-1">
+                    {CATEGORY_LABELS[cat]}
+                  </SelectLabel>
+                  {modelsByCategory.get(cat)!.map((m) => (
+                    <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+                  ))}
+                </SelectGroup>
+              ))
+            ) : (
+              modelOptions.map((m) => (
+                <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+              ))
+            )}
           </SelectContent>
         </Select>
 

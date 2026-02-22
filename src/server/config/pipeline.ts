@@ -22,6 +22,7 @@ export const PIPELINE_DEFAULTS: Record<string, number> = {
   warningThreshold: 80, // stored as integer percentage (80 = 0.80)
   maxVersionsRetained: 50,
   maxAgentVersionsPerRun: 3,
+  reasoningMinOutputTokens: 16_000,
 };
 
 /**

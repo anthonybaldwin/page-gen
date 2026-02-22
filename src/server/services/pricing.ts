@@ -1,7 +1,7 @@
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import type { CacheMultiplierInfo } from "../../shared/types.ts";
-import { MODELS, CACHE_MULTIPLIERS } from "../../shared/providers.ts";
+import { MODELS, CACHE_MULTIPLIERS, MODEL_MAP, type ModelCategory } from "../../shared/providers.ts";
 
 /** Re-export for backward compat — derived from the shared MODELS array. */
 export const PROVIDER_CACHE_MULTIPLIERS = CACHE_MULTIPLIERS;
@@ -83,6 +83,7 @@ export interface ModelPricingInfo {
   isOverridden: boolean;
   isKnown: boolean;
   provider?: string;
+  category?: ModelCategory;
 }
 
 /**
@@ -154,23 +155,50 @@ export function deletePricingOverride(model: string): void {
     const key = pricingKey(model, field);
     db.delete(schema.appSettings).where(eq(schema.appSettings.key, key)).run();
   }
-  // Also clean up provider key for custom models
+  // Also clean up provider and category keys for custom models
   const providerKey = `pricing.${model}.provider`;
   db.delete(schema.appSettings).where(eq(schema.appSettings.key, providerKey)).run();
+  const categoryKey = `model.${model}.category`;
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, categoryKey)).run();
+}
+
+/** Upsert a category override for a custom model in app_settings. */
+export function upsertModelCategory(model: string, category: ModelCategory): void {
+  const key = `model.${model}.category`;
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: category }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: category }).run();
+  }
+}
+
+/** Get the effective category for a model: catalog → DB → "text". */
+export function getModelCategoryFromDB(model: string): ModelCategory {
+  // Check catalog first
+  const catalogModel = MODEL_MAP[model];
+  if (catalogModel) return catalogModel.category ?? "text";
+  // Check DB override
+  const key = `model.${model}.category`;
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (row?.value) return row.value as ModelCategory;
+  return "text";
 }
 
 /** Get all models with effective pricing, merging defaults + DB overrides. */
 export function getAllPricing(): ModelPricingInfo[] {
   const result = new Map<string, ModelPricingInfo>();
 
-  // Seed with known models
+  // Seed with known models (include catalog category)
   for (const [model, pricing] of Object.entries(DEFAULT_PRICING)) {
+    const catalogModel = MODEL_MAP[model];
     result.set(model, {
       model,
       input: pricing.input,
       output: pricing.output,
       isOverridden: false,
       isKnown: true,
+      category: catalogModel?.category ?? "text",
     });
   }
 
@@ -192,6 +220,16 @@ export function getAllPricing(): ModelPricingInfo[] {
     overrides.set(parsed.model, existing);
   }
 
+  // Build category map for custom models from DB
+  const categoryRows = db.select().from(schema.appSettings).where(like(schema.appSettings.key, "model.%")).all();
+  const categoryMap = new Map<string, ModelCategory>();
+  for (const row of categoryRows) {
+    if (row.key.endsWith(".category")) {
+      const model = row.key.slice("model.".length, row.key.length - ".category".length);
+      if (model) categoryMap.set(model, row.value as ModelCategory);
+    }
+  }
+
   for (const [model, override] of overrides) {
     const known = result.get(model);
     if (known && override.input !== undefined && override.output !== undefined) {
@@ -208,6 +246,7 @@ export function getAllPricing(): ModelPricingInfo[] {
         isOverridden: true,
         isKnown: false,
         provider: providerMap.get(model),
+        category: categoryMap.get(model) ?? "text",
       });
     }
   }

@@ -10,8 +10,9 @@ import { extractSummary, stripTrailingJson } from "../../shared/summary.ts";
 import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
-import { estimateCost } from "../services/pricing.ts";
+import { estimateCost, getModelCategoryFromDB } from "../services/pricing.ts";
 import { getAgentLimits } from "./registry.ts";
+import { getPipelineSetting } from "../config/pipeline.ts";
 import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION } from "../config/logging.ts";
 
 
@@ -148,11 +149,21 @@ export async function trackedGenerateText(opts: TrackedGenerateTextOpts): Promis
   text: string;
   tokenUsage: TrackedTokenUsage;
 }> {
+  // Auto-floor for reasoning models in sub-agent calls
+  let maxOutputTokens = opts.maxOutputTokens;
+  if (maxOutputTokens && getModelCategoryFromDB(opts.modelId) === "reasoning") {
+    const floor = getPipelineSetting("reasoningMinOutputTokens");
+    if (maxOutputTokens < floor) {
+      log("pipeline", `Reasoning floor (tracked): ${maxOutputTokens} → ${floor}`, { agent: opts.agentName, model: opts.modelId });
+      maxOutputTokens = floor;
+    }
+  }
+
   const result = await generateText({
     model: opts.model,
     system: opts.system,
     prompt: opts.prompt,
-    maxOutputTokens: opts.maxOutputTokens,
+    maxOutputTokens,
   });
 
   const { cacheCreationInputTokens, cacheReadInputTokens } = extractAnthropicCacheTokens(result);
@@ -276,8 +287,18 @@ export async function runAgent(
     logLLMInput("pipeline", broadcastName, systemPrompt, builtPrompt);
 
     const dbLimits = getAgentLimits(config.name as AgentName);
-    const maxOutputTokens = overrides?.maxOutputTokens ?? dbLimits.maxOutputTokens;
+    let maxOutputTokens = overrides?.maxOutputTokens ?? dbLimits.maxOutputTokens;
     const maxToolSteps = overrides?.maxToolSteps ?? dbLimits.maxToolSteps;
+
+    // Auto-floor for reasoning models — reasoning tokens eat into maxOutputTokens
+    if (getModelCategoryFromDB(config.model) === "reasoning") {
+      const floor = getPipelineSetting("reasoningMinOutputTokens");
+      if (maxOutputTokens < floor) {
+        log("pipeline", `Reasoning floor: ${maxOutputTokens} → ${floor}`, { agent: config.name, model: config.model });
+        maxOutputTokens = floor;
+      }
+    }
+
     const isAnthropic = config.provider === "anthropic";
 
     // For Anthropic: use SystemModelMessage with cache_control and split user messages

@@ -3,12 +3,13 @@ import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
-import { Pencil } from "lucide-react";
+import { Pencil, Info } from "lucide-react";
 import type { ModelPricing, CacheMultiplierInfo } from "../../../shared/types.ts";
+import { PROVIDER_IDS, CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
 
 interface ProviderModels {
   provider: string;
-  models: Array<{ id: string; pricing: { input: number; output: number } | null }>;
+  models: Array<{ id: string; pricing: { input: number; output: number } | null; category?: string }>;
 }
 
 interface PricingInfo extends ModelPricing {
@@ -35,8 +36,8 @@ export function PricingSettings() {
     refresh().catch(console.error);
   }, []);
 
-  async function handlePricingOverride(model: string, input: number, output: number, provider?: string) {
-    await api.put(`/settings/pricing/${model}`, { input, output, ...(provider ? { provider } : {}) });
+  async function handlePricingOverride(model: string, input: number, output: number, provider?: string, category?: string) {
+    await api.put(`/settings/pricing/${model}`, { input, output, ...(provider ? { provider } : {}), ...(category ? { category } : {}) });
     await refresh();
   }
 
@@ -91,7 +92,7 @@ export function PricingSettings() {
 
       <div className="border-t border-border" />
 
-      <AddCustomModelForm onAdd={(model, input, output, provider) => handlePricingOverride(model, input, output, provider)} existingModels={knownModelIds} />
+      <AddCustomModelForm onAdd={(model, input, output, provider, category) => handlePricingOverride(model, input, output, provider, category)} existingModels={knownModelIds} />
 
       {knownModels.map((group) => (
         <div key={group.provider}>
@@ -139,20 +140,18 @@ export function PricingSettings() {
   );
 }
 
-import { PROVIDER_IDS } from "../../../shared/providers.ts";
-
-
 function AddCustomModelForm({
   onAdd,
   existingModels,
 }: {
-  onAdd: (model: string, input: number, output: number, provider: string) => void;
+  onAdd: (model: string, input: number, output: number, provider: string, category?: string) => void;
   existingModels: Set<string>;
 }) {
   const [provider, setProvider] = useState(PROVIDER_IDS[0]!);
   const [modelId, setModelId] = useState("");
   const [inputPrice, setInputPrice] = useState("");
   const [outputPrice, setOutputPrice] = useState("");
+  const [category, setCategory] = useState<ModelCategory>("text");
   const [error, setError] = useState("");
 
   function handleSubmit() {
@@ -163,10 +162,11 @@ function AddCustomModelForm({
     const out = parseFloat(outputPrice);
     if (isNaN(inp) || isNaN(out) || inp < 0 || out < 0) { setError("Valid pricing required"); return; }
     setError("");
-    onAdd(id, inp, out, provider);
+    onAdd(id, inp, out, provider, category);
     setModelId("");
     setInputPrice("");
     setOutputPrice("");
+    setCategory("text");
   }
 
   return (
@@ -220,10 +220,29 @@ function AddCustomModelForm({
             className="h-8 text-xs"
           />
         </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-0.5">Category</label>
+          <Select value={category} onValueChange={(val) => setCategory(val as ModelCategory)}>
+            <SelectTrigger className="h-8 text-xs w-[110px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CATEGORY_ORDER.map((cat) => (
+                <SelectItem key={cat} value={cat} className="text-xs">{CATEGORY_LABELS[cat]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <Button size="sm" onClick={handleSubmit} className="h-8 text-xs">
           Add
         </Button>
       </div>
+      {category === "reasoning" && (
+        <p className="text-[10px] text-amber-400 mt-1 flex items-center gap-1">
+          <Info className="h-3 w-3 shrink-0" />
+          Reasoning models use output tokens for chain-of-thought. A minimum output token floor is applied automatically.
+        </p>
+      )}
       {error && <p className="text-[10px] text-destructive mt-1">{error}</p>}
     </div>
   );
@@ -263,6 +282,15 @@ function ModelPricingCard({
           {pricingInfo && !pricingInfo.isKnown && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
               custom
+            </span>
+          )}
+          {pricingInfo?.category && pricingInfo.category !== "text" && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+              pricingInfo.category === "reasoning" ? "bg-amber-500/20 text-amber-400"
+                : pricingInfo.category === "code" ? "bg-blue-500/20 text-blue-400"
+                : "bg-muted text-muted-foreground"
+            }`}>
+              {CATEGORY_LABELS[pricingInfo.category as ModelCategory] ?? pricingInfo.category}
             </span>
           )}
         </div>
