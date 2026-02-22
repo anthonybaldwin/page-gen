@@ -143,13 +143,6 @@ function validateNode(
       }
       break;
     }
-    case "post-action": {
-      const validActions = ["build-check", "test-run", "build-fix-loop", "remediation-loop"];
-      if (!validActions.includes(data.actionType)) {
-        errors.push({ type: "error", message: `Post-action node "${node.id}" has invalid action type "${data.actionType}"`, nodeId: node.id });
-      }
-      break;
-    }
   }
 }
 

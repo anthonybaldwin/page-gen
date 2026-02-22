@@ -18,14 +18,14 @@ import "@xyflow/react/dist/style.css";
 import { AgentNode } from "./nodes/AgentNode.tsx";
 import { ConditionNode } from "./nodes/ConditionNode.tsx";
 import { CheckpointNode } from "./nodes/CheckpointNode.tsx";
-import { PostActionNode } from "./nodes/PostActionNode.tsx";
+import { GhostNode } from "./nodes/GhostNode.tsx";
 import type { FlowTemplate, FlowNode, FlowEdge } from "../../../shared/flow-types.ts";
 
 const nodeTypes = {
   agent: AgentNode,
   condition: ConditionNode,
   checkpoint: CheckpointNode,
-  "post-action": PostActionNode,
+  ghost: GhostNode,
 };
 
 /** Convert our FlowNode[] to React Flow Node[] */
@@ -131,6 +131,38 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     });
   }, [templateEdgeIds, setEdges]);
 
+  // Generate ghost indicator nodes from real agent nodes
+  const ghostNodes = useMemo(() => {
+    const ghosts: Node[] = [];
+    for (const node of nodes) {
+      if (node.type !== "agent") continue;
+      ghosts.push({
+        id: `ghost-build-${node.id}`,
+        type: "ghost",
+        position: { x: node.position.x + 200, y: node.position.y + 12 },
+        data: { variant: "build-check", label: "Auto Build" },
+        selectable: false,
+        draggable: false,
+      });
+    }
+    // Add remediation ghost after terminal agent nodes (no outgoing edges)
+    const sources = new Set(edges.map(e => e.source));
+    const terminalAgents = nodes.filter(n => n.type === "agent" && !sources.has(n.id));
+    if (terminalAgents.length > 0) {
+      const maxX = Math.max(...terminalAgents.map(n => n.position.x));
+      const avgY = terminalAgents.reduce((s, n) => s + n.position.y, 0) / terminalAgents.length;
+      ghosts.push({
+        id: "ghost-remediation",
+        type: "ghost",
+        position: { x: maxX + 200, y: avgY },
+        data: { variant: "remediation", label: "Auto Remediation" },
+        selectable: false,
+        draggable: false,
+      });
+    }
+    return ghosts;
+  }, [nodes, edges]);
+
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       setEdges((eds) => {
@@ -152,7 +184,10 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
 
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
-      onNodesChange(changes);
+      // Filter out changes for ghost nodes (they're render-only, not in state)
+      const realChanges = changes.filter(c => !("id" in c && typeof c.id === "string" && c.id.startsWith("ghost-")));
+      if (realChanges.length === 0) return;
+      onNodesChange(realChanges);
       // Defer notifying parent so state is updated
       setTimeout(() => {
         setNodes((current) => {
@@ -218,8 +253,9 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
 
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: Node[] }) => {
-      if (selectedNodes.length === 1 && selectedNodes[0]) {
-        const nodeId = selectedNodes[0].id;
+      const realSelected = selectedNodes.filter(n => !n.id.startsWith("ghost-"));
+      if (realSelected.length === 1 && realSelected[0]) {
+        const nodeId = realSelected[0].id;
         onNodeSelect(nodeId);
         highlightEdges(e => e.source === nodeId || e.target === nodeId);
       } else {
@@ -248,7 +284,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
   return (
     <div className="h-full w-full min-h-[300px] rounded-lg border border-border bg-background">
       <ReactFlow
-        nodes={nodes}
+        nodes={[...nodes, ...ghostNodes]}
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
@@ -283,7 +319,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
               case "agent": return isDark ? "#818cf8" : "#6366f1";
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
-              case "post-action": return "#a855f7";
+              case "ghost": return "transparent";
               default: return isDark ? "#aaa" : "#888";
             }
           }}

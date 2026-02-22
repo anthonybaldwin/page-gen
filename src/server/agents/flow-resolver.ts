@@ -1,6 +1,6 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, PostActionNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
-import type { ExecutionPlan, PostActionOverrides } from "./orchestrator.ts";
+import type { ExecutionPlan } from "./orchestrator.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import { log } from "../services/logger.ts";
@@ -239,46 +239,15 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
 
     // Checkpoint nodes: skip for now (Phase 2)
-    // Post-action nodes: collect overrides below
   }
-
-  // Collect post-action overrides from active post-action nodes
-  const postActionOverrides: PostActionOverrides = {};
-  for (const nodeId of sorted) {
-    if (!activeNodes.has(nodeId)) continue;
-    const node = nodeMap.get(nodeId);
-    if (!node || node.data.type !== "post-action") continue;
-    const pa = node.data as PostActionNodeData;
-    switch (pa.actionType) {
-      case "build-check":
-        if (pa.timeoutMs !== undefined) postActionOverrides.buildTimeoutMs = pa.timeoutMs;
-        break;
-      case "test-run":
-        if (pa.timeoutMs !== undefined) postActionOverrides.testTimeoutMs = pa.timeoutMs;
-        if (pa.maxTestFailures !== undefined) postActionOverrides.maxTestFailures = pa.maxTestFailures;
-        if (pa.maxUniqueErrors !== undefined) postActionOverrides.maxUniqueErrors = pa.maxUniqueErrors;
-        break;
-      case "build-fix-loop":
-        if (pa.timeoutMs !== undefined) postActionOverrides.buildTimeoutMs = pa.timeoutMs;
-        if (pa.maxAttempts !== undefined) postActionOverrides.maxBuildFixAttempts = pa.maxAttempts;
-        if (pa.maxUniqueErrors !== undefined) postActionOverrides.maxUniqueErrors = pa.maxUniqueErrors;
-        break;
-      case "remediation-loop":
-        if (pa.maxAttempts !== undefined) postActionOverrides.maxRemediationCycles = pa.maxAttempts;
-        break;
-    }
-  }
-
-  const hasOverrides = Object.keys(postActionOverrides).length > 0;
 
   log("flow-resolver", `Resolved template "${template.name}" → ${steps.length} steps`, {
     templateId: template.id,
     activeNodes: activeNodes.size,
     totalNodes: template.nodes.length,
-    postActionOverrides: hasOverrides ? postActionOverrides : undefined,
   });
 
-  return { steps, postActionOverrides: hasOverrides ? postActionOverrides : undefined };
+  return { steps };
 }
 
 /**

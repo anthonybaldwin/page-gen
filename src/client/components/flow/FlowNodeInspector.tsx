@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, PostActionNodeData, PostActionType } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS } from "../../../shared/flow-types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
 
@@ -43,9 +43,6 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipeli
       )}
       {node.data.type === "checkpoint" && (
         <CheckpointInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
-      )}
-      {node.data.type === "post-action" && (
-        <PostActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} pipelineDefaults={pipelineDefaults} />
       )}
     </div>
   );
@@ -340,134 +337,3 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
   );
 }
 
-/** Which override fields are relevant per action type */
-const POST_ACTION_FIELDS: Record<PostActionType, Array<"timeoutMs" | "maxAttempts" | "maxTestFailures" | "maxUniqueErrors">> = {
-  "build-check": ["timeoutMs"],
-  "test-run": ["timeoutMs", "maxTestFailures", "maxUniqueErrors"],
-  "build-fix-loop": ["timeoutMs", "maxAttempts", "maxUniqueErrors"],
-  "remediation-loop": ["maxAttempts"],
-};
-
-const FIELD_LABELS: Record<string, string> = {
-  timeoutMs: "Timeout (ms)",
-  maxAttempts: "Max Attempts",
-  maxTestFailures: "Max Test Failures",
-  maxUniqueErrors: "Max Unique Errors",
-};
-
-/** Resolve the placeholder default for a post-action field based on action type */
-function getPostActionDefault(
-  field: string,
-  actionType: PostActionType,
-  defaults?: PipelineConfig | null,
-): string {
-  if (!defaults) return "";
-  switch (field) {
-    case "timeoutMs":
-      return actionType === "test-run"
-        ? String(defaults.testTimeoutMs)
-        : String(defaults.buildTimeoutMs);
-    case "maxAttempts":
-      return actionType === "remediation-loop"
-        ? String(defaults.maxRemediationCycles)
-        : String(defaults.maxBuildFixAttempts);
-    case "maxTestFailures":
-      return String(defaults.maxTestFailures);
-    case "maxUniqueErrors":
-      return String(defaults.maxUniqueErrors);
-    default:
-      return "";
-  }
-}
-
-function PostActionInspector({ data, nodeId, onUpdate, pipelineDefaults }: {
-  data: PostActionNodeData;
-  nodeId: string;
-  onUpdate: (nodeId: string, data: FlowNodeData) => void;
-  pipelineDefaults?: PipelineConfig | null;
-}) {
-  const [actionType, setActionType] = useState<PostActionType>(data.actionType);
-  const [label, setLabel] = useState(data.label);
-  const [timeoutMs, setTimeoutMs] = useState(data.timeoutMs?.toString() ?? "");
-  const [maxAttempts, setMaxAttempts] = useState(data.maxAttempts?.toString() ?? "");
-  const [maxTestFailures, setMaxTestFailures] = useState(data.maxTestFailures?.toString() ?? "");
-  const [maxUniqueErrors, setMaxUniqueErrors] = useState(data.maxUniqueErrors?.toString() ?? "");
-
-  useEffect(() => {
-    setActionType(data.actionType);
-    setLabel(data.label);
-    setTimeoutMs(data.timeoutMs?.toString() ?? "");
-    setMaxAttempts(data.maxAttempts?.toString() ?? "");
-    setMaxTestFailures(data.maxTestFailures?.toString() ?? "");
-    setMaxUniqueErrors(data.maxUniqueErrors?.toString() ?? "");
-  }, [data]);
-
-  const save = () => {
-    onUpdate(nodeId, {
-      ...data,
-      actionType,
-      label,
-      timeoutMs: timeoutMs ? parseInt(timeoutMs) : undefined,
-      maxAttempts: maxAttempts ? parseInt(maxAttempts) : undefined,
-      maxTestFailures: maxTestFailures ? parseInt(maxTestFailures) : undefined,
-      maxUniqueErrors: maxUniqueErrors ? parseInt(maxUniqueErrors) : undefined,
-    });
-  };
-
-  const fields = POST_ACTION_FIELDS[actionType] ?? [];
-  const fieldState: Record<string, { value: string; set: (v: string) => void }> = {
-    timeoutMs: { value: timeoutMs, set: setTimeoutMs },
-    maxAttempts: { value: maxAttempts, set: setMaxAttempts },
-    maxTestFailures: { value: maxTestFailures, set: setMaxTestFailures },
-    maxUniqueErrors: { value: maxUniqueErrors, set: setMaxUniqueErrors },
-  };
-
-  return (
-    <div className="space-y-2">
-      <label className="block">
-        <span className="text-xs text-muted-foreground">Label</span>
-        <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
-      </label>
-      <label className="block">
-        <span className="text-xs text-muted-foreground">Action Type</span>
-        <select
-          value={actionType}
-          onChange={(e) => setActionType(e.target.value as PostActionType)}
-          onBlur={save}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
-        >
-          <option value="build-check">Build Check</option>
-          <option value="test-run">Test Run</option>
-          <option value="build-fix-loop">Build Fix Loop</option>
-          <option value="remediation-loop">Remediation Loop</option>
-        </select>
-      </label>
-      {fields.length > 0 && (
-        <div className="border-t border-border pt-2 mt-2">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
-          <div className="grid grid-cols-2 gap-2 mt-1.5">
-            {fields.map((field) => {
-              const fs = fieldState[field];
-              if (!fs) return null;
-              const placeholder = getPostActionDefault(field, actionType, pipelineDefaults);
-              return (
-                <label key={field} className="block">
-                  <span className="text-[10px] text-muted-foreground">{FIELD_LABELS[field]}</span>
-                  <Input
-                    type="number"
-                    value={fs.value}
-                    onChange={(e) => fs.set(e.target.value)}
-                    onBlur={save}
-                    className="mt-0.5 h-6 text-xs"
-                    placeholder={placeholder}
-                    min={1}
-                  />
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}

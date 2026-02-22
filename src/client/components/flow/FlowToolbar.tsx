@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, Settings, CheckCircle2 } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2 } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -29,9 +29,6 @@ function makeNewNode(type: FlowNodeType): FlowNode {
     case "checkpoint":
       data = { type: "checkpoint", label: "Checkpoint", skipInYolo: true };
       break;
-    case "post-action":
-      data = { type: "post-action", actionType: "build-check", label: "Build Check" };
-      break;
   }
 
   return {
@@ -58,9 +55,6 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("checkpoint"))} className="h-7 text-xs gap-1">
           <CirclePause className="h-3 w-3" /> Checkpoint
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("post-action"))} className="h-7 text-xs gap-1">
-          <Settings className="h-3 w-3" /> Post-Action
         </Button>
       </div>
 
