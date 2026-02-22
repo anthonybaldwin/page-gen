@@ -150,7 +150,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
   );
 
   return (
-    <div className="h-[500px] w-full rounded-lg border border-border bg-background">
+    <div className="h-full w-full min-h-[300px] rounded-lg border border-border bg-background">
       <ReactFlow
         nodes={nodes}
         edges={edges}

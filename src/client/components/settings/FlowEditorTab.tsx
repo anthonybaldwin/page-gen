@@ -168,7 +168,7 @@ export function FlowEditorTab() {
   const selectedNode = editNodes.find((n) => n.id === selectedNodeId) ?? null;
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4 flex-1 min-h-0">
       <p className="text-xs text-muted-foreground">
         Configure pipeline execution flow per intent. The active template replaces the hardcoded pipeline logic.
       </p>
@@ -268,7 +268,7 @@ export function FlowEditorTab() {
             validated={validated}
           />
 
-          <div className="flex gap-0 rounded-lg border border-border overflow-hidden">
+          <div className="flex gap-0 rounded-lg border border-border overflow-hidden flex-1 min-h-0">
             <div className="flex-1 min-w-0">
               <FlowCanvas
                 key={selectedTemplate.id}
