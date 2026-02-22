@@ -373,7 +373,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Settings dialog */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="max-w-[1400px] max-h-[90vh] p-0 gap-0 top-[5vh] translate-y-0 flex flex-col overflow-hidden">
+        <DialogContent className="max-w-[1600px] max-h-[90vh] p-0 gap-0 top-[5vh] translate-y-0 flex flex-col overflow-hidden">
           <DialogHeader className="sr-only">
             <DialogTitle>Settings</DialogTitle>
           </DialogHeader>
