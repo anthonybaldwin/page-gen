@@ -235,7 +235,8 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     (_: React.MouseEvent, edge: Edge) => {
       highlightEdges(e =>
         e.id === edge.id ||
-        (e.source === edge.source && e.sourceHandle === edge.sourceHandle),
+        (e.source === edge.source && e.sourceHandle === edge.sourceHandle) ||
+        e.target === edge.target,
       );
     },
     [highlightEdges],
