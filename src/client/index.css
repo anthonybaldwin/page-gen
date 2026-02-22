@@ -211,3 +211,13 @@ body {
   fill: rgba(0, 0, 0, 0.6) !important;
   stroke-opacity: 0.4 !important;
 }
+
+/* React Flow edge/node selection in dark mode */
+.dark .react-flow__edge.selected .react-flow__edge-path,
+.dark .react-flow__edge.selected .react-flow__edge-interaction {
+  stroke: hsl(var(--primary)) !important;
+}
+
+.dark .react-flow__edge:hover .react-flow__edge-path {
+  stroke: hsl(var(--primary) / 0.7) !important;
+}
