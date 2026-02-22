@@ -32,7 +32,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { projects, activeProject, setProjects, setActiveProject, renameProject } = useProjectStore();
-  const { chats, activeChat, setChats, setActiveChat, setMessages, renameChat } = useChatStore();
+  const { chats, activeChat, messages, setChats, setActiveChat, setMessages, renameChat } = useChatStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +135,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   }
 
   const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+  const activeChatIsEmpty = !!activeChat && messages.length === 0;
 
   if (collapsed) {
     return (
@@ -154,9 +155,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             variant="ghost"
             size="icon"
             onClick={handleCreateChat}
-            className="mt-2 text-muted-foreground hover:text-foreground"
+            disabled={activeChatIsEmpty}
+            className="mt-2 text-muted-foreground hover:text-foreground disabled:opacity-30"
             aria-label="New chat"
-            title="New chat"
+            title={activeChatIsEmpty ? "Send a message first" : "New chat"}
           >
             <Plus className="h-4 w-4" />
           </Button>
@@ -311,9 +313,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground disabled:opacity-30"
                 onClick={handleCreateChat}
+                disabled={activeChatIsEmpty}
                 aria-label="New chat"
+                title={activeChatIsEmpty ? "Send a message first" : "New chat"}
               >
                 <Plus className="h-4 w-4" />
               </Button>
