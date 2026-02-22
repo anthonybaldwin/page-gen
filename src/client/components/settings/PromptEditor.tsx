@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { api } from "../../lib/api.ts";
 import { Button } from "../ui/button.tsx";
-import { Textarea } from "../ui/textarea.tsx";
+import CodeMirror, { EditorView } from "@uiw/react-codemirror";
+import { markdown } from "@codemirror/lang-markdown";
+import { getNordExtensions } from "../../lib/nordTheme.ts";
+import { useThemeStore } from "../../stores/themeStore.ts";
 import type { ResolvedAgentConfig, AgentGroup } from "../../../shared/types.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
@@ -21,6 +24,13 @@ export function PromptEditor() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
+
+  const extensions = useMemo(() => [
+    ...getNordExtensions(resolvedTheme === "dark"),
+    markdown(),
+    EditorView.lineWrapping,
+  ], [resolvedTheme]);
 
   useEffect(() => {
     api.get<ResolvedAgentConfig[]>("/settings/agents").then(setConfigs).catch(console.error);
@@ -139,12 +149,25 @@ export function PromptEditor() {
             Loading...
           </div>
         ) : (
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            className="flex-1 font-mono text-xs resize-none leading-relaxed"
-            spellCheck={false}
-          />
+          <div className="flex-1 min-h-0 overflow-hidden rounded">
+            <CodeMirror
+              value={prompt}
+              onChange={setPrompt}
+              extensions={extensions}
+              theme="none"
+              className="h-full text-xs"
+              height="100%"
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                tabSize: 2,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+              }}
+            />
+          </div>
         )}
 
         <div className="flex justify-end mt-2">

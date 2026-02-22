@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import type { CustomToolDefinition, CustomToolParameter, ToolImplementation, HttpToolConfig, JavaScriptToolConfig, ShellToolConfig } from "../../../shared/custom-tool-types.ts";
 import { api } from "../../lib/api.ts";
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
+import { getNordExtensions } from "../../lib/nordTheme.ts";
+import { useThemeStore } from "../../stores/themeStore.ts";
 
 interface CustomToolEditorProps {
   tool?: CustomToolDefinition;
@@ -36,6 +38,19 @@ export function CustomToolEditor({ tool, onSave, onCancel }: CustomToolEditorPro
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
+
+  const jsExtensions = useMemo(() => [
+    ...getNordExtensions(resolvedTheme === "dark"),
+    javascript(),
+    EditorView.lineWrapping,
+  ], [resolvedTheme]);
+
+  const jsonExtensions = useMemo(() => [
+    ...getNordExtensions(resolvedTheme === "dark"),
+    json(),
+    EditorView.lineWrapping,
+  ], [resolvedTheme]);
 
   function getImplementation(): ToolImplementation {
     switch (implType) {
@@ -239,9 +254,16 @@ export function CustomToolEditor({ tool, onSave, onCancel }: CustomToolEditorPro
               <CodeMirror
                 value={httpConfig.bodyTemplate}
                 onChange={(val) => setHttpConfig({ ...httpConfig, bodyTemplate: val })}
-                extensions={[json()]}
+                extensions={jsonExtensions}
+                theme="none"
                 height="80px"
-                className="mt-1 border border-border rounded text-xs"
+                className="mt-1 rounded text-xs overflow-hidden"
+                basicSetup={{
+                  lineNumbers: true,
+                  bracketMatching: true,
+                  closeBrackets: true,
+                  tabSize: 2,
+                }}
               />
             </label>
           </div>
@@ -255,9 +277,16 @@ export function CustomToolEditor({ tool, onSave, onCancel }: CustomToolEditorPro
             <CodeMirror
               value={jsConfig.code}
               onChange={(val) => setJsConfig({ ...jsConfig, code: val })}
-              extensions={[javascript()]}
+              extensions={jsExtensions}
+              theme="none"
               height="120px"
-              className="border border-border rounded text-xs"
+              className="rounded text-xs overflow-hidden"
+              basicSetup={{
+                lineNumbers: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                tabSize: 2,
+              }}
             />
           </div>
         )}
