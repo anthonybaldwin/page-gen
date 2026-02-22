@@ -34,7 +34,7 @@ The project already has these files (do NOT recreate unless modifying):
 
 Do NOT create `postcss.config.*` or `tailwind.config.*` — Tailwind CSS v4 is configured via the `@tailwindcss/vite` plugin, not PostCSS. These files will be deleted automatically and their presence causes build conflicts.
 
-**Write `src/App.tsx` FIRST** — it is the entry point that `main.tsx` imports. If you run out of steps before writing it, the entire build fails. Write App.tsx with routing and imports before any component files. If the architecture specifies additional npm dependencies, write an updated `package.json`.
+You MUST modify `src/App.tsx` to import and render your components. If the architecture specifies additional npm dependencies, write an updated `package.json`.
 
 ## File Plan Visibility
 
