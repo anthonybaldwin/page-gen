@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS } from "../../../shared/flow-types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
 
@@ -43,6 +43,9 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipeli
       )}
       {node.data.type === "checkpoint" && (
         <CheckpointInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
+      )}
+      {node.data.type === "action" && (
+        <ActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
     </div>
   );
@@ -333,6 +336,40 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
         />
         <span className="text-xs text-muted-foreground">Skip in YOLO mode</span>
       </label>
+    </div>
+  );
+}
+
+const KIND_DESCRIPTIONS: Record<string, string> = {
+  "build-check": "Runs a build check at this point in the pipeline. If errors are found, a dev agent attempts to fix them.",
+  "test-run": "Runs the project's test suite. If tests fail, a dev agent attempts to fix them.",
+  "remediation": "Iteratively fixes issues found by review agents. Re-runs reviews until clean or max cycles reached.",
+};
+
+function ActionInspector({ data, nodeId, onUpdate }: {
+  data: ActionNodeData;
+  nodeId: string;
+  onUpdate: (nodeId: string, data: FlowNodeData) => void;
+}) {
+  const [label, setLabel] = useState(data.label);
+
+  useEffect(() => {
+    setLabel(data.label);
+  }, [data]);
+
+  const save = () => {
+    onUpdate(nodeId, { ...data, label });
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Label</span>
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
+      </label>
+      <div className="text-[10px] text-muted-foreground leading-relaxed">
+        {KIND_DESCRIPTIONS[data.kind] ?? ""}
+      </div>
     </div>
   );
 }

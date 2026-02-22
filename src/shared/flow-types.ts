@@ -2,7 +2,7 @@ import type { OrchestratorIntent } from "./types.ts";
 
 // --- Flow Node Types ---
 
-export type FlowNodeType = "agent" | "condition" | "checkpoint";
+export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action";
 
 export interface AgentNodeData {
   type: "agent";
@@ -29,7 +29,15 @@ export interface CheckpointNodeData {
   skipInYolo: boolean;
 }
 
-export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData;
+export type ActionKind = "build-check" | "test-run" | "remediation";
+
+export interface ActionNodeData {
+  type: "action";
+  kind: ActionKind;
+  label: string;
+}
+
+export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData;
 
 export interface FlowNode {
   id: string;

@@ -93,6 +93,24 @@ export function generateBuildDefault(): FlowTemplate {
   edges.push(makeEdge("frontend-dev", "styling"));
   edges.push(makeEdge("backend-dev", "styling"));
 
+  // Build Check + Test Run after styling
+  col++;
+  const buildCheck = makeNode("build-check", "action", {
+    type: "action",
+    kind: "build-check",
+    label: "Build Check",
+  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
+  nodes.push(buildCheck);
+  edges.push(makeEdge("styling", "build-check"));
+
+  const testRun = makeNode("test-run", "action", {
+    type: "action",
+    kind: "test-run",
+    label: "Test Run",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  nodes.push(testRun);
+  edges.push(makeEdge("styling", "test-run"));
+
   // Parallel reviewers
   col++;
   const codeReview = makeNode("code-review", "agent", {
@@ -101,7 +119,8 @@ export function generateBuildDefault(): FlowTemplate {
     inputTemplate: loadDefaultPrompt("code-review"),
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(codeReview);
-  edges.push(makeEdge("styling", "code-review"));
+  edges.push(makeEdge("build-check", "code-review"));
+  edges.push(makeEdge("test-run", "code-review"));
 
   const security = makeNode("security", "agent", {
     type: "agent",
@@ -109,7 +128,8 @@ export function generateBuildDefault(): FlowTemplate {
     inputTemplate: loadDefaultPrompt("security"),
   }, col * X_SPACING, Y_CENTER);
   nodes.push(security);
-  edges.push(makeEdge("styling", "security"));
+  edges.push(makeEdge("build-check", "security"));
+  edges.push(makeEdge("test-run", "security"));
 
   const qa = makeNode("qa", "agent", {
     type: "agent",
@@ -117,12 +137,25 @@ export function generateBuildDefault(): FlowTemplate {
     inputTemplate: loadDefaultPrompt("qa"),
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(qa);
-  edges.push(makeEdge("styling", "qa"));
+  edges.push(makeEdge("build-check", "qa"));
+  edges.push(makeEdge("test-run", "qa"));
+
+  // Remediation after reviewers
+  col++;
+  const remediation = makeNode("remediation", "action", {
+    type: "action",
+    kind: "remediation",
+    label: "Remediation",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(remediation);
+  edges.push(makeEdge("code-review", "remediation"));
+  edges.push(makeEdge("security", "remediation"));
+  edges.push(makeEdge("qa", "remediation"));
 
   return {
     id: `default-build-${nanoid(8)}`,
     name: "Default Build Pipeline",
-    description: "Research → Architect → Dev (frontend + optional backend) → Styling → Reviews",
+    description: "Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation",
     intent: "build",
     version: 1,
     enabled: true,
@@ -208,6 +241,17 @@ export function generateFixDefault(): FlowTemplate {
   }, col * X_SPACING, Y_CENTER + Y_SPACING + Y_SPACING / 2);
   nodes.push(securityFix);
   edges.push(makeEdge("dev-fix", "security-fix"));
+
+  // Remediation
+  col++;
+  const remediation = makeNode("remediation-fix", "action", {
+    type: "action",
+    kind: "remediation",
+    label: "Remediation",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  nodes.push(remediation);
+  edges.push(makeEdge("code-review-fix", "remediation-fix"));
+  edges.push(makeEdge("security-fix", "remediation-fix"));
 
   return {
     id: `default-fix-${nanoid(8)}`,

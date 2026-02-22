@@ -1,6 +1,6 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2 } from "lucide-react";
-import type { FlowNode, FlowNodeType, FlowNodeData } from "../../../shared/flow-types.ts";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw } from "lucide-react";
+import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
 
@@ -15,8 +15,14 @@ interface FlowToolbarProps {
   validated?: boolean;
 }
 
-function makeNewNode(type: FlowNodeType): FlowNode {
-  const id = `${type}-${nanoid(6)}`;
+const ACTION_LABELS: Record<ActionKind, string> = {
+  "build-check": "Build Check",
+  "test-run": "Test Run",
+  "remediation": "Remediation",
+};
+
+function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
+  const id = `${actionKind ?? type}-${nanoid(6)}`;
   let data: FlowNodeData;
 
   switch (type) {
@@ -28,6 +34,9 @@ function makeNewNode(type: FlowNodeType): FlowNode {
       break;
     case "checkpoint":
       data = { type: "checkpoint", label: "Checkpoint", skipInYolo: true };
+      break;
+    case "action":
+      data = { type: "action", kind: actionKind ?? "build-check", label: ACTION_LABELS[actionKind ?? "build-check"] };
       break;
   }
 
@@ -55,6 +64,19 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("checkpoint"))} className="h-7 text-xs gap-1">
           <CirclePause className="h-3 w-3" /> Checkpoint
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-1 border-r border-border pr-2 mr-1">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Actions</span>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "build-check"))} className="h-7 text-xs gap-1">
+          <Hammer className="h-3 w-3" /> Build Check
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "test-run"))} className="h-7 text-xs gap-1">
+          <FlaskConical className="h-3 w-3" /> Test Run
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "remediation"))} className="h-7 text-xs gap-1">
+          <RefreshCw className="h-3 w-3" /> Remediation
         </Button>
       </div>
 

@@ -239,6 +239,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
 
     // Checkpoint nodes: skip for now (Phase 2)
+    // Action nodes (build-check, test-run, remediation): orchestrator handles automatically
   }
 
   log("flow-resolver", `Resolved template "${template.name}" → ${steps.length} steps`, {
