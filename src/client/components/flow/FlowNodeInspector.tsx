@@ -346,20 +346,58 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "remediation": "Iteratively fixes issues found by review agents. Re-runs reviews until clean or max cycles reached.",
 };
 
+/** Which override fields to show per action kind */
+const KIND_FIELDS: Record<string, Array<{ key: keyof ActionNodeData; label: string; placeholder: string }>> = {
+  "build-check": [
+    { key: "timeoutMs", label: "Timeout (ms)", placeholder: "30000" },
+    { key: "maxAttempts", label: "Max Fix Attempts", placeholder: "3" },
+    { key: "maxUniqueErrors", label: "Max Unique Errors", placeholder: "10" },
+  ],
+  "test-run": [
+    { key: "timeoutMs", label: "Timeout (ms)", placeholder: "60000" },
+    { key: "maxTestFailures", label: "Max Test Failures", placeholder: "5" },
+    { key: "maxUniqueErrors", label: "Max Unique Errors", placeholder: "10" },
+  ],
+  "remediation": [
+    { key: "maxAttempts", label: "Max Cycles", placeholder: "2" },
+  ],
+};
+
 function ActionInspector({ data, nodeId, onUpdate }: {
   data: ActionNodeData;
   nodeId: string;
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
 }) {
   const [label, setLabel] = useState(data.label);
+  const [overrides, setOverrides] = useState<Record<string, string>>({
+    timeoutMs: data.timeoutMs?.toString() ?? "",
+    maxAttempts: data.maxAttempts?.toString() ?? "",
+    maxTestFailures: data.maxTestFailures?.toString() ?? "",
+    maxUniqueErrors: data.maxUniqueErrors?.toString() ?? "",
+  });
 
   useEffect(() => {
     setLabel(data.label);
+    setOverrides({
+      timeoutMs: data.timeoutMs?.toString() ?? "",
+      maxAttempts: data.maxAttempts?.toString() ?? "",
+      maxTestFailures: data.maxTestFailures?.toString() ?? "",
+      maxUniqueErrors: data.maxUniqueErrors?.toString() ?? "",
+    });
   }, [data]);
 
   const save = () => {
-    onUpdate(nodeId, { ...data, label });
+    onUpdate(nodeId, {
+      ...data,
+      label,
+      timeoutMs: overrides.timeoutMs ? parseInt(overrides.timeoutMs) : undefined,
+      maxAttempts: overrides.maxAttempts ? parseInt(overrides.maxAttempts) : undefined,
+      maxTestFailures: overrides.maxTestFailures ? parseInt(overrides.maxTestFailures) : undefined,
+      maxUniqueErrors: overrides.maxUniqueErrors ? parseInt(overrides.maxUniqueErrors) : undefined,
+    });
   };
+
+  const fields = KIND_FIELDS[data.kind] ?? [];
 
   return (
     <div className="space-y-2">
@@ -370,6 +408,27 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
+      {fields.length > 0 && (
+        <div className="border-t border-border pt-2 mt-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
+          <div className="grid grid-cols-2 gap-2 mt-1.5">
+            {fields.map((field) => (
+              <label key={field.key} className="block">
+                <span className="text-[10px] text-muted-foreground">{field.label}</span>
+                <Input
+                  type="number"
+                  value={overrides[field.key] ?? ""}
+                  onChange={(e) => setOverrides((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  onBlur={save}
+                  className="mt-0.5 h-6 text-xs"
+                  placeholder={field.placeholder}
+                  min={1}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

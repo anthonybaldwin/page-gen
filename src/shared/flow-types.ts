@@ -35,6 +35,11 @@ export interface ActionNodeData {
   type: "action";
   kind: ActionKind;
   label: string;
+  // Per-node overrides (optional — falls back to Pipeline Defaults)
+  timeoutMs?: number;       // build-check, test-run
+  maxAttempts?: number;     // remediation (cycles), build-check (fix attempts)
+  maxTestFailures?: number; // test-run
+  maxUniqueErrors?: number; // build-check, test-run
 }
 
 export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData;

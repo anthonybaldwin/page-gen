@@ -1,6 +1,6 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
-import type { ExecutionPlan } from "./orchestrator.ts";
+import type { ExecutionPlan, ActionOverrides } from "./orchestrator.ts";
 import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import { log } from "../services/logger.ts";
@@ -211,9 +211,10 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
   }
 
-  // Second pass: convert active agent nodes to execution plan steps
+  // Second pass: convert active agent nodes to execution plan steps + collect action overrides
   const steps: ExecutionPlan["steps"] = [];
   const nodeToAgent = new Map<string, string>(); // nodeId → agentName for dependsOn resolution
+  const actionOverrides: ActionOverrides = {};
 
   for (const nodeId of sorted) {
     if (!activeNodes.has(nodeId)) continue;
@@ -238,8 +239,12 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
       nodeToAgent.set(nodeId, node.data.agentName);
     }
 
+    // Collect per-node overrides from action nodes
+    if (node.data.type === "action") {
+      collectActionOverrides(node.data, actionOverrides);
+    }
+
     // Checkpoint nodes: skip for now (Phase 2)
-    // Action nodes (build-check, test-run, remediation): orchestrator handles automatically
   }
 
   log("flow-resolver", `Resolved template "${template.name}" → ${steps.length} steps`, {
@@ -248,7 +253,8 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     totalNodes: template.nodes.length,
   });
 
-  return { steps };
+  const hasOverrides = Object.keys(actionOverrides).length > 0;
+  return { steps, ...(hasOverrides ? { actionOverrides } : {}) };
 }
 
 /**
@@ -317,4 +323,26 @@ function computeAgentDependencies(
   }
 
   return [...deps];
+}
+
+/**
+ * Map ActionNodeData overrides to pipeline setting keys.
+ * Multiple action nodes of the same kind merge (last-write-wins).
+ */
+function collectActionOverrides(data: ActionNodeData, out: ActionOverrides): void {
+  switch (data.kind) {
+    case "build-check":
+      if (data.timeoutMs !== undefined) out.buildTimeoutMs = data.timeoutMs;
+      if (data.maxAttempts !== undefined) out.maxBuildFixAttempts = data.maxAttempts;
+      if (data.maxUniqueErrors !== undefined) out.maxUniqueErrors = data.maxUniqueErrors;
+      break;
+    case "test-run":
+      if (data.timeoutMs !== undefined) out.testTimeoutMs = data.timeoutMs;
+      if (data.maxTestFailures !== undefined) out.maxTestFailures = data.maxTestFailures;
+      if (data.maxUniqueErrors !== undefined) out.maxUniqueErrors = data.maxUniqueErrors;
+      break;
+    case "remediation":
+      if (data.maxAttempts !== undefined) out.maxRemediationCycles = data.maxAttempts;
+      break;
+  }
 }
