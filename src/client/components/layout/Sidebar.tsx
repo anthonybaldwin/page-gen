@@ -167,7 +167,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           className="text-muted-foreground hover:text-foreground"
           aria-label="Expand sidebar"
         >
-          <PanelLeft className="h-5 w-5" />
+          <img src="/rated-pg.png" alt="Rated PG" className="h-6 w-auto" />
         </Button>
 
         {activeProject && (
@@ -216,7 +216,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside className="w-64 border-r border-sidebar-border bg-sidebar flex flex-col transition-all duration-200">
       <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
-        <h1 className="text-lg font-bold text-foreground">Page Gen.</h1>
+        <div className="flex items-center gap-2">
+          <img src="/rated-pg.png" alt="Rated PG" className="h-6 w-auto" />
+          <h1 className="text-lg font-bold text-foreground">Page Gen.</h1>
+        </div>
         <Button
           variant="ghost"
           size="icon"
