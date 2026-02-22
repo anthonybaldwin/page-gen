@@ -118,6 +118,11 @@ export const MODELS: ModelDef[] = [
   { id: "o3-2025-04-16",               provider: "openai", pricing: { input: 2,    output: 8 } },
   { id: "o3-mini-2025-01-31",          provider: "openai", pricing: { input: 1.1,  output: 4.4 } },
   { id: "o4-mini-2025-04-16",          provider: "openai", pricing: { input: 1.1,  output: 4.4 } },
+  // Voice / TTS (text input tokens → audio output tokens)
+  { id: "gpt-4o-mini-tts-2025-12-15",  provider: "openai", pricing: { input: 0.6,  output: 12 } },
+  // Realtime voice (text token pricing; audio tokens priced separately at ~5-8x)
+  { id: "gpt-realtime",                provider: "openai", pricing: { input: 4,    output: 16 } },
+  { id: "gpt-realtime-mini",           provider: "openai", pricing: { input: 0.6,  output: 2.4 } },
 
   // -------------------------------------------------------------------------
   // Google
@@ -130,6 +135,9 @@ export const MODELS: ModelDef[] = [
   { id: "gemini-2.5-pro",              provider: "google", pricing: { input: 1.25, output: 10 } },
   { id: "gemini-2.5-flash",            provider: "google", pricing: { input: 0.3,  output: 2.5 } },
   { id: "gemini-2.5-flash-lite",       provider: "google", pricing: { input: 0.1,  output: 0.4 } },
+  // Voice / TTS (text input tokens → audio output tokens)
+  { id: "gemini-2.5-flash-preview-tts", provider: "google", pricing: { input: 0.5,  output: 10 } },
+  { id: "gemini-2.5-pro-preview-tts",   provider: "google", pricing: { input: 1,    output: 20 } },
 
   // -------------------------------------------------------------------------
   // xAI (Grok)
