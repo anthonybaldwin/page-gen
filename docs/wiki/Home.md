@@ -11,6 +11,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - [HMR Preview](HMR-Preview) - How live preview works
 - [Token Billing](Token-Billing) - Usage tracking and billing
 - [Versioning](Versioning) - Git-based versioning, diffs, and rollback
+- [Pipeline Flow Editor](Pipeline-Flow-Editor) - Visual flow editor & custom tools
 - [Pipeline Resume](Pipeline-Resume) - Resume interrupted pipelines
 - [Security](Security) - Security model
 - [Docker](Docker) - Optional Docker deployment

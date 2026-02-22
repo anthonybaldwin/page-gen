@@ -50,6 +50,7 @@ Full docs live in the **[Wiki](https://github.com/anthonybaldwin/page-gen/wiki)*
 - [Data Model](https://github.com/anthonybaldwin/page-gen/wiki/Data-Model) — Database schema reference
 - [API Reference](https://github.com/anthonybaldwin/page-gen/wiki/API-Reference) — Backend HTTP routes
 - [Versioning](https://github.com/anthonybaldwin/page-gen/wiki/Versioning) — Git-based versioning, diffs, and rollback
+- [Pipeline Flow Editor](https://github.com/anthonybaldwin/page-gen/wiki/Pipeline-Flow-Editor) — Visual flow editor & custom tools
 - [Pipeline Resume](https://github.com/anthonybaldwin/page-gen/wiki/Pipeline-Resume) — Interrupt and continue pipelines
 - [Security](https://github.com/anthonybaldwin/page-gen/wiki/Security) — Client-side encryption, sandboxing
 - [Docker](https://github.com/anthonybaldwin/page-gen/wiki/Docker) — Containerization, volumes, ports
