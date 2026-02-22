@@ -5,6 +5,49 @@
  * Adding a new provider:
  *  1. Add an entry to PROVIDERS, MODELS, CACHE_MULTIPLIERS, VALIDATION_MODELS here
  *  2. Add 1 line to SDK_FACTORIES in src/server/providers/registry.ts + npm install
+ *
+ * ─── Reference Links ───────────────────────────────────────────────────
+ *
+ * AI SDK (Vercel) provider docs:
+ *   OpenAI    — https://ai-sdk.dev/providers/ai-sdk-providers/openai
+ *   Anthropic — https://ai-sdk.dev/providers/ai-sdk-providers/anthropic
+ *   Google    — https://ai-sdk.dev/providers/ai-sdk-providers/google-generative-ai
+ *   xAI       — https://ai-sdk.dev/providers/ai-sdk-providers/xai
+ *   DeepSeek  — https://ai-sdk.dev/providers/ai-sdk-providers/deepseek
+ *   Mistral   — https://ai-sdk.dev/providers/ai-sdk-providers/mistral
+ *
+ * Official pricing pages:
+ *   Anthropic — https://platform.claude.com/docs/en/about-claude/pricing
+ *   OpenAI    — https://platform.openai.com/docs/pricing
+ *   Google    — https://ai.google.dev/gemini-api/docs/pricing
+ *   xAI       — https://docs.x.ai/developers/models
+ *   DeepSeek  — https://api-docs.deepseek.com/quick_start/pricing
+ *   Mistral   — https://docs.mistral.ai/getting-started/models
+ *
+ * Official model catalogs:
+ *   Anthropic — https://platform.claude.com/docs/en/about-claude/models/overview
+ *   OpenAI    — https://developers.openai.com/api/docs/models
+ *   Google    — https://ai.google.dev/gemini-api/docs/models
+ *   xAI       — https://docs.x.ai/developers/models
+ *   DeepSeek  — https://api-docs.deepseek.com/api/list-models
+ *   Mistral   — https://docs.mistral.ai/getting-started/models
+ *
+ * Deprecation trackers:
+ *   Anthropic — https://platform.claude.com/docs/en/about-claude/model-deprecations
+ *   OpenAI    — https://developers.openai.com/api/docs/deprecations
+ *
+ * Voice docs:
+ *   OpenAI TTS    — https://platform.openai.com/docs/guides/text-to-speech
+ *   OpenAI RT     — https://platform.openai.com/docs/guides/realtime
+ *   Google TTS    — https://ai.google.dev/gemini-api/docs/speech-generation
+ *   xAI Voice     — https://docs.x.ai/docs/guides/voice/agent
+ *
+ * Compatibility notes (verified Feb 2026, AI SDK v6):
+ *   - openai(): auto-routes to Responses API; system messages auto-converted
+ *     to developer messages for o-series reasoning models
+ *   - Voice/TTS/realtime models (7 total) won't work with generateText/streamText —
+ *     cataloged here for future voice feature, not for text agents
+ *   - All other 64 models work as drop-in agent assignments via Settings
  */
 
 // ---------------------------------------------------------------------------
