@@ -204,16 +204,62 @@ Reset all limits to defaults.
 **Response:** `{ ok: true, limits: { ... }, defaults: { ... } }`
 
 ### GET /settings/agents
-Get all 13 agent configs with DB overrides applied.
+Get all agent configs (built-in + custom) with DB overrides applied.
 
-**Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `isOverridden`
+**Response:** `ResolvedAgentConfig[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `group`, `allowedCategories`, `isOverridden`, `isBuiltIn`
 
 ### PUT /settings/agents/:name
-Override an agent's provider and/or model. Rejects unknown models without pricing configured.
+Override an agent's provider and/or model. Rejects unknown models without pricing configured. Enforces category restrictions — rejects models whose category is not in the agent's `allowedCategories`.
+
+For built-in agents, stores overrides in `app_settings`. For custom agents, updates the `custom_agents` row directly.
 
 **Body:** `{ provider?: string, model?: string }`
 
 **Error (400):** `{ error: "Unknown model requires pricing configuration", requiresPricing: true }` — returned when model has no default or override pricing. Configure pricing via `PUT /settings/pricing/:model` first.
+
+**Error (400):** `{ error: "Model ... has category ... which is not allowed for agent ..." }` — returned when model category doesn't match agent's allowed categories.
+
+### GET /settings/custom-agents
+List all custom agents.
+
+**Response:** `CustomAgent[]` — each includes `name`, `displayName`, `provider`, `model`, `description`, `agentGroup`, `allowedCategories`, `prompt`, `tools`, `maxOutputTokens`, `maxToolSteps`, `createdAt`, `updatedAt`
+
+### POST /settings/custom-agents
+Create a custom agent.
+
+**Body:**
+```json
+{
+  "name": "string (required, /^[a-z][a-z0-9-]*$/)",
+  "displayName": "string (required)",
+  "provider": "string (required, valid provider ID)",
+  "model": "string (required, must have pricing configured)",
+  "description": "string (required)",
+  "group": "string (optional, default: 'custom')",
+  "allowedCategories": ["string[] (optional)"],
+  "prompt": "string (optional)",
+  "tools": ["ToolName[] (optional)"],
+  "maxOutputTokens": "number (optional)",
+  "maxToolSteps": "number (optional)"
+}
+```
+
+**Response (201):** `{ ok: true, name: string }`
+
+**Error (400):** Name format violation, built-in name collision, duplicate name, missing required fields, invalid provider, model without pricing, category mismatch.
+
+### PUT /settings/custom-agents/:name
+Update a custom agent's fields. Cannot be used for built-in agents.
+
+**Body:** Partial object of the same fields as POST (except `name`).
+
+**Response:** `{ ok: true }`
+
+### DELETE /settings/custom-agents/:name
+Delete a custom agent. Cannot delete built-in agents.
+
+**Response:** `{ ok: true }`
+**Error (400):** `{ error: "Cannot delete built-in agent ..." }` — returned for built-in agent names.
 
 ### GET /settings/agents/:name/prompt
 Get an agent's system prompt (custom or file default).

@@ -3,11 +3,11 @@ import { extractApiKeys, createProviders } from "../providers/registry.ts";
 import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
-import { getAllAgentConfigs, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides } from "../agents/registry.ts";
+import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents } from "../agents/registry.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
-import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory } from "../services/pricing.ts";
+import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
 import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
-import type { AgentName, ToolName } from "../../shared/types.ts";
+import type { AgentName, AgentGroup, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
 import { PIPELINE_DEFAULTS, getPipelineSetting } from "../config/pipeline.ts";
@@ -30,6 +30,11 @@ export function getAllLimits(): Record<string, number> {
     result[key] = getLimit(key);
   }
   return result;
+}
+
+/** Check if an agent name is valid (built-in or custom). */
+function isValidAgentName(name: string): boolean {
+  return isBuiltinAgent(name) || !!getCustomAgent(name);
 }
 
 export const settingsRoutes = new Hono();
@@ -88,12 +93,6 @@ settingsRoutes.delete("/limits", (c) => {
   return c.json({ ok: true, limits: getAllLimits(), defaults: LIMIT_DEFAULTS_NUMERIC });
 });
 
-const VALID_AGENT_NAMES = new Set<AgentName>([
-  "orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary",
-  "research", "architect", "frontend-dev", "backend-dev",
-  "styling", "code-review", "qa", "security",
-]);
-
 // --- Execution limits endpoints (registered before /agents/:name to avoid param conflicts) ---
 
 // Get all agent limits configs
@@ -104,7 +103,7 @@ settingsRoutes.get("/agents/limits", (c) => {
 // Upsert limits override for an agent
 settingsRoutes.put("/agents/:name/limits", async (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   const body = await c.req.json<{ maxOutputTokens?: number; maxToolSteps?: number }>();
 
@@ -143,7 +142,7 @@ settingsRoutes.put("/agents/:name/limits", async (c) => {
 // Reset limits override for an agent (reverts to defaults)
 settingsRoutes.delete("/agents/:name/limits", (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   resetAgentLimitsOverrides(name);
   log("settings", `Agent limits reset to default: ${name}`, { agent: name });
@@ -160,7 +159,7 @@ settingsRoutes.get("/agents/tools", (c) => {
 // Upsert tool override for an agent
 settingsRoutes.put("/agents/:name/tools", async (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   const body = await c.req.json<{ tools: ToolName[] }>();
   if (!Array.isArray(body.tools)) return c.json({ error: "tools must be an array" }, 400);
@@ -184,10 +183,193 @@ settingsRoutes.put("/agents/:name/tools", async (c) => {
 // Reset tool override for an agent (reverts to default)
 settingsRoutes.delete("/agents/:name/tools", (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   resetAgentToolOverrides(name);
   log("settings", `Agent tools reset to default: ${name}`, { agent: name });
+  return c.json({ ok: true });
+});
+
+// --- Custom agent CRUD endpoints (registered before /agents/:name to avoid param conflicts) ---
+
+// List all custom agents
+settingsRoutes.get("/custom-agents", (c) => {
+  const rows = getCustomAgents();
+  return c.json(rows);
+});
+
+// Create a custom agent
+settingsRoutes.post("/custom-agents", async (c) => {
+  const body = await c.req.json<{
+    name: string;
+    displayName: string;
+    provider: string;
+    model: string;
+    description: string;
+    group?: AgentGroup;
+    allowedCategories?: string[];
+    prompt?: string;
+    tools?: ToolName[];
+    maxOutputTokens?: number;
+    maxToolSteps?: number;
+  }>();
+
+  // Validate name format
+  if (!body.name || !/^[a-z][a-z0-9-]*$/.test(body.name)) {
+    return c.json({ error: "Name must match /^[a-z][a-z0-9-]*$/ (lowercase, start with letter, hyphens allowed)" }, 400);
+  }
+
+  // Block collision with built-in names
+  if (isBuiltinAgent(body.name)) {
+    return c.json({ error: `Cannot create custom agent with built-in name "${body.name}"` }, 400);
+  }
+
+  // Block duplicates
+  if (getCustomAgent(body.name)) {
+    return c.json({ error: `Custom agent "${body.name}" already exists` }, 400);
+  }
+
+  // Validate required fields
+  if (!body.displayName || !body.provider || !body.model || !body.description) {
+    return c.json({ error: "displayName, provider, model, and description are required" }, 400);
+  }
+
+  // Validate provider
+  if (!PROVIDER_IDS.includes(body.provider)) {
+    return c.json({ error: `Invalid provider "${body.provider}". Must be one of: ${PROVIDER_IDS.join(", ")}` }, 400);
+  }
+
+  // Validate model has pricing
+  if (!getModelPricing(body.model)) {
+    return c.json({ error: "Model requires pricing configuration", requiresPricing: true }, 400);
+  }
+
+  // Validate category restrictions
+  if (body.allowedCategories && body.allowedCategories.length > 0) {
+    const modelCategory = getModelCategoryFromDB(body.model);
+    if (!body.allowedCategories.includes(modelCategory)) {
+      return c.json({ error: `Model "${body.model}" has category "${modelCategory}" which is not in allowedCategories [${body.allowedCategories.join(", ")}]` }, 400);
+    }
+  }
+
+  // Validate tools
+  if (body.tools) {
+    const validTools = body.tools.every((t) => ALL_TOOLS.includes(t));
+    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+  }
+
+  const now = Date.now();
+  db.insert(schema.customAgents).values({
+    name: body.name,
+    displayName: body.displayName,
+    provider: body.provider,
+    model: body.model,
+    description: body.description,
+    agentGroup: body.group || "custom",
+    allowedCategories: body.allowedCategories ? JSON.stringify(body.allowedCategories) : null,
+    prompt: body.prompt || null,
+    tools: body.tools ? JSON.stringify(body.tools) : null,
+    maxOutputTokens: body.maxOutputTokens || null,
+    maxToolSteps: body.maxToolSteps || null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+
+  log("settings", `Custom agent created: ${body.name}`, { agent: body.name, provider: body.provider, model: body.model });
+  return c.json({ ok: true, name: body.name }, 201);
+});
+
+// Update a custom agent
+settingsRoutes.put("/custom-agents/:name", async (c) => {
+  const name = c.req.param("name");
+
+  // Block updates to built-in agents via this endpoint
+  if (isBuiltinAgent(name)) {
+    return c.json({ error: "Cannot update built-in agents via this endpoint. Use PUT /settings/agents/:name instead." }, 400);
+  }
+
+  const existing = getCustomAgent(name);
+  if (!existing) return c.json({ error: `Custom agent "${name}" not found` }, 404);
+
+  const body = await c.req.json<{
+    displayName?: string;
+    provider?: string;
+    model?: string;
+    description?: string;
+    group?: AgentGroup;
+    allowedCategories?: string[];
+    prompt?: string;
+    tools?: ToolName[];
+    maxOutputTokens?: number;
+    maxToolSteps?: number;
+  }>();
+
+  // Validate provider if changing
+  if (body.provider && !PROVIDER_IDS.includes(body.provider)) {
+    return c.json({ error: `Invalid provider "${body.provider}". Must be one of: ${PROVIDER_IDS.join(", ")}` }, 400);
+  }
+
+  // Validate model has pricing if changing
+  if (body.model && !getModelPricing(body.model)) {
+    return c.json({ error: "Model requires pricing configuration", requiresPricing: true }, 400);
+  }
+
+  // Validate category restrictions for the effective model
+  const effectiveModel = body.model || existing.model;
+  const effectiveCategories = body.allowedCategories !== undefined ? body.allowedCategories : (existing.allowedCategories ? JSON.parse(existing.allowedCategories) : undefined);
+  if (effectiveCategories && effectiveCategories.length > 0) {
+    const modelCategory = getModelCategoryFromDB(effectiveModel);
+    if (!effectiveCategories.includes(modelCategory)) {
+      return c.json({ error: `Model "${effectiveModel}" has category "${modelCategory}" which is not in allowedCategories [${effectiveCategories.join(", ")}]` }, 400);
+    }
+  }
+
+  // Validate tools
+  if (body.tools) {
+    const validTools = body.tools.every((t) => ALL_TOOLS.includes(t));
+    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+  }
+
+  db.update(schema.customAgents).set({
+    ...(body.displayName !== undefined ? { displayName: body.displayName } : {}),
+    ...(body.provider !== undefined ? { provider: body.provider } : {}),
+    ...(body.model !== undefined ? { model: body.model } : {}),
+    ...(body.description !== undefined ? { description: body.description } : {}),
+    ...(body.group !== undefined ? { agentGroup: body.group } : {}),
+    ...(body.allowedCategories !== undefined ? { allowedCategories: JSON.stringify(body.allowedCategories) } : {}),
+    ...(body.prompt !== undefined ? { prompt: body.prompt || null } : {}),
+    ...(body.tools !== undefined ? { tools: JSON.stringify(body.tools) } : {}),
+    ...(body.maxOutputTokens !== undefined ? { maxOutputTokens: body.maxOutputTokens } : {}),
+    ...(body.maxToolSteps !== undefined ? { maxToolSteps: body.maxToolSteps } : {}),
+    updatedAt: Date.now(),
+  }).where(eq(schema.customAgents.name, name)).run();
+
+  log("settings", `Custom agent updated: ${name}`, { agent: name });
+  return c.json({ ok: true });
+});
+
+// Delete a custom agent
+settingsRoutes.delete("/custom-agents/:name", (c) => {
+  const name = c.req.param("name");
+
+  // Block deletion of built-in agents
+  if (isBuiltinAgent(name)) {
+    return c.json({ error: `Cannot delete built-in agent "${name}"` }, 400);
+  }
+
+  const existing = getCustomAgent(name);
+  if (!existing) return c.json({ error: `Custom agent "${name}" not found` }, 404);
+
+  // Delete the custom agent row
+  db.delete(schema.customAgents).where(eq(schema.customAgents.name, name)).run();
+
+  // Also clean up any app_settings overrides for this agent
+  // Clean all potential override keys
+  for (const key of [`agent.${name}.provider`, `agent.${name}.model`, `agent.${name}.prompt`, `agent.${name}.tools`, `agent.${name}.maxOutputTokens`, `agent.${name}.maxToolSteps`]) {
+    db.delete(schema.appSettings).where(eq(schema.appSettings.key, key)).run();
+  }
+
+  log("settings", `Custom agent deleted: ${name}`, { agent: name });
   return c.json({ ok: true });
 });
 
@@ -199,7 +381,7 @@ settingsRoutes.get("/agents", (c) => {
 // Upsert agent provider/model override
 settingsRoutes.put("/agents/:name", async (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   const body = await c.req.json<{ provider?: string; model?: string }>();
 
@@ -241,8 +423,34 @@ settingsRoutes.put("/agents/:name", async (c) => {
         error: `Model "${body.model}" belongs to provider "${modelProvider}" but agent is configured for "${effectiveProvider}". Set provider to "${modelProvider}" first.`,
       }, 400);
     }
+
+    // Enforce category restrictions
+    const agentConfig = getAgentConfig(name);
+    if (agentConfig?.allowedCategories && agentConfig.allowedCategories.length > 0) {
+      const modelCategory = getModelCategoryFromDB(body.model);
+      if (!agentConfig.allowedCategories.includes(modelCategory)) {
+        return c.json({
+          error: `Model "${body.model}" has category "${modelCategory}" which is not allowed for agent "${name}". Allowed categories: ${agentConfig.allowedCategories.join(", ")}`,
+        }, 400);
+      }
+    }
   }
 
+  // For custom agents, update the custom_agents row directly
+  if (!isBuiltinAgent(name)) {
+    const custom = getCustomAgent(name);
+    if (custom) {
+      db.update(schema.customAgents).set({
+        ...(body.provider ? { provider: body.provider } : {}),
+        ...(body.model ? { model: body.model } : {}),
+        updatedAt: Date.now(),
+      }).where(eq(schema.customAgents.name, name)).run();
+      log("settings", `Custom agent config updated: ${name}`, { agent: name, provider: body.provider, model: body.model });
+      return c.json({ ok: true });
+    }
+  }
+
+  // Built-in agent: use app_settings overlay
   if (body.provider) {
     const key = `agent.${name}.provider`;
     const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
@@ -270,7 +478,7 @@ settingsRoutes.put("/agents/:name", async (c) => {
 // Get agent prompt (DB override or file default)
 settingsRoutes.get("/agents/:name/prompt", (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.prompt`)).get();
   const prompt = loadSystemPrompt(name);
@@ -280,9 +488,20 @@ settingsRoutes.get("/agents/:name/prompt", (c) => {
 // Upsert agent prompt override
 settingsRoutes.put("/agents/:name/prompt", async (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   const body = await c.req.json<{ prompt: string }>();
+
+  // For custom agents, update the prompt column directly
+  if (!isBuiltinAgent(name)) {
+    const custom = getCustomAgent(name);
+    if (custom) {
+      db.update(schema.customAgents).set({ prompt: body.prompt, updatedAt: Date.now() }).where(eq(schema.customAgents.name, name)).run();
+      log("settings", `Custom agent prompt updated: ${name}`, { agent: name, chars: body.prompt.length });
+      return c.json({ ok: true });
+    }
+  }
+
   const key = `agent.${name}.prompt`;
   const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
   if (existing) {
@@ -298,7 +517,7 @@ settingsRoutes.put("/agents/:name/prompt", async (c) => {
 // Reset all overrides for an agent
 settingsRoutes.delete("/agents/:name/overrides", (c) => {
   const name = c.req.param("name") as AgentName;
-  if (!VALID_AGENT_NAMES.has(name)) return c.json({ error: "Unknown agent" }, 400);
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
 
   resetAgentOverrides(name);
   log("settings", `All agent overrides reset: ${name}`, { agent: name });

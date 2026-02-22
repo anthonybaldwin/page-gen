@@ -1,9 +1,14 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeAll } from "bun:test";
 import { AGENT_ROSTER, getAgentConfig, DEFAULT_AGENT_TOOLS, TOOLS_READONLY_AGENTS, getAgentTools } from "../../src/server/agents/registry.ts";
 import { ALL_TOOLS } from "../../src/shared/types.ts";
 import type { AgentName } from "../../src/shared/types.ts";
+import { runMigrations } from "../../src/server/db/migrate.ts";
 
 describe("Agent Registry", () => {
+  beforeAll(() => {
+    runMigrations();
+  });
+
   test("all 13 agents are defined (9 base + 4 orchestrator subtasks)", () => {
     expect(AGENT_ROSTER).toHaveLength(13);
   });

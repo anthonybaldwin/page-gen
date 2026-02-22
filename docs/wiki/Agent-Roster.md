@@ -343,6 +343,61 @@ Each agent's native tool access can be configured via **Settings → Tools**. Th
 - Resetting an agent's tools removes the DB override, reverting to the default
 - Build checks and test runs only trigger for agents that have `write_file` enabled
 
+## Model Category Restrictions
+
+Each agent has an `allowedCategories` field that restricts which model categories can be assigned to it. This prevents assigning voice, image, or realtime models to text-only agents.
+
+| Agent Group | Agents | Allowed Categories |
+|-------------|--------|--------------------|
+| Orchestrator subtasks | orchestrator, classify, title, question, summary | `text` |
+| Planning | research, architect | `text`, `reasoning` |
+| Development | frontend-dev, backend-dev, styling | `text`, `code`, `reasoning` |
+| Quality | code-review, qa, security | `text`, `code`, `reasoning` |
+
+- When `allowedCategories` is undefined (e.g., custom agents without restrictions), all categories are allowed.
+- The model dropdown in Settings filters models by the agent's allowed categories — voice/image/realtime models simply won't appear for text agents.
+- Server-side enforcement in `PUT /settings/agents/:name` rejects models whose category is not in the agent's allowed list.
+
+## Custom Agents
+
+The agent registry is extensible via a `custom_agents` database table. Custom agents integrate with the existing Settings UI and override system.
+
+### Creating Custom Agents
+
+**API:** `POST /settings/custom-agents`
+
+```json
+{
+  "name": "my-agent",
+  "displayName": "My Agent",
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-6",
+  "description": "What this agent does",
+  "group": "custom",
+  "allowedCategories": ["text", "code"],
+  "prompt": "Custom system prompt...",
+  "tools": ["write_file", "read_file"],
+  "maxOutputTokens": 8192,
+  "maxToolSteps": 10
+}
+```
+
+**Name format:** Must match `/^[a-z][a-z0-9-]*$/` (lowercase, starts with letter, hyphens allowed). Cannot collide with built-in agent names.
+
+### How Custom Agents Work
+
+- **Config resolution:** Custom agents are self-contained rows in the `custom_agents` table. They appear in `getAllAgentConfigs()` alongside built-in agents.
+- **System prompts:** Resolved in this order: (1) `app_settings` override, (2) `custom_agents.prompt` column, (3) generic fallback.
+- **Tools & limits:** Stored in the `custom_agents` row. Can be overridden via `app_settings` like built-in agents.
+- **Model assignment:** Uses the same `PUT /settings/agents/:name` endpoint. For custom agents, updates the `custom_agents` row directly instead of `app_settings`.
+- **Settings UI:** Custom agents appear in a "Custom Agents" group section with a violet "custom agent" badge.
+
+### Limitations
+
+- Custom agents are not part of the hardcoded pipeline DAG (orchestrator.ts). The pipeline builder (separate feature) handles dynamic pipelines.
+- Prompt `.md` files are only for built-in agents. Custom agents use the `prompt` column or the generic fallback.
+- The `isBuiltIn` flag on `ResolvedAgentConfig` distinguishes built-in from custom agents.
+
 ## Cost Safety
 
 - Default limit: 500K tokens per session

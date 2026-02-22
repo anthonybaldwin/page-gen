@@ -62,22 +62,18 @@ export interface ProviderConfig {
   proxyUrl?: string;
 }
 
-export type AgentName =
-  | "orchestrator"
-  | "orchestrator:classify"
-  | "orchestrator:title"
-  | "orchestrator:question"
-  | "orchestrator:summary"
-  | "research"
-  | "architect"
-  | "frontend-dev"
-  | "backend-dev"
-  | "styling"
-  | "code-review"
-  | "qa"
-  | "security";
+export const BUILTIN_AGENT_NAMES = [
+  "orchestrator", "orchestrator:classify", "orchestrator:title",
+  "orchestrator:question", "orchestrator:summary",
+  "research", "architect", "frontend-dev", "backend-dev",
+  "styling", "code-review", "qa", "security",
+] as const;
+export type BuiltinAgentName = typeof BUILTIN_AGENT_NAMES[number];
 
-export type AgentGroup = "planning" | "development" | "quality";
+/** Agent name — string to allow custom agents alongside built-in ones. */
+export type AgentName = string;
+
+export type AgentGroup = "planning" | "development" | "quality" | "custom";
 
 export interface AgentConfig {
   name: AgentName;
@@ -86,10 +82,12 @@ export interface AgentConfig {
   model: string;
   description: string;
   group: AgentGroup;
+  allowedCategories?: string[];  // ModelCategory values; undefined = all categories
 }
 
 export interface ResolvedAgentConfig extends AgentConfig {
   isOverridden: boolean;
+  isBuiltIn: boolean;
 }
 
 export interface ModelPricing {

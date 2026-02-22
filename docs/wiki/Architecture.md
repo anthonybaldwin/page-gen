@@ -56,6 +56,7 @@ graph TB
 - API keys encrypted client-side (AES-GCM); ciphertext in localStorage, encryption key in IndexedDB; sent per-request via headers
 - One Vite dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
+- **Extensible agent registry:** The agent registry supports both 13 built-in agents (hardcoded in `AGENT_ROSTER`) and custom agents (stored in the `custom_agents` DB table). All registry getters (`getAgentConfig`, `getAllAgentConfigs`, `getAgentTools`, `getAgentLimits`, etc.) merge both sources. Built-in agents use `app_settings` overlays; custom agents are self-contained rows. Each agent has `allowedCategories` to restrict which model types (text, code, reasoning, voice, image, realtime) can be assigned.
 - Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)
 - Content area has tabbed Preview/Editor — both stay mounted (`forceMount`) so neither iframe nor CodeMirror instance is destroyed on tab switch
 - File editor uses CodeMirror 6 with Nord color scheme, code-split into a separate vendor chunk (~220KB gzipped)

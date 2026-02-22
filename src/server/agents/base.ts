@@ -11,7 +11,7 @@ import { log, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/l
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { trackBillingOnly } from "../services/token-tracker.ts";
 import { estimateCost, getModelCategoryFromDB } from "../services/pricing.ts";
-import { getAgentLimits } from "./registry.ts";
+import { getAgentLimits, isBuiltinAgent, getCustomAgent } from "./registry.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
 import { ERROR_MSG_TRUNCATION, RESPONSE_BODY_TRUNCATION, USER_ERROR_TRUNCATION } from "../config/logging.ts";
 
@@ -239,11 +239,17 @@ export interface AgentOutput {
 }
 
 export function loadSystemPrompt(agentName: AgentName): string {
-  // Check DB override first
+  // 1. Check DB override first (works for both built-in and custom)
   const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${agentName}.prompt`)).get();
   if (row?.value) return row.value;
 
-  // Fall back to .md file
+  // 2. Custom agent: check prompt column in custom_agents table
+  if (!isBuiltinAgent(agentName)) {
+    const custom = getCustomAgent(agentName);
+    if (custom?.prompt) return custom.prompt;
+  }
+
+  // 3. Built-in agent: fall back to .md file
   try {
     const promptPath = join(import.meta.dir, "prompts", `${agentName}.md`);
     return readFileSync(promptPath, "utf-8");

@@ -94,6 +94,22 @@ export const appSettings = sqliteTable("app_settings", {
   value: text("value").notNull(),
 });
 
+export const customAgents = sqliteTable("custom_agents", {
+  name: text("name").primaryKey(),
+  displayName: text("display_name").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  description: text("description").notNull(),
+  agentGroup: text("agent_group").notNull(),
+  allowedCategories: text("allowed_categories"), // JSON array, e.g. '["text","code"]'
+  prompt: text("prompt"),
+  tools: text("tools"), // JSON array of ToolName
+  maxOutputTokens: integer("max_output_tokens"),
+  maxToolSteps: integer("max_tool_steps"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const pipelineRuns = sqliteTable("pipeline_runs", {
   id: text("id").primaryKey(),
   chatId: text("chat_id")

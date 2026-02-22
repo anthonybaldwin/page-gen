@@ -111,6 +111,24 @@ export function runMigrations() {
     )
   `);
 
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS custom_agents (
+      name TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      description TEXT NOT NULL,
+      agent_group TEXT NOT NULL,
+      allowed_categories TEXT,
+      prompt TEXT,
+      tools TEXT,
+      max_output_tokens INTEGER,
+      max_tool_steps INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
   // Drop legacy snapshots table (versioning is now git-based)
   db.run(sql`DROP TABLE IF EXISTS snapshots`);
 

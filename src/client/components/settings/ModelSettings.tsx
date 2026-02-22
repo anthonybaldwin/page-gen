@@ -10,9 +10,10 @@ const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
   development: "Development",
   quality: "Quality",
+  custom: "Custom Agents",
 };
 
-const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality"];
+const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality", "custom"];
 
 function buildAgentGroups(configs: ResolvedAgentConfig[]) {
   return GROUP_ORDER
@@ -35,6 +36,7 @@ export function ModelSettings() {
   const [pricing, setPricing] = useState<PricingInfo[]>([]);
   const [limits, setLimits] = useState<AgentLimitsConfig[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const refresh = async () => {
     const [agents, models, prices, lims] = await Promise.all([
@@ -77,6 +79,18 @@ export function ModelSettings() {
     }
   }
 
+  async function handleDeleteCustomAgent(name: string) {
+    setSaving(name);
+    try {
+      await api.delete(`/settings/custom-agents/${name}`);
+      await refresh();
+    } catch (err) {
+      console.error("[model-settings] Delete custom agent failed:", err);
+    } finally {
+      setSaving(null);
+    }
+  }
+
   if (configs.length === 0) {
     return <p className="text-sm text-muted-foreground">Loading agent configs...</p>;
   }
@@ -103,12 +117,32 @@ export function ModelSettings() {
                   saving={saving === config.name}
                   onSave={handleSave}
                   onReset={handleReset}
+                  onDelete={!config.isBuiltIn ? handleDeleteCustomAgent : undefined}
                   onRefresh={refresh}
                 />
               ))}
           </div>
         </div>
       ))}
+
+      <div className="border-t border-border/50 pt-4">
+        {showAddForm ? (
+          <AddAgentForm
+            knownModels={knownModels}
+            onCreated={() => { setShowAddForm(false); refresh(); }}
+            onCancel={() => setShowAddForm(false)}
+          />
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAddForm(true)}
+            className="text-xs"
+          >
+            + Add Custom Agent
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -121,6 +155,7 @@ function AgentModelCard({
   saving,
   onSave,
   onReset,
+  onDelete,
   onRefresh,
 }: {
   config: ResolvedAgentConfig;
@@ -130,6 +165,7 @@ function AgentModelCard({
   saving: boolean;
   onSave: (name: string, provider: string, model: string) => void;
   onReset: (name: string) => void;
+  onDelete?: (name: string) => void;
   onRefresh: () => Promise<void>;
 }) {
   const [provider, setProvider] = useState(config.provider);
@@ -146,7 +182,13 @@ function AgentModelCard({
   }, [config]);
 
   const isDirty = provider !== config.provider || model !== config.model;
-  const providerModels = knownModels.find((p) => p.provider === provider)?.models || [];
+  const allProviderModels = knownModels.find((p) => p.provider === provider)?.models || [];
+
+  // Filter models by agent's allowed categories
+  const allowedCategories = config.allowedCategories;
+  const providerModels = allowedCategories && allowedCategories.length > 0
+    ? allProviderModels.filter((m) => allowedCategories.includes((m.category ?? "text") as string))
+    : allProviderModels;
 
   const modelOptions = providerModels.map((m) => m.id);
   if (model && !modelOptions.includes(model)) {
@@ -211,9 +253,14 @@ function AgentModelCard({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground">{config.displayName}</span>
+          {!config.isBuiltIn && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">
+              custom agent
+            </span>
+          )}
           {config.isOverridden && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-              custom
+              custom model
             </span>
           )}
           {hasLimitsOverride && (
@@ -228,6 +275,17 @@ function AgentModelCard({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onDelete(config.name)}
+              disabled={saving}
+              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+            >
+              Delete
+            </Button>
+          )}
           {hasLimitsOverride && (
             <Button
               variant="ghost"
@@ -258,7 +316,12 @@ function AgentModelCard({
           value={provider}
           onValueChange={(val) => {
             setProvider(val);
-            const firstModel = knownModels.find((p) => p.provider === val)?.models[0];
+            // When switching providers, pick first model that matches allowed categories
+            const newModels = knownModels.find((p) => p.provider === val)?.models || [];
+            const filtered = allowedCategories && allowedCategories.length > 0
+              ? newModels.filter((m) => allowedCategories.includes((m.category ?? "text") as string))
+              : newModels;
+            const firstModel = filtered[0];
             if (firstModel) setModel(firstModel.id);
           }}
         >
@@ -382,6 +445,145 @@ function AgentModelCard({
       )}
 
       <p className="text-[11px] text-muted-foreground/60 mt-1.5">{config.description}</p>
+    </div>
+  );
+}
+
+function AddAgentForm({
+  knownModels,
+  onCreated,
+  onCancel,
+}: {
+  knownModels: ProviderModels[];
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [provider, setProvider] = useState(PROVIDER_IDS[0]);
+  const [model, setModel] = useState("");
+  const [description, setDescription] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const providerModels = knownModels.find((p) => p.provider === provider)?.models || [];
+
+  useEffect(() => {
+    const first = providerModels[0];
+    if (first && !model) setModel(first.id);
+  }, [provider]);
+
+  async function handleSubmit() {
+    setError("");
+    setSaving(true);
+    try {
+      const res = await api.post<{ ok?: boolean; error?: string }>("/settings/custom-agents", {
+        name,
+        displayName,
+        provider,
+        model,
+        description,
+        prompt: prompt || undefined,
+      });
+      if (res.error) {
+        setError(res.error);
+      } else {
+        onCreated();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create agent");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg bg-muted/50 border border-border/50 p-3 space-y-3">
+      <h4 className="text-xs font-medium text-foreground">New Custom Agent</h4>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Name (slug)</label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="my-agent"
+            className="h-7 text-xs"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-muted-foreground block mb-1">Display name</label>
+          <Input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="My Agent"
+            className="h-7 text-xs"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <div className="w-[120px]">
+          <label className="text-[10px] text-muted-foreground block mb-1">Provider</label>
+          <Select value={provider} onValueChange={(val) => { setProvider(val); setModel(""); }}>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDER_IDS.map((p) => (
+                <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1">
+          <label className="text-[10px] text-muted-foreground block mb-1">Model</label>
+          <Select value={model} onValueChange={setModel}>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providerModels.map((m) => (
+                <SelectItem key={m.id} value={m.id} className="text-xs">{m.id}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] text-muted-foreground block mb-1">Description</label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What this agent does..."
+          className="h-7 text-xs"
+        />
+      </div>
+
+      <div>
+        <label className="text-[10px] text-muted-foreground block mb-1">System prompt (optional)</label>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Custom system prompt..."
+          className="w-full h-20 rounded-md border border-border bg-background px-3 py-2 text-xs resize-y"
+        />
+      </div>
+
+      {error && (
+        <p className="text-[11px] text-destructive">{error}</p>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={handleSubmit} disabled={saving || !name || !displayName || !model || !description} className="h-7 text-xs">
+          {saving ? "Creating..." : "Create Agent"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={saving} className="h-7 text-xs text-muted-foreground">
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
