@@ -180,40 +180,61 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     [onEdgesChange, nodes, onChange, setEdges],
   );
 
+  /** Apply highlight: bolden matched edges, fade the rest */
+  const highlightEdges = useCallback(
+    (match: (e: Edge) => boolean) => {
+      setEdges(current =>
+        current.map(e => {
+          const hit = match(e);
+          return {
+            ...e,
+            zIndex: hit ? 1000 : 0,
+            style: { ...e.style, strokeWidth: hit ? 2.5 : 1, opacity: hit ? 1 : 0.4 },
+          };
+        }),
+      );
+    },
+    [setEdges],
+  );
+
+  const resetEdgeStyles = useCallback(() => {
+    setEdges(current =>
+      current.map(e => ({
+        ...e,
+        zIndex: 0,
+        style: { ...e.style, strokeWidth: 1.5, opacity: 1 },
+      })),
+    );
+  }, [setEdges]);
+
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: Node[] }) => {
       if (selectedNodes.length === 1 && selectedNodes[0]) {
         const nodeId = selectedNodes[0].id;
         onNodeSelect(nodeId);
-        // Fade unconnected edges so connected ones are clearly visible
-        setEdges(current =>
-          current.map(e => {
-            const connected = e.source === nodeId || e.target === nodeId;
-            return {
-              ...e,
-              zIndex: connected ? 1000 : 0,
-              style: {
-                ...e.style,
-                strokeWidth: connected ? 2.5 : 1,
-                opacity: connected ? 1 : 0.15,
-              },
-            };
-          }),
-        );
+        highlightEdges(e => e.source === nodeId || e.target === nodeId);
       } else {
         onNodeSelect(null);
-        // Restore all edges
-        setEdges(current =>
-          current.map(e => ({
-            ...e,
-            zIndex: 0,
-            style: { ...e.style, strokeWidth: 1.5, opacity: 1 },
-          })),
-        );
+        resetEdgeStyles();
       }
     },
-    [onNodeSelect, setEdges],
+    [onNodeSelect, highlightEdges, resetEdgeStyles],
   );
+
+  /** Hover/click an edge → highlight all sibling edges (same source + sourceHandle) */
+  const handleEdgeMouseEnter = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      highlightEdges(e =>
+        e.id === edge.id ||
+        (e.source === edge.source && e.sourceHandle === edge.sourceHandle && !!edge.sourceHandle),
+      );
+    },
+    [highlightEdges],
+  );
+
+  const handleEdgeMouseLeave = useCallback(() => {
+    resetEdgeStyles();
+  }, [resetEdgeStyles]);
 
   return (
     <div className="h-full w-full min-h-[300px] rounded-lg border border-border bg-background">
@@ -224,6 +245,8 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onSelectionChange={handleSelectionChange}
+        onEdgeMouseEnter={handleEdgeMouseEnter}
+        onEdgeMouseLeave={handleEdgeMouseLeave}
         nodeTypes={nodeTypes}
         fitView
         elevateEdgesOnSelect
