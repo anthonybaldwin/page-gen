@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 6;
+export const FLOW_DEFAULTS_VERSION = 7;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -223,10 +223,20 @@ export function generateBuildDefault(): FlowTemplate {
   edges.push(makeEdge("security", "remediation"));
   edges.push(makeEdge("qa", "remediation"));
 
+  // Summary after remediation
+  col++;
+  const summary = makeNode("summary", "action", {
+    type: "action",
+    kind: "summary",
+    label: "Summary",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(summary);
+  edges.push(makeEdge("remediation", "summary"));
+
   return {
     id: `default-build-${nanoid(8)}`,
     name: "Default Build Pipeline",
-    description: "Vibe Brief → Mood Analysis → Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation",
+    description: "Vibe Brief → Mood Analysis → Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation → Summary",
     intent: "build",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,
@@ -371,10 +381,21 @@ export function generateFixDefault(): FlowTemplate {
   edges.push(makeEdge("code-review-fix", "remediation-fix"));
   edges.push(makeEdge("security-fix", "remediation-fix"));
 
+  // Summary (shared endpoint for both quick and full paths)
+  col++;
+  const summary = makeNode("summary-fix", "action", {
+    type: "action",
+    kind: "summary",
+    label: "Summary",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(summary);
+  edges.push(makeEdge("build-check-quick", "summary-fix"));
+  edges.push(makeEdge("remediation-fix", "summary-fix"));
+
   return {
     id: `default-fix-${nanoid(8)}`,
     name: "Default Fix Pipeline",
-    description: "Scope-based routing: quick-edit for styling/frontend, full pipeline with reviewers for backend/full",
+    description: "Scope-based routing: styling/frontend quick-edit, full pipeline with reviewers for backend/full → Summary",
     intent: "fix",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,

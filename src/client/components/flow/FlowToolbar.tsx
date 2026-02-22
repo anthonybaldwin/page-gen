@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -86,6 +86,9 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "mood-analysis"))} className="h-7 text-xs gap-1">
           <Image className="h-3 w-3" /> Mood Analysis
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "summary"))} className="h-7 text-xs gap-1">
+          <FileText className="h-3 w-3" /> Summary
         </Button>
       </div>
 

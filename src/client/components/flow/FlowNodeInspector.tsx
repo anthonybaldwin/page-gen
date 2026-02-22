@@ -601,14 +601,19 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
 }
 
 const KIND_DESCRIPTIONS: Record<string, string> = {
-  "build-check": "Runs a build check at this point in the pipeline. If errors are found, a dev agent attempts to fix them.",
-  "test-run": "Runs the project's test suite. If tests fail, a dev agent attempts to fix them.",
-  "remediation": "Iteratively fixes issues found by review agents. Re-runs reviews until clean or max cycles reached.",
+  "build-check": "Runs `vite build` to verify the project compiles. If errors are found, a dev agent automatically attempts to fix them (up to Max Attempts).",
+  "test-run": "Runs the project's test suite (vitest). If tests fail, a dev agent attempts to fix them and re-runs only the failed tests.",
+  "remediation": "Detects issues from review agents (code-review, QA, security), routes fixes to the appropriate dev agent, then re-runs only affected reviewers. Repeats up to Max Cycles.",
+  "summary": "Generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context.",
   "mood-analysis": "Analyzes uploaded mood board images using a vision model and extracts color palette, style descriptors, and mood keywords.",
 };
 
 const KIND_IO: Record<string, { input: string; outputKey: string }> = {
+  "build-check": { input: "Project files on disk", outputKey: "build-check" },
+  "test-run": { input: "Project test files", outputKey: "test-run" },
+  "remediation": { input: "Review agent outputs", outputKey: "remediation" },
+  "summary": { input: "All agent outputs (truncated)", outputKey: "summary" },
   "vibe-intake": { input: "DB project vibe brief", outputKey: "vibe-brief" },
   "mood-analysis": { input: "Mood board images on disk", outputKey: "mood-analysis" },
 };
@@ -622,6 +627,7 @@ const KIND_FIELDS: Record<string, Array<{ key: keyof ActionNodeData; label: stri
   ],
   "test-run": [
     { key: "timeoutMs", label: "Timeout (ms)", placeholder: "60000" },
+    { key: "maxAttempts", label: "Max Fix Attempts", placeholder: "2" },
     { key: "maxTestFailures", label: "Max Test Failures", placeholder: "5" },
     { key: "maxUniqueErrors", label: "Max Unique Errors", placeholder: "10" },
   ],
