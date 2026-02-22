@@ -6,6 +6,8 @@ import type { AgentNodeData } from "../../../../shared/flow-types.ts";
 type AgentNodeProps = NodeProps & { data: AgentNodeData };
 
 export const AgentNode = memo(function AgentNode({ data, selected }: AgentNodeProps) {
+  const sourceCount = data.upstreamSources?.length ?? 0;
+
   return (
     <div className={`px-3 py-2 rounded-lg border bg-card text-card-foreground shadow-sm min-w-[160px] ${selected ? "ring-2 ring-primary" : ""}`}>
       <Handle type="target" position={Position.Left} className="!bg-primary !w-2 !h-2" />
@@ -13,7 +15,9 @@ export const AgentNode = memo(function AgentNode({ data, selected }: AgentNodePr
         <Bot className="h-4 w-4 text-primary shrink-0" />
         <div className="min-w-0">
           <div className="text-xs font-medium truncate">{data.agentName || "Agent"}</div>
-          <div className="text-[10px] text-muted-foreground truncate">{data.inputTemplate ? "Has template" : "No template"}</div>
+          <div className="text-[10px] text-muted-foreground truncate">
+            {sourceCount > 0 ? `${sourceCount} input${sourceCount !== 1 ? "s" : ""}` : data.inputTemplate ? "Has template" : "No template"}
+          </div>
         </div>
       </div>
       <Handle type="source" position={Position.Right} className="!bg-primary !w-2 !h-2" />

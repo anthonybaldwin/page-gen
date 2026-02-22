@@ -4,12 +4,32 @@ import type { OrchestratorIntent } from "./types.ts";
 
 export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action";
 
+// --- Upstream Source Configuration ---
+
+export type UpstreamTransform =
+  | "raw"              // Pass through as-is (default)
+  | "design-system"    // Extract design_system from architect JSON → markdown
+  | "file-manifest"    // Extract file paths from write_file tool calls
+  | "project-source";  // Fresh read from disk (not cached agent output)
+
+export const UPSTREAM_TRANSFORMS: UpstreamTransform[] = ["raw", "design-system", "file-manifest", "project-source"];
+
+export const WELL_KNOWN_SOURCES = ["vibe-brief", "mood-analysis", "project-source"] as const;
+export type WellKnownSource = typeof WELL_KNOWN_SOURCES[number];
+
+export interface UpstreamSource {
+  sourceKey: string;           // Node ID or well-known key ("vibe-brief", "mood-analysis")
+  alias?: string;              // Key name in "Previous Agent Outputs" (defaults to sourceKey)
+  transform?: UpstreamTransform;
+}
+
 export interface AgentNodeData {
   type: "agent";
   agentName: string;
   inputTemplate: string;
   maxOutputTokens?: number;  // per-node override
   maxToolSteps?: number;     // per-node override
+  upstreamSources?: UpstreamSource[];
 }
 
 export interface ConditionNodeData {

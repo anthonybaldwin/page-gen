@@ -50,6 +50,60 @@ Example: `scope === 'backend' || scope === 'full'`
 
 Agent nodes have an input template field. Use `{{userMessage}}` to interpolate the user's original message.
 
+#### Merge Fields
+
+In addition to `{{userMessage}}`, input templates support merge fields that reference upstream agent outputs at execution time:
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `{{output:KEY}}` | Raw output from upstream agent/action | `{{output:research}}` |
+| `{{context:KEY}}` | Alias for `{{output:KEY}}` | `{{context:architect}}` |
+| `{{transform:design-system}}` | Design system extracted from architect output as markdown | |
+| `{{transform:file-manifest:KEY}}` | File paths from write_file tool calls in agent KEY's output | `{{transform:file-manifest:frontend-dev}}` |
+| `{{transform:project-source}}` | Fresh project source read from disk | |
+
+Merge fields resolve at execution time using `agentResults`. If the referenced key doesn't exist (e.g., agent hasn't run yet), the field resolves to an empty string.
+
+### Upstream Sources
+
+Each agent node can configure which upstream data it receives via the **Data Sources** section in the inspector. This replaces the hardcoded `filterUpstreamOutputs()` routing with per-node configuration.
+
+#### Source Configuration
+
+Each upstream source has three properties:
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `sourceKey` | Yes | Node ID or well-known key (`vibe-brief`, `mood-analysis`, `project-source`) |
+| `transform` | No | How to process the raw output before passing it (default: `raw`) |
+| `alias` | No | Key name in "Previous Agent Outputs" (defaults to `sourceKey`) |
+
+#### Transforms
+
+| Transform | Description | Typical Use |
+|-----------|-------------|-------------|
+| `raw` | Pass output through as-is | Most agent-to-agent data flow |
+| `design-system` | Extract `design_system` from architect JSON and format as markdown | frontend-dev, styling |
+| `file-manifest` | Extract file paths from `write_file` tool calls | Review agents (code-review, security, qa) |
+| `project-source` | Read fresh project source from disk (ignores sourceKey output) | Review agents, fix agents |
+
+#### Default Routing
+
+When no upstream sources are configured (the "Customize" toggle is off), the node uses the built-in `filterUpstreamOutputs()` function, which routes data based on the agent name. The default templates ship with explicit upstream sources that replicate this behavior, making the routing visible and editable.
+
+#### Example
+
+The default **frontend-dev** node has these upstream sources:
+
+```
+architect       → raw          (full architect output)
+research        → raw          (research findings)
+vibe-brief      → raw          (vibe brief from intake)
+architect       → design-system (alias: "design-system")
+```
+
+This means frontend-dev receives the architect plan, research findings, vibe brief, and a formatted design system — all visible and editable in the inspector.
+
 ### Validation
 
 Before saving, the editor validates:
@@ -59,6 +113,10 @@ Before saving, the editor validates:
 - Condition expressions use only allowed variables
 - At least one start and terminal node
 - Edge source/target IDs reference existing nodes
+- Upstream source keys reference ancestor nodes or well-known keys
+- Upstream transforms are valid
+- Duplicate upstream aliases (warning)
+- `design-system` transform on non-architect sources (warning)
 
 ### Default Templates
 

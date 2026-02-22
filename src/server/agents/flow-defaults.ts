@@ -1,9 +1,9 @@
-import type { FlowTemplate, FlowNode, FlowEdge } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, UpstreamSource } from "../../shared/flow-types.ts";
 import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 4;
+export const FLOW_DEFAULTS_VERSION = 5;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -60,6 +60,10 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "research",
     inputTemplate: loadDefaultPrompt("research"),
+    upstreamSources: [
+      { sourceKey: "vibe-brief" },
+      { sourceKey: "mood-analysis" },
+    ],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(research);
   edges.push(makeEdge("mood-analysis", "research"));
@@ -70,6 +74,11 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "architect",
     inputTemplate: loadDefaultPrompt("architect"),
+    upstreamSources: [
+      { sourceKey: "research" },
+      { sourceKey: "vibe-brief" },
+      { sourceKey: "mood-analysis" },
+    ],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(architect);
   edges.push(makeEdge("research", "architect"));
@@ -104,6 +113,12 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "frontend-dev",
     inputTemplate: loadDefaultPrompt("frontend-dev"),
+    upstreamSources: [
+      { sourceKey: "architect" },
+      { sourceKey: "research" },
+      { sourceKey: "vibe-brief" },
+      { sourceKey: "architect", alias: "design-system", transform: "design-system" },
+    ],
   }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(frontendDev);
   edges.push(makeEdge("cond-backend", "frontend-dev", "true", "yes"));
@@ -114,6 +129,10 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "backend-dev",
     inputTemplate: loadDefaultPrompt("backend-dev"),
+    upstreamSources: [
+      { sourceKey: "architect" },
+      { sourceKey: "research" },
+    ],
   }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
   nodes.push(backendDev);
   edges.push(makeEdge("cond-backend", "backend-dev", "true", "yes"));
@@ -124,6 +143,10 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "styling",
     inputTemplate: loadDefaultPrompt("styling"),
+    upstreamSources: [
+      { sourceKey: "architect" },
+      { sourceKey: "architect", alias: "design-system", transform: "design-system" },
+    ],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(styling);
   edges.push(makeEdge("frontend-dev", "styling"));
@@ -147,12 +170,22 @@ export function generateBuildDefault(): FlowTemplate {
   nodes.push(testRun);
   edges.push(makeEdge("styling", "test-run"));
 
+  // Shared upstream sources for reviewer agents
+  const reviewerSources: UpstreamSource[] = [
+    { sourceKey: "architect" },
+    { sourceKey: "frontend-dev", alias: "changed-files", transform: "file-manifest" },
+    { sourceKey: "backend-dev", alias: "changed-files-backend", transform: "file-manifest" },
+    { sourceKey: "styling", alias: "changed-files-styling", transform: "file-manifest" },
+    { sourceKey: "project-source", transform: "project-source" },
+  ];
+
   // Parallel reviewers
   col++;
   const codeReview = makeNode("code-review", "agent", {
     type: "agent",
     agentName: "code-review",
     inputTemplate: loadDefaultPrompt("code-review"),
+    upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(codeReview);
   edges.push(makeEdge("build-check", "code-review"));
@@ -162,6 +195,7 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "security",
     inputTemplate: loadDefaultPrompt("security"),
+    upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER);
   nodes.push(security);
   edges.push(makeEdge("build-check", "security"));
@@ -171,6 +205,7 @@ export function generateBuildDefault(): FlowTemplate {
     type: "agent",
     agentName: "qa",
     inputTemplate: loadDefaultPrompt("qa"),
+    upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(qa);
   edges.push(makeEdge("build-check", "qa"));
@@ -227,6 +262,9 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "styling",
     inputTemplate: "Fix the following styling issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: {{userMessage}}",
+    upstreamSources: [
+      { sourceKey: "project-source", transform: "project-source" },
+    ],
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(stylingQuick);
   edges.push(makeEdge("cond-scope", "styling-quick", "true", "styling"));
@@ -247,6 +285,9 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "frontend-dev",
     inputTemplate: "Fix the following issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: {{userMessage}}",
+    upstreamSources: [
+      { sourceKey: "project-source", transform: "project-source" },
+    ],
   }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(frontendQuick);
   edges.push(makeEdge("cond-frontend", "frontend-quick", "true", "frontend"));
@@ -256,6 +297,9 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "frontend-dev",
     inputTemplate: "Fix the following issue in the existing code (provided in Previous Agent Outputs as \"project-source\"). Original request: {{userMessage}}",
+    upstreamSources: [
+      { sourceKey: "project-source", transform: "project-source" },
+    ],
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(devFix);
   edges.push(makeEdge("cond-frontend", "dev-fix", "false"));
@@ -294,6 +338,10 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "code-review",
     inputTemplate: "Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: {{userMessage}}",
+    upstreamSources: [
+      { sourceKey: "dev-fix", alias: "changed-files", transform: "file-manifest" },
+      { sourceKey: "project-source", transform: "project-source" },
+    ],
   }, col * X_SPACING, Y_CENTER + Y_SPACING - Y_SPACING / 2);
   nodes.push(codeReview);
   edges.push(makeEdge("build-check-fix", "code-review-fix"));
@@ -303,6 +351,10 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "security",
     inputTemplate: "Security review all code changes (provided in Previous Agent Outputs). Original request: {{userMessage}}",
+    upstreamSources: [
+      { sourceKey: "dev-fix", alias: "changed-files", transform: "file-manifest" },
+      { sourceKey: "project-source", transform: "project-source" },
+    ],
   }, col * X_SPACING, Y_CENTER + Y_SPACING + Y_SPACING / 2);
   nodes.push(securityFix);
   edges.push(makeEdge("build-check-fix", "security-fix"));

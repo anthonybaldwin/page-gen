@@ -1,24 +1,52 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData } from "../../../shared/flow-types.ts";
-import { PREDEFINED_CONDITIONS } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, UpstreamSource, UpstreamTransform } from "../../../shared/flow-types.ts";
+import { PREDEFINED_CONDITIONS, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "../../../shared/flow-types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
 
 interface FlowNodeInspectorProps {
   node: FlowNode | null;
   agentNames: string[];
+  allNodes: FlowNode[];
+  allEdges: FlowEdge[];
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
   onDelete: (nodeId: string) => void;
   pipelineDefaults?: PipelineConfig | null;
 }
 
-export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipelineDefaults }: FlowNodeInspectorProps) {
+/** Compute ancestor node IDs by walking backwards through edges */
+function getAncestorNodeIds(nodeId: string, allNodes: FlowNode[], allEdges: FlowEdge[]): string[] {
+  const inEdges = new Map<string, string[]>();
+  for (const edge of allEdges) {
+    if (!inEdges.has(edge.target)) inEdges.set(edge.target, []);
+    inEdges.get(edge.target)!.push(edge.source);
+  }
+  const ancestors = new Set<string>();
+  const queue = [...(inEdges.get(nodeId) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (ancestors.has(id)) continue;
+    ancestors.add(id);
+    queue.push(...(inEdges.get(id) ?? []));
+  }
+  return [...ancestors];
+}
+
+/** Get available source keys for a node (ancestors + well-known sources) */
+function getAvailableSourceKeys(nodeId: string, allNodes: FlowNode[], allEdges: FlowEdge[]): string[] {
+  const ancestors = getAncestorNodeIds(nodeId, allNodes, allEdges);
+  const wellKnown = WELL_KNOWN_SOURCES as readonly string[];
+  const all = new Set([...ancestors, ...wellKnown]);
+  return [...all].sort();
+}
+
+export function FlowNodeInspector({ node, agentNames, allNodes, allEdges, onUpdate, onDelete, pipelineDefaults }: FlowNodeInspectorProps) {
   if (!node) return null;
 
   return (
-    <div className="space-y-3 p-3 border-l border-border min-w-[240px]">
+    <div className="space-y-3 p-3 border-l border-border min-w-[260px] max-w-[300px] overflow-y-auto">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-foreground uppercase tracking-wider">
           {node.data.type} Node
@@ -36,7 +64,7 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipeli
       <div className="text-[10px] text-muted-foreground font-mono">{node.id}</div>
 
       {node.data.type === "agent" && (
-        <AgentInspector data={node.data} nodeId={node.id} agentNames={agentNames} onUpdate={onUpdate} pipelineDefaults={pipelineDefaults} />
+        <AgentInspector data={node.data} nodeId={node.id} agentNames={agentNames} allNodes={allNodes} allEdges={allEdges} onUpdate={onUpdate} pipelineDefaults={pipelineDefaults} />
       )}
       {node.data.type === "condition" && (
         <ConditionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
@@ -53,10 +81,122 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipeli
 
 const GENERIC_PROMPT = "Original request: {{userMessage}}";
 
-function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }: {
+// --- Upstream Sources Editor ---
+
+function UpstreamSourcesEditor({ sources, nodeId, allNodes, allEdges, onChange }: {
+  sources: UpstreamSource[];
+  nodeId: string;
+  allNodes: FlowNode[];
+  allEdges: FlowEdge[];
+  onChange: (sources: UpstreamSource[]) => void;
+}) {
+  const availableKeys = useMemo(() => getAvailableSourceKeys(nodeId, allNodes, allEdges), [nodeId, allNodes, allEdges]);
+
+  const handleAdd = () => {
+    const firstAvailable = availableKeys.find(k => !sources.some(s => s.sourceKey === k && !s.alias));
+    onChange([...sources, { sourceKey: firstAvailable ?? availableKeys[0] ?? "" }]);
+  };
+
+  const handleRemove = (index: number) => {
+    onChange(sources.filter((_, i) => i !== index));
+  };
+
+  const handleUpdate = (index: number, updated: UpstreamSource) => {
+    const next = [...sources];
+    next[index] = updated;
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {sources.map((source, i) => (
+        <div key={i} className="flex items-center gap-1 text-xs">
+          <select
+            value={source.sourceKey}
+            onChange={(e) => handleUpdate(i, { ...source, sourceKey: e.target.value })}
+            className="flex-1 min-w-0 rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+          >
+            {availableKeys.map((key) => (
+              <option key={key} value={key}>{key}</option>
+            ))}
+          </select>
+          <select
+            value={source.transform ?? "raw"}
+            onChange={(e) => handleUpdate(i, { ...source, transform: (e.target.value === "raw" ? undefined : e.target.value) as UpstreamTransform | undefined })}
+            className="w-[90px] rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+          >
+            {UPSTREAM_TRANSFORMS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={source.alias ?? ""}
+            onChange={(e) => handleUpdate(i, { ...source, alias: e.target.value || undefined })}
+            placeholder="alias"
+            className="w-[60px] rounded border border-border bg-background px-1 py-0.5 text-[11px]"
+          />
+          <button
+            type="button"
+            onClick={() => handleRemove(i)}
+            className="text-destructive hover:text-destructive/80 text-sm px-0.5"
+            title="Remove source"
+          >
+            x
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={handleAdd}
+        className="text-[11px] text-primary hover:text-primary/80"
+      >
+        + Add Source
+      </button>
+    </div>
+  );
+}
+
+// --- Merge Field Pills ---
+
+function MergeFieldPills({ sources, onInsert }: {
+  sources: UpstreamSource[];
+  onInsert: (field: string) => void;
+}) {
+  if (sources.length === 0) return null;
+
+  const fields = sources.map((s) => {
+    const key = s.alias ?? s.sourceKey;
+    return `{{output:${key}}}`;
+  });
+  // Deduplicate
+  const unique = [...new Set(fields)];
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {unique.map((field) => (
+        <button
+          key={field}
+          type="button"
+          onClick={() => onInsert(field)}
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 font-mono"
+          title={`Click to insert ${field}`}
+        >
+          {field}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// --- Agent Inspector ---
+
+function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate, pipelineDefaults }: {
   data: AgentNodeData;
   nodeId: string;
   agentNames: string[];
+  allNodes: FlowNode[];
+  allEdges: FlowEdge[];
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
   pipelineDefaults?: PipelineConfig | null;
 }) {
@@ -65,12 +205,16 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
   const [maxOutputTokens, setMaxOutputTokens] = useState(data.maxOutputTokens?.toString() ?? "");
   const [maxToolSteps, setMaxToolSteps] = useState(data.maxToolSteps?.toString() ?? "");
   const [agentDefaultPrompt, setAgentDefaultPrompt] = useState<string | null>(null);
+  const [showSources, setShowSources] = useState(!!data.upstreamSources);
+  const [upstreamSources, setUpstreamSources] = useState<UpstreamSource[]>(data.upstreamSources ?? []);
 
   useEffect(() => {
     setAgentName(data.agentName);
     setInputTemplate(data.inputTemplate);
     setMaxOutputTokens(data.maxOutputTokens?.toString() ?? "");
     setMaxToolSteps(data.maxToolSteps?.toString() ?? "");
+    setUpstreamSources(data.upstreamSources ?? []);
+    setShowSources(!!data.upstreamSources);
   }, [data]);
 
   // Fetch default prompt when agent name is set
@@ -85,21 +229,27 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
       .catch(() => setAgentDefaultPrompt(null));
   }, [agentName]);
 
-  const save = useCallback(() => {
-    onUpdate(nodeId, {
+  const buildData = useCallback(
+    (overrides?: Partial<AgentNodeData>): AgentNodeData => ({
       ...data,
       agentName,
       inputTemplate,
       maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
       maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
-    });
-  }, [nodeId, data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, onUpdate]);
+      upstreamSources: showSources ? upstreamSources : undefined,
+      ...overrides,
+    }),
+    [data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, upstreamSources, showSources],
+  );
+
+  const save = useCallback(() => {
+    onUpdate(nodeId, buildData());
+  }, [nodeId, buildData, onUpdate]);
 
   const handleAgentChange = useCallback((newAgentName: string) => {
     setAgentName(newAgentName);
     if (!newAgentName) return;
 
-    // Auto-populate prompt from agent's default when current prompt is empty or generic
     api
       .get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${newAgentName}/defaultPrompt`)
       .then((res) => {
@@ -108,48 +258,42 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
           !inputTemplate || inputTemplate === GENERIC_PROMPT || inputTemplate === "{{userMessage}}";
         if (currentIsGenericOrEmpty) {
           setInputTemplate(res.defaultPrompt);
-          // Save immediately with new values
-          onUpdate(nodeId, {
-            ...data,
-            agentName: newAgentName,
-            inputTemplate: res.defaultPrompt,
-            maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
-            maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
-          });
+          onUpdate(nodeId, buildData({ agentName: newAgentName, inputTemplate: res.defaultPrompt }));
         } else {
-          onUpdate(nodeId, {
-            ...data,
-            agentName: newAgentName,
-            inputTemplate,
-            maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
-            maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
-          });
+          onUpdate(nodeId, buildData({ agentName: newAgentName }));
         }
       })
       .catch(() => {
         setAgentDefaultPrompt(null);
-        onUpdate(nodeId, {
-          ...data,
-          agentName: newAgentName,
-          inputTemplate,
-          maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
-          maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
-        });
+        onUpdate(nodeId, buildData({ agentName: newAgentName }));
       });
-  }, [inputTemplate, maxOutputTokens, maxToolSteps, nodeId, data, onUpdate]);
+  }, [inputTemplate, nodeId, buildData, onUpdate]);
 
   const handleResetToDefault = useCallback(() => {
     if (agentDefaultPrompt) {
       setInputTemplate(agentDefaultPrompt);
-      onUpdate(nodeId, {
-        ...data,
-        agentName,
-        inputTemplate: agentDefaultPrompt,
-        maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
-        maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
-      });
+      onUpdate(nodeId, buildData({ inputTemplate: agentDefaultPrompt }));
     }
-  }, [agentDefaultPrompt, agentName, maxOutputTokens, maxToolSteps, nodeId, data, onUpdate]);
+  }, [agentDefaultPrompt, nodeId, buildData, onUpdate]);
+
+  const handleSourcesChange = useCallback((newSources: UpstreamSource[]) => {
+    setUpstreamSources(newSources);
+    onUpdate(nodeId, buildData({ upstreamSources: newSources }));
+  }, [nodeId, buildData, onUpdate]);
+
+  const handleToggleSources = useCallback((enabled: boolean) => {
+    setShowSources(enabled);
+    if (enabled) {
+      onUpdate(nodeId, buildData({ upstreamSources: upstreamSources }));
+    } else {
+      onUpdate(nodeId, buildData({ upstreamSources: undefined }));
+    }
+  }, [nodeId, upstreamSources, buildData, onUpdate]);
+
+  const handleInsertMergeField = useCallback((field: string) => {
+    setInputTemplate((prev) => prev + " " + field);
+    // Don't auto-save here — user should review and blur to save
+  }, []);
 
   const isUsingDefault = agentDefaultPrompt !== null && inputTemplate === agentDefaultPrompt;
   const isCustomized = agentDefaultPrompt !== null && inputTemplate !== agentDefaultPrompt;
@@ -169,6 +313,37 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
           ))}
         </select>
       </label>
+
+      {/* Data Sources section */}
+      <div className="border-t border-border pt-2 mt-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Data Sources</span>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={showSources}
+              onChange={(e) => handleToggleSources(e.target.checked)}
+              className="rounded border-border h-3 w-3"
+            />
+            <span className="text-[10px] text-muted-foreground">Customize</span>
+          </label>
+        </div>
+        {showSources ? (
+          <UpstreamSourcesEditor
+            sources={upstreamSources}
+            nodeId={nodeId}
+            allNodes={allNodes}
+            allEdges={allEdges}
+            onChange={handleSourcesChange}
+          />
+        ) : (
+          <div className="text-[10px] text-muted-foreground italic">
+            Using default data routing
+          </div>
+        )}
+      </div>
+
+      {/* Prompt section */}
       <label className="block">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -199,7 +374,20 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
           }`}
           placeholder="Use {{userMessage}} for the user's request"
         />
+        {showSources && upstreamSources.length > 0 && (
+          <MergeFieldPills sources={upstreamSources} onInsert={handleInsertMergeField} />
+        )}
       </label>
+
+      {/* Output section */}
+      <div className="border-t border-border pt-2 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
+        <div className="text-[10px] text-muted-foreground mt-1">
+          Output key: <span className="font-mono text-foreground">{nodeId}</span>
+        </div>
+      </div>
+
+      {/* Overrides section */}
       <div className="border-t border-border pt-2 mt-2">
         <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
         <div className="grid grid-cols-2 gap-2 mt-1.5">
@@ -383,10 +571,15 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
         />
         <span className="text-xs text-muted-foreground">Skip in YOLO mode</span>
       </label>
-      <div className="text-[10px] text-muted-foreground leading-relaxed">
-        {checkpointType === "approve"
-          ? "Pauses the pipeline and waits for user approval before continuing."
-          : "Pauses the pipeline and presents design direction options from the architect for user selection."}
+
+      {/* Data Flow summary */}
+      <div className="border-t border-border pt-2 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Data Flow</span>
+        <div className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+          {checkpointType === "design_direction"
+            ? "Receives architect output \u2192 Extracts design directions \u2192 User selects one \u2192 Passes selected design_system to downstream nodes"
+            : "Pauses the pipeline and waits for user approval before continuing."}
+        </div>
       </div>
     </div>
   );
@@ -398,6 +591,11 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "remediation": "Iteratively fixes issues found by review agents. Re-runs reviews until clean or max cycles reached.",
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context.",
   "mood-analysis": "Analyzes uploaded mood board images using a vision model and extracts color palette, style descriptors, and mood keywords.",
+};
+
+const KIND_OUTPUTS: Record<string, string> = {
+  "vibe-intake": "Produces: vibe-brief (JSON: adjectives, metaphor, target user)",
+  "mood-analysis": "Produces: mood-analysis (JSON: palette, style descriptors, mood keywords)",
 };
 
 /** Which override fields to show per action kind */
@@ -452,6 +650,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   };
 
   const fields = KIND_FIELDS[data.kind] ?? [];
+  const outputInfo = KIND_OUTPUTS[data.kind];
 
   return (
     <div className="space-y-2">
@@ -462,6 +661,12 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
+      {outputInfo && (
+        <div className="border-t border-border pt-2 mt-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</span>
+          <div className="text-[10px] text-muted-foreground mt-1">{outputInfo}</div>
+        </div>
+      )}
       {fields.length > 0 && (
         <div className="border-t border-border pt-2 mt-2">
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Overrides</span>
@@ -486,4 +691,3 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     </div>
   );
 }
-

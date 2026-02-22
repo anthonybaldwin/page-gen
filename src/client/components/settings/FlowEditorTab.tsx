@@ -385,6 +385,8 @@ export function FlowEditorTab() {
               <FlowNodeInspector
                 node={selectedNode}
                 agentNames={agentNames}
+                allNodes={editNodes}
+                allEdges={editEdges}
                 onUpdate={handleNodeUpdate}
                 onDelete={handleNodeDelete}
                 pipelineDefaults={pipelineDefaults}

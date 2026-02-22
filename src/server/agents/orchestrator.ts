@@ -632,6 +632,105 @@ export function filterUpstreamOutputs(
   return truncateAllOutputs(all);
 }
 
+/**
+ * Resolve upstream sources using explicit per-node configuration.
+ * Used when a step has `upstreamSources` defined (new configurable system).
+ * Falls back to filterUpstreamOutputs when upstreamSources is undefined.
+ */
+export function resolveUpstreamSources(
+  sources: import("../../shared/flow-types.ts").UpstreamSource[],
+  agentResults: Map<string, string>,
+  projectPath?: string,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const source of sources) {
+    const key = source.alias ?? source.sourceKey;
+    const transform = source.transform ?? "raw";
+
+    if (transform === "project-source") {
+      // Fresh read from disk regardless of sourceKey
+      if (projectPath) {
+        result[key] = getFreshProjectSource(projectPath);
+      }
+      continue;
+    }
+
+    const rawValue = agentResults.get(source.sourceKey);
+    if (rawValue === undefined) continue;
+
+    switch (transform) {
+      case "raw":
+        result[key] = rawValue;
+        break;
+      case "design-system": {
+        // Extract design_system from architect JSON → markdown
+        const designResult: Record<string, string> = { [source.sourceKey]: rawValue };
+        injectDesignSystem(designResult);
+        if (designResult["design-system"]) {
+          result[key] = designResult["design-system"];
+        }
+        break;
+      }
+      case "file-manifest": {
+        const manifest = buildFileManifest(rawValue);
+        if (manifest) {
+          result[key] = `### ${source.sourceKey} output\n${manifest}`;
+        }
+        break;
+      }
+    }
+  }
+
+  return truncateAllOutputs(result);
+}
+
+/**
+ * Resolve merge fields in an input template string.
+ * Supported patterns:
+ *   {{output:KEY}}              — raw output from agentResults[KEY]
+ *   {{transform:design-system}} — design system extracted from architect output
+ *   {{transform:file-manifest:KEY}} — file manifest from agent KEY
+ *   {{transform:project-source}} — fresh project source from disk
+ *   {{context:KEY}}             — alias for {{output:KEY}}
+ */
+export function resolveMergeFields(
+  input: string,
+  agentResults: Map<string, string>,
+  projectPath?: string,
+): string {
+  return input.replace(/\{\{(output|transform|context):([^}]*)\}\}/g, (_match, type: string, rest: string) => {
+    if (type === "output" || type === "context") {
+      const value = agentResults.get(rest);
+      return value ?? "";
+    }
+
+    if (type === "transform") {
+      if (rest === "design-system") {
+        const architectOutput = agentResults.get("architect");
+        if (!architectOutput) return "";
+        const temp: Record<string, string> = { architect: architectOutput };
+        injectDesignSystem(temp);
+        return temp["design-system"] ?? "";
+      }
+
+      if (rest.startsWith("file-manifest:")) {
+        const sourceKey = rest.slice("file-manifest:".length);
+        const rawValue = agentResults.get(sourceKey);
+        if (!rawValue) return "";
+        return buildFileManifest(rawValue) ?? "";
+      }
+
+      if (rest === "project-source") {
+        if (projectPath) return getFreshProjectSource(projectPath);
+        return agentResults.get("project-source") ?? "";
+      }
+    }
+
+    return "";
+  });
+}
+
 // Abort registry — keyed by chatId
 const abortControllers = new Map<string, AbortController>();
 
@@ -809,6 +908,7 @@ export interface AgentStep {
   instanceId?: string;
   maxOutputTokens?: number;
   maxToolSteps?: number;
+  upstreamSources?: import("../../shared/flow-types.ts").UpstreamSource[];
 }
 
 export interface CheckpointStep {
@@ -918,9 +1018,17 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     completedAt: null,
   });
 
+  // Resolve merge fields in the step input template
+  const resolvedInput = resolveMergeFields(step.input, agentResults, projectPath);
+
   // Pre-flight cost estimate: estimate input tokens before calling agent
-  const preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath);
-  const estimatedPromptChars = step.input.length
+  let preflightUpstream: Record<string, string>;
+  if (step.upstreamSources && step.upstreamSources.length > 0) {
+    preflightUpstream = resolveUpstreamSources(step.upstreamSources, agentResults, projectPath);
+  } else {
+    preflightUpstream = filterUpstreamOutputs(step.agentName, step.instanceId, agentResults, undefined, projectPath);
+  }
+  const estimatedPromptChars = resolvedInput.length
     + Object.values(preflightUpstream).reduce((sum, v) => sum + v.length, 0)
     + chatHistory.reduce((sum, m) => sum + m.content.length, 0);
   const estimatedInputTokens = Math.ceil(estimatedPromptChars / 4);
@@ -947,7 +1055,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
 
     try {
       const agentInput: AgentInput = {
-        userMessage: step.input,
+        userMessage: resolvedInput,
         chatHistory,
         projectPath,
         context: {

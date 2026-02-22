@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, ActionKind } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
 import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -223,22 +223,24 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     if (!node) continue;
 
     if (node.data.type === "agent") {
-      const input = node.data.inputTemplate.replace(/\{\{userMessage\}\}/g, ctx.userMessage);
+      const agentData = node.data as AgentNodeData;
+      const input = agentData.inputTemplate.replace(/\{\{userMessage\}\}/g, ctx.userMessage);
 
       // Compute dependsOn: find upstream agent/checkpoint nodes
       const deps = computeStepDependencies(nodeId, activeNodes, inEdges, nodeMap, nodeToStepKey);
 
       steps.push({
         kind: "agent",
-        agentName: node.data.agentName,
+        agentName: agentData.agentName,
         input,
         dependsOn: deps.length > 0 ? deps : undefined,
         instanceId: nodeId,
-        maxOutputTokens: node.data.maxOutputTokens,
-        maxToolSteps: node.data.maxToolSteps,
+        maxOutputTokens: agentData.maxOutputTokens,
+        maxToolSteps: agentData.maxToolSteps,
+        upstreamSources: agentData.upstreamSources,
       });
 
-      nodeToStepKey.set(nodeId, node.data.agentName);
+      nodeToStepKey.set(nodeId, agentData.agentName);
     }
 
     // Action nodes: vibe-intake/mood-analysis become executable steps;

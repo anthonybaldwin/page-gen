@@ -1,5 +1,5 @@
-import type { FlowTemplate, FlowNode, FlowEdge } from "./flow-types.ts";
-import { CONDITION_VARIABLES } from "./flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, UpstreamSource } from "./flow-types.ts";
+import { CONDITION_VARIABLES, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "./flow-types.ts";
 
 export interface ValidationError {
   type: "error" | "warning";
@@ -88,6 +88,13 @@ export function validateFlowTemplate(
   // --- Node-specific validation ---
   for (const node of template.nodes) {
     validateNode(node, errors, knownAgentNames);
+  }
+
+  // --- Upstream source validation (requires graph context) ---
+  for (const node of template.nodes) {
+    if (node.data.type === "agent" && node.data.upstreamSources) {
+      validateUpstreamSources(node, node.data.upstreamSources, template.nodes, template.edges, errors);
+    }
   }
 
   // --- Condition nodes must have true/false edges ---
@@ -180,6 +187,84 @@ function validateConditionExpression(expression: string): string[] {
   }
 
   return errors;
+}
+
+/**
+ * Validate upstream sources for an agent node.
+ * Checks that sourceKeys reference ancestor node IDs or well-known keys,
+ * transforms are valid, and aliases are unique.
+ */
+function validateUpstreamSources(
+  node: FlowNode,
+  sources: UpstreamSource[],
+  allNodes: FlowNode[],
+  allEdges: FlowEdge[],
+  errors: ValidationError[],
+): void {
+  // Collect all ancestor node IDs via BFS backwards
+  const ancestors = new Set<string>();
+  const inEdges = new Map<string, string[]>();
+  for (const edge of allEdges) {
+    if (!inEdges.has(edge.target)) inEdges.set(edge.target, []);
+    inEdges.get(edge.target)!.push(edge.source);
+  }
+  const queue = [...(inEdges.get(node.id) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (ancestors.has(id)) continue;
+    ancestors.add(id);
+    queue.push(...(inEdges.get(id) ?? []));
+  }
+
+  const nodeIds = new Set(allNodes.map((n) => n.id));
+  const wellKnown = new Set<string>(WELL_KNOWN_SOURCES);
+  const aliases = new Set<string>();
+
+  for (const source of sources) {
+    // Validate sourceKey references an ancestor or well-known key
+    if (!ancestors.has(source.sourceKey) && !wellKnown.has(source.sourceKey) && !nodeIds.has(source.sourceKey)) {
+      errors.push({
+        type: "warning",
+        message: `Agent node "${node.id}": upstream source "${source.sourceKey}" is not an ancestor node or well-known key`,
+        nodeId: node.id,
+      });
+    } else if (nodeIds.has(source.sourceKey) && !ancestors.has(source.sourceKey) && !wellKnown.has(source.sourceKey)) {
+      errors.push({
+        type: "warning",
+        message: `Agent node "${node.id}": upstream source "${source.sourceKey}" exists but is not an ancestor of this node`,
+        nodeId: node.id,
+      });
+    }
+
+    // Validate transform
+    if (source.transform && !UPSTREAM_TRANSFORMS.includes(source.transform)) {
+      errors.push({
+        type: "error",
+        message: `Agent node "${node.id}": invalid transform "${source.transform}" on source "${source.sourceKey}"`,
+        nodeId: node.id,
+      });
+    }
+
+    // Warn if design-system transform used on non-architect source
+    if (source.transform === "design-system" && source.sourceKey !== "architect") {
+      errors.push({
+        type: "warning",
+        message: `Agent node "${node.id}": "design-system" transform is typically used with "architect" source, not "${source.sourceKey}"`,
+        nodeId: node.id,
+      });
+    }
+
+    // Check for duplicate aliases
+    const key = source.alias ?? source.sourceKey;
+    if (aliases.has(key)) {
+      errors.push({
+        type: "warning",
+        message: `Agent node "${node.id}": duplicate upstream alias "${key}"`,
+        nodeId: node.id,
+      });
+    }
+    aliases.add(key);
+  }
 }
 
 /**
