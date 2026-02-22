@@ -583,7 +583,7 @@ settingsRoutes.post("/validate-key", async (c) => {
       const def = PROVIDER_DEFS.find((p) => p.id === body.provider);
       return c.json({ error: `No ${def?.label ?? body.provider} key provided` }, 400);
     }
-    return validate(body.provider, validationModel, keys[body.provider].apiKey, providers[body.provider]!(validationModel));
+    return validate(body.provider, validationModel, keys[body.provider]!.apiKey, providers[body.provider]!(validationModel));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Validation failed";
     logWarn("settings", `API key validation failed: ${body.provider} — ${message}`);

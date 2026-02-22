@@ -275,7 +275,7 @@ function injectDesignSystem(result: Record<string, string>): void {
     const parsed = parseJSONSafe(architectOutput) as Record<string, unknown> | null;
     if (!parsed) return;
     if (parsed.design_system) {
-      const ds = parsed.design_system;
+      const ds = parsed.design_system as Record<string, unknown>;
       const lines: string[] = ["## Design System (from architect)"];
 
       if (ds.brand_kernel) lines.push(`Brand: ${ds.brand_kernel}`);
@@ -324,8 +324,8 @@ function parseDesignOptions(architectOutput: string): import("../../shared/types
       return [{
         name: "Default",
         description: "The architect's recommended design system.",
-        design_system: parsed.design_system,
-        colorPreview: extractColorPreview(parsed.design_system),
+        design_system: parsed.design_system as Record<string, unknown>,
+        colorPreview: extractColorPreview(parsed.design_system as Record<string, unknown>),
       }];
     }
   } catch { /* not valid JSON */ }

@@ -88,9 +88,9 @@ messageRoutes.post("/send", async (c) => {
   if (!project) return c.json({ error: "Project not found" }, 404);
 
   const apiKeysMap: Record<string, string> = {};
-  if (keys.anthropic.apiKey) apiKeysMap.anthropic = keys.anthropic.apiKey;
-  if (keys.openai.apiKey) apiKeysMap.openai = keys.openai.apiKey;
-  if (keys.google.apiKey) apiKeysMap.google = keys.google.apiKey;
+  if (keys.anthropic?.apiKey) apiKeysMap.anthropic = keys.anthropic.apiKey;
+  if (keys.openai?.apiKey) apiKeysMap.openai = keys.openai.apiKey;
+  if (keys.google?.apiKey) apiKeysMap.google = keys.google.apiKey;
 
   const orchestrationInput = {
     chatId: body.chatId,

@@ -84,7 +84,7 @@ export function ApiKeySettings() {
             onChange={(e) =>
               setKeys((prev) => ({
                 ...prev,
-                [provider]: { ...prev[provider], apiKey: e.target.value },
+                [provider]: { apiKey: e.target.value, proxyUrl: prev[provider]?.proxyUrl ?? "" },
               }))
             }
           />
@@ -95,7 +95,7 @@ export function ApiKeySettings() {
             onChange={(e) =>
               setKeys((prev) => ({
                 ...prev,
-                [provider]: { ...prev[provider], proxyUrl: e.target.value },
+                [provider]: { apiKey: prev[provider]?.apiKey ?? "", proxyUrl: e.target.value },
               }))
             }
             className="mt-2"
