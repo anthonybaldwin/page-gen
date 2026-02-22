@@ -187,11 +187,13 @@ export function FlowEditorTab() {
       isDefault: false,
     };
     try {
-      await api.post("/settings/flow/templates", newTemplate);
+      const res = await api.post<{ ok: boolean; template: FlowTemplate }>("/settings/flow/templates", newTemplate);
+      // Server auto-populates default nodes — use the returned template
+      const created = res.template ?? newTemplate;
       await refresh();
-      setSelectedTemplate(newTemplate);
-      setEditNodes([]);
-      setEditEdges([]);
+      setSelectedTemplate(created);
+      setEditNodes(created.nodes);
+      setEditEdges(created.edges);
       setDirty(false);
     } catch (err) {
       console.error("[flow-editor] Create pipeline failed:", err);

@@ -42,7 +42,7 @@ flowRoutes.get("/templates/:id", (c) => {
   return c.json(template);
 });
 
-// --- Create a new (possibly empty) flow template ---
+// --- Create a new flow template (auto-populates from defaults if nodes are empty) ---
 flowRoutes.post("/templates", async (c) => {
   const body = await c.req.json<FlowTemplate>();
   if (!body.id || !body.name?.trim() || !body.intent) {
@@ -52,10 +52,21 @@ flowRoutes.post("/templates", async (c) => {
   if (existing) {
     return c.json({ error: "Template with this ID already exists" }, 400);
   }
+
+  // Auto-populate with default nodes/edges when created empty
+  if (body.nodes.length === 0) {
+    const defaults = generateDefaultForIntent(body.intent);
+    if (defaults) {
+      body.nodes = defaults.nodes;
+      body.edges = defaults.edges;
+      body.description = defaults.description;
+    }
+  }
+
   body.updatedAt = Date.now();
   saveFlowTemplate(body);
-  log("flow", `Template created: ${body.name}`, { id: body.id, intent: body.intent });
-  return c.json({ ok: true });
+  log("flow", `Template created: ${body.name}`, { id: body.id, intent: body.intent, nodes: body.nodes.length });
+  return c.json({ ok: true, template: body });
 });
 
 // --- Create or update a flow template ---
