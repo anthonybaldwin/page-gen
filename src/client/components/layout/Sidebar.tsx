@@ -148,6 +148,45 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         >
           <PanelLeft className="h-5 w-5" />
         </Button>
+
+        {activeProject && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCreateChat}
+            className="mt-2 text-muted-foreground hover:text-foreground"
+            aria-label="New chat"
+            title="New chat"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
+
+        <div className="flex-1" />
+
+        <SettingsButton onClick={() => setShowSettings(true)} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={cycleTheme}
+          aria-label={`Theme: ${theme}. Click to cycle.`}
+          title={`Theme: ${theme}`}
+        >
+          <ThemeIcon className="h-4 w-4" />
+        </Button>
+
+        {/* Dialogs must be rendered even when collapsed */}
+        <Dialog open={showSettings} onOpenChange={setShowSettings}>
+          <DialogContent className="max-w-[1600px] max-h-[90vh] p-0 gap-0 top-[5vh] translate-y-0 flex flex-col overflow-hidden">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Settings</DialogTitle>
+            </DialogHeader>
+            <Suspense fallback={<div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>}>
+              <SettingsModal onClose={() => setShowSettings(false)} />
+            </Suspense>
+          </DialogContent>
+        </Dialog>
       </aside>
     );
   }
