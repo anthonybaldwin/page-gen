@@ -12,7 +12,6 @@ import {
   type Edge,
   type Node,
   type OnConnect,
-  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -62,7 +61,6 @@ function toRFEdges(flowEdges: FlowEdge[]): Edge[] {
       labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
       labelStyle: { fontSize: 10, fill: "hsl(var(--foreground))" },
       animated: true,
-      markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
       style: { strokeWidth: 1.5, ...(branchColor ? { stroke: branchColor } : {}) },
     };
   });
@@ -140,7 +138,6 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           {
             ...connection,
             animated: true,
-            markerEnd: { type: MarkerType.ArrowClosed },
             style: { strokeWidth: 1.5 },
           },
           eds,
@@ -180,9 +177,7 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
     [onEdgesChange, nodes, onChange, setEdges],
   );
 
-  const HIGHLIGHT_COLOR = "#3b82f6"; // blue-500
-
-  /** Apply highlight: bolden + recolor matched edges, fade the rest */
+  /** Apply highlight: bolden matched edges, fade the rest */
   const highlightEdges = useCallback(
     (match: (e: Edge) => boolean) => {
       setEdges(current =>
@@ -191,12 +186,10 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           return {
             ...e,
             zIndex: hit ? 1000 : 0,
-            markerEnd: { type: MarkerType.ArrowClosed, color: hit ? HIGHLIGHT_COLOR : undefined },
             style: {
               ...e.style,
               strokeWidth: hit ? 2.5 : 1,
               opacity: hit ? 1 : 0.4,
-              stroke: hit ? HIGHLIGHT_COLOR : (e.style?.stroke ?? undefined),
             },
           };
         }),
@@ -217,7 +210,6 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
         return {
           ...e,
           zIndex: 0,
-          markerEnd: { type: MarkerType.ArrowClosed, color: branchColor },
           style: { ...e.style, strokeWidth: 1.5, opacity: 1, stroke: branchColor ?? undefined },
         };
       }),
@@ -273,7 +265,6 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
           type: "default",
           animated: true,
           selectable: true,
-          markerEnd: { type: MarkerType.ArrowClosed },
           style: { strokeWidth: 1.5 },
         }}
       >
