@@ -20,6 +20,14 @@ function getFileExt(path: string): string {
   return path.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function isBinaryPath(path: string): boolean {
+  const name = path.split("/").pop()?.toLowerCase() ?? "";
+  const ext = name.split(".").pop() ?? "";
+  if (BINARY_EXTENSIONS.has(ext)) return true;
+  if (name.includes(".sqlite")) return true;
+  return false;
+}
+
 function ImagePreview({ path, projectId }: { path: string; projectId: string }) {
   return (
     <div className="h-full flex flex-col min-h-0 overflow-hidden">
@@ -109,7 +117,7 @@ export function EditorPanel() {
     return <ImagePreview path={openFilePath} projectId={openFileProjectId} />;
   }
 
-  if (BINARY_EXTENSIONS.has(ext)) {
+  if (isBinaryPath(openFilePath)) {
     return <UnsupportedFilePreview path={openFilePath} />;
   }
 

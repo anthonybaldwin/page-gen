@@ -11,8 +11,12 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 function isBinaryFile(path: string): boolean {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  return BINARY_EXTENSIONS.has(ext);
+  const name = path.split("/").pop()?.toLowerCase() ?? "";
+  const ext = name.split(".").pop() ?? "";
+  if (BINARY_EXTENSIONS.has(ext)) return true;
+  // Catch .sqlite-wal, .sqlite-shm, .sqlite-journal, etc.
+  if (name.includes(".sqlite")) return true;
+  return false;
 }
 
 type ActiveTab = "preview" | "editor";
