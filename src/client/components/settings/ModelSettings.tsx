@@ -4,7 +4,7 @@ import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from "../ui/select.tsx";
 import type { ResolvedAgentConfig, AgentLimitsConfig, ModelPricing, AgentGroup } from "../../../shared/types.ts";
-import { PROVIDER_IDS, CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
+import { CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
 
 const GROUP_LABELS: Record<AgentGroup, string> = {
   planning: "Planning",
@@ -178,6 +178,7 @@ function AgentModelCard({
   }, [config]);
 
   const isDirty = provider !== config.provider || model !== config.model;
+  const availableProviders = knownModels.map((p) => p.provider);
   const allProviderModels = knownModels.find((p) => p.provider === provider)?.models || [];
 
   // Filter models by agent's allowed categories
@@ -291,7 +292,7 @@ function AgentModelCard({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PROVIDER_IDS.map((p) => (
+            {availableProviders.map((p) => (
               <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
             ))}
           </SelectContent>
@@ -380,7 +381,8 @@ function AddAgentForm({
 }) {
   const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [provider, setProvider] = useState(PROVIDER_IDS[0]);
+  const availableProviders = knownModels.map((p) => p.provider);
+  const [provider, setProvider] = useState(availableProviders[0] ?? "");
   const [model, setModel] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
@@ -449,7 +451,7 @@ function AddAgentForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROVIDER_IDS.map((p) => (
+              {availableProviders.map((p) => (
                 <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
               ))}
             </SelectContent>

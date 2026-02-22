@@ -5,7 +5,7 @@ import { Input } from "../ui/input.tsx";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select.tsx";
 import { Pencil, Info } from "lucide-react";
 import type { ModelPricing, CacheMultiplierInfo } from "../../../shared/types.ts";
-import { PROVIDER_IDS, CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
+import { CATEGORY_LABELS, CATEGORY_ORDER, type ModelCategory } from "../../../shared/providers.ts";
 
 interface ProviderModels {
   provider: string;
@@ -92,7 +92,7 @@ export function PricingSettings() {
 
       <div className="border-t border-border" />
 
-      <AddCustomModelForm onAdd={(model, input, output, provider, category) => handlePricingOverride(model, input, output, provider, category)} existingModels={knownModelIds} />
+      <AddCustomModelForm onAdd={(model, input, output, provider, category) => handlePricingOverride(model, input, output, provider, category)} existingModels={knownModelIds} knownModels={knownModels} />
 
       {knownModels.map((group) => (
         <div key={group.provider}>
@@ -143,11 +143,14 @@ export function PricingSettings() {
 function AddCustomModelForm({
   onAdd,
   existingModels,
+  knownModels,
 }: {
   onAdd: (model: string, input: number, output: number, provider: string, category?: string) => void;
   existingModels: Set<string>;
+  knownModels: ProviderModels[];
 }) {
-  const [provider, setProvider] = useState(PROVIDER_IDS[0]!);
+  const availableProviders = knownModels.map((p) => p.provider);
+  const [provider, setProvider] = useState(availableProviders[0] ?? "");
   const [modelId, setModelId] = useState("");
   const [inputPrice, setInputPrice] = useState("");
   const [outputPrice, setOutputPrice] = useState("");
@@ -180,7 +183,7 @@ function AddCustomModelForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PROVIDER_IDS.map((p) => (
+              {availableProviders.map((p) => (
                 <SelectItem key={p} value={p} className="text-xs">{p}</SelectItem>
               ))}
             </SelectContent>

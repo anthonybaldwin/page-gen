@@ -659,9 +659,13 @@ settingsRoutes.delete("/cache-multipliers/:provider", (c) => {
 });
 
 // Get known models grouped by provider with pricing info (includes custom models)
+// Only returns providers for which the caller supplied an API key.
 settingsRoutes.get("/models", (c) => {
+  const keys = extractApiKeys(c);
+  const activeProviders = PROVIDER_IDS.filter((id) => !!keys[id]?.apiKey);
+
   const providerGroups: { provider: string; models: { id: string; pricing: { input: number; output: number } | null; category: ModelCategory }[] }[] =
-    PROVIDER_IDS.map((id) => ({
+    activeProviders.map((id) => ({
       provider: id,
       models: getModelsForProvider(id).map((m) => ({
         id: m.id,
@@ -673,9 +677,11 @@ settingsRoutes.get("/models", (c) => {
   // Include custom models (non-known) under their assigned provider
   const allPricing = getAllPricing();
   const knownModelIds = new Set(Object.keys(DEFAULT_PRICING));
+  const activeSet = new Set(activeProviders);
   for (const p of allPricing) {
     if (knownModelIds.has(p.model)) continue;
     if (!p.provider) continue;
+    if (!activeSet.has(p.provider)) continue;
     let group = providerGroups.find((g) => g.provider === p.provider);
     if (!group) {
       group = { provider: p.provider, models: [] };
