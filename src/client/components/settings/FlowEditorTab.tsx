@@ -168,31 +168,31 @@ export function FlowEditorTab() {
   const selectedNode = editNodes.find((n) => n.id === selectedNodeId) ?? null;
 
   return (
-    <div className="flex flex-col gap-4 flex-1 min-h-0">
-      <p className="text-xs text-muted-foreground">
-        Configure pipeline execution flow per intent. The active template replaces the hardcoded pipeline logic.
-      </p>
-
-      {/* Intent tabs */}
-      <div className="flex items-center gap-1 border-b border-border pb-2">
-        {(["build", "fix", "question"] as IntentTab[]).map((intent) => (
-          <button
-            key={intent}
-            onClick={() => handleIntentChange(intent)}
-            className={`px-3 py-1 text-xs rounded-md transition-colors ${
-              activeIntent === intent
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            {intent.charAt(0).toUpperCase() + intent.slice(1)}
-          </button>
-        ))}
+    <div className="flex flex-col gap-2 flex-1 min-h-0">
+      {/* Intent tabs + description in one row */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          {(["build", "fix", "question"] as IntentTab[]).map((intent) => (
+            <button
+              key={intent}
+              onClick={() => handleIntentChange(intent)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                activeIntent === intent
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+            >
+              {intent.charAt(0).toUpperCase() + intent.slice(1)}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground/60">
+          Active template replaces the hardcoded pipeline logic.
+        </p>
       </div>
 
       {/* Template picker */}
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Templates</h3>
+      <div>
         {intentTemplates.length === 0 ? (
           <div className="text-xs text-muted-foreground">
             No templates for this intent.{" "}
@@ -206,7 +206,7 @@ export function FlowEditorTab() {
               return (
                 <div
                   key={tmpl.id}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors ${
                     isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
                   }`}
                   onClick={() => handleTemplateSelect(tmpl)}
