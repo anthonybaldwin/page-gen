@@ -7,6 +7,7 @@ import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToo
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
 import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
+import { flowRoutes } from "./flow.ts";
 import type { AgentName, AgentGroup, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";
 import { LIMIT_DEFAULTS, WARNING_THRESHOLD } from "../config/limits.ts";
@@ -164,8 +165,10 @@ settingsRoutes.put("/agents/:name/tools", async (c) => {
   const body = await c.req.json<{ tools: ToolName[] }>();
   if (!Array.isArray(body.tools)) return c.json({ error: "tools must be an array" }, 400);
 
-  const valid = body.tools.every((t) => ALL_TOOLS.includes(t));
-  if (!valid) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+  // Validate tool names: accept both built-in and custom tool names
+  const validToolNames = new Set([...ALL_TOOLS, ...getAllCustomTools().map((t) => t.name)]);
+  const valid = body.tools.every((t) => validToolNames.has(t));
+  if (!valid) return c.json({ error: `Invalid tool name. Allowed: ${[...validToolNames].join(", ")}` }, 400);
 
   const key = `agent.${name}.tools`;
   const value = JSON.stringify(body.tools);
@@ -252,10 +255,11 @@ settingsRoutes.post("/custom-agents", async (c) => {
     }
   }
 
-  // Validate tools
+  // Validate tools (built-in + custom)
   if (body.tools) {
-    const validTools = body.tools.every((t) => ALL_TOOLS.includes(t));
-    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+    const allValidTools = new Set([...ALL_TOOLS, ...getAllCustomTools().map((t) => t.name)]);
+    const validTools = body.tools.every((t) => allValidTools.has(t));
+    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${[...allValidTools].join(", ")}` }, 400);
   }
 
   const now = Date.now();
@@ -324,10 +328,11 @@ settingsRoutes.put("/custom-agents/:name", async (c) => {
     }
   }
 
-  // Validate tools
+  // Validate tools (built-in + custom)
   if (body.tools) {
-    const validTools = body.tools.every((t) => ALL_TOOLS.includes(t));
-    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${ALL_TOOLS.join(", ")}` }, 400);
+    const allValidTools = new Set([...ALL_TOOLS, ...getAllCustomTools().map((t) => t.name)]);
+    const validTools = body.tools.every((t) => allValidTools.has(t));
+    if (!validTools) return c.json({ error: `Invalid tool name. Allowed: ${[...allValidTools].join(", ")}` }, 400);
   }
 
   db.update(schema.customAgents).set({
@@ -730,3 +735,100 @@ settingsRoutes.put("/git", async (c) => {
   log("settings", "Git settings updated", { name: body.name, email: body.email });
   return c.json({ ok: true, ...getGitSettings() });
 });
+
+// --- Custom tool endpoints ---
+
+import { getAllCustomTools, getCustomTool, saveCustomTool, deleteCustomTool, validateToolName, isBuiltinToolName } from "../tools/custom-tool-registry.ts";
+import { executeCustomTool } from "../tools/custom-tool-executor.ts";
+import type { CustomToolDefinition } from "../../shared/custom-tool-types.ts";
+
+// List all custom tools
+settingsRoutes.get("/custom-tools", (c) => {
+  return c.json(getAllCustomTools());
+});
+
+// Get a single custom tool
+settingsRoutes.get("/custom-tools/:name", (c) => {
+  const name = c.req.param("name");
+  const tool = getCustomTool(name);
+  if (!tool) return c.json({ error: "Custom tool not found" }, 404);
+  return c.json(tool);
+});
+
+// Create or update a custom tool
+settingsRoutes.put("/custom-tools/:name", async (c) => {
+  const name = c.req.param("name");
+  const body = await c.req.json<CustomToolDefinition>();
+
+  // Ensure name matches URL
+  if (body.name !== name) {
+    return c.json({ error: "Tool name in body must match URL" }, 400);
+  }
+
+  // Validate name
+  const nameError = validateToolName(body.name);
+  if (nameError) return c.json({ error: nameError }, 400);
+
+  // Validate required fields
+  if (!body.displayName?.trim()) return c.json({ error: "displayName is required" }, 400);
+  if (!body.description?.trim()) return c.json({ error: "description is required" }, 400);
+  if (!body.implementation) return c.json({ error: "implementation is required" }, 400);
+
+  const validTypes = ["http", "javascript", "shell"];
+  if (!validTypes.includes(body.implementation.type)) {
+    return c.json({ error: `Invalid implementation type. Must be one of: ${validTypes.join(", ")}` }, 400);
+  }
+
+  // Set timestamps
+  const existing = getCustomTool(name);
+  if (!existing) {
+    body.createdAt = Date.now();
+  } else {
+    body.createdAt = existing.createdAt;
+  }
+  body.updatedAt = Date.now();
+
+  saveCustomTool(body);
+  log("settings", `Custom tool saved: ${name}`, { tool: name, type: body.implementation.type });
+  return c.json({ ok: true });
+});
+
+// Delete a custom tool
+settingsRoutes.delete("/custom-tools/:name", (c) => {
+  const name = c.req.param("name");
+  const tool = getCustomTool(name);
+  if (!tool) return c.json({ error: "Custom tool not found" }, 404);
+
+  deleteCustomTool(name);
+
+  // Clean up any agent tool overrides that reference this custom tool
+  // (agent tool lists are stored as JSON arrays in app_settings)
+  const allSettings = db.select().from(schema.appSettings).all();
+  for (const row of allSettings) {
+    if (!row.key.startsWith("agent.") || !row.key.endsWith(".tools")) continue;
+    try {
+      const tools = JSON.parse(row.value);
+      if (Array.isArray(tools) && tools.includes(name)) {
+        const filtered = tools.filter((t: string) => t !== name);
+        db.update(schema.appSettings).set({ value: JSON.stringify(filtered) }).where(eq(schema.appSettings.key, row.key)).run();
+      }
+    } catch { /* ignore */ }
+  }
+
+  log("settings", `Custom tool deleted: ${name}`, { tool: name });
+  return c.json({ ok: true });
+});
+
+// Test-execute a custom tool with sample params
+settingsRoutes.post("/custom-tools/:name/test", async (c) => {
+  const name = c.req.param("name");
+  const tool = getCustomTool(name);
+  if (!tool) return c.json({ error: "Custom tool not found" }, 404);
+
+  const body = await c.req.json<{ params: Record<string, unknown> }>();
+  const result = await executeCustomTool(tool, body.params ?? {});
+  return c.json(result);
+});
+
+// --- Flow pipeline routes (mounted as sub-router) ---
+settingsRoutes.route("/flow", flowRoutes);

@@ -6,6 +6,9 @@ import { log } from "../services/logger.ts";
 import { autoCommit } from "../services/versioning.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
 import { BLOCKED_PACKAGES } from "../config/packages.ts";
+import { getAllCustomTools } from "../tools/custom-tool-registry.ts";
+import { executeCustomTool } from "../tools/custom-tool-executor.ts";
+import type { CustomToolDefinition } from "../../shared/custom-tool-types.ts";
 
 /**
  * Check a package.json string for blocked native-module dependencies.
@@ -151,5 +154,52 @@ export function createAgentTools(projectPath: string, projectId: string) {
     }),
   };
 
+  // Add enabled custom tools
+  const customTools = getAllCustomTools().filter((t) => t.enabled);
+  for (const customTool of customTools) {
+    const ctool = buildCustomToolAISDK(customTool);
+    if (ctool) {
+      (tools as Record<string, unknown>)[customTool.name] = ctool;
+    }
+  }
+
   return { tools, getFilesWritten: () => [...filesWritten] };
+}
+
+/**
+ * Build an AI SDK tool() from a CustomToolDefinition.
+ */
+function buildCustomToolAISDK(def: CustomToolDefinition) {
+  try {
+    // Build Zod schema from parameter definitions
+    const schemaFields: Record<string, z.ZodTypeAny> = {};
+    for (const param of def.parameters) {
+      let field: z.ZodTypeAny;
+      switch (param.type) {
+        case "number":
+          field = z.number().describe(param.description);
+          break;
+        case "boolean":
+          field = z.boolean().describe(param.description);
+          break;
+        default:
+          field = z.string().describe(param.description);
+      }
+      schemaFields[param.name] = param.required ? field : field.optional();
+    }
+
+    const inputSchema = z.object(schemaFields);
+
+    return tool({
+      description: def.description,
+      inputSchema,
+      execute: async (params: Record<string, unknown>) => {
+        const result = await executeCustomTool(def, params);
+        return result;
+      },
+    });
+  } catch (err) {
+    log("custom-tool", `Failed to build AI SDK tool for "${def.name}": ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }

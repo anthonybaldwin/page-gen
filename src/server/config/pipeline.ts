@@ -23,6 +23,7 @@ export const PIPELINE_DEFAULTS: Record<string, number> = {
   maxVersionsRetained: 50,
   maxAgentVersionsPerRun: 3,
   reasoningMinOutputTokens: 16_000,
+  allowShellTools: 0, // 0 = disabled, 1 = enabled — gates shell-based custom tools
 };
 
 /**

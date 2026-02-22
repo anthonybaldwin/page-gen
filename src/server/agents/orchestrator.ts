@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
+import { getActiveFlowTemplate, resolveFlowTemplate } from "./flow-resolver.ts";
 import { runAgent, trackedGenerateText, AgentAbortError, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
@@ -1202,7 +1203,26 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       };
     }
 
-    const plan = quickPlan ?? buildFixPlan(userMessage, scope);
+    // Try flow template first, fall back to hardcoded plan
+    let plan: ExecutionPlan;
+    if (quickPlan) {
+      plan = quickPlan;
+    } else {
+      const fixTemplate = getActiveFlowTemplate("fix");
+      if (fixTemplate) {
+        log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
+        plan = resolveFlowTemplate(fixTemplate, {
+          intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
+          hasFiles: true, userMessage,
+        });
+        if (plan.steps.length === 0) {
+          log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
+          plan = buildFixPlan(userMessage, scope);
+        }
+      } else {
+        plan = buildFixPlan(userMessage, scope);
+      }
+    }
 
     // Persist pipeline run
     const pipelineRunId = nanoid();
@@ -1320,7 +1340,23 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const researchOutput = agentResults.get("research") || "";
 
   log("orchestrator", "Building single frontend-dev pipeline");
-  const plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+  // Try flow template first, fall back to hardcoded plan
+  const buildTemplate = getActiveFlowTemplate("build");
+  let plan: ExecutionPlan;
+  if (buildTemplate) {
+    log("orchestrator", `Using flow template "${buildTemplate.name}" for build intent`);
+    plan = resolveFlowTemplate(buildTemplate, {
+      intent: "build", scope: classification.scope,
+      needsBackend: researchOutput ? needsBackend(researchOutput) : false,
+      hasFiles: false, userMessage,
+    });
+    if (plan.steps.length === 0) {
+      log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
+      plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+    }
+  } else {
+    plan = buildExecutionPlan(userMessage, researchOutput, "build", classification.scope);
+  }
   // Remove architect step since it already ran
   plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
   // Rewrite deps that pointed to "architect" to point to nothing (already completed)
@@ -1485,11 +1521,29 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
         }],
       };
     } else {
-      plan = buildFixPlan(originalMessage, scope);
+      const fixTmpl = getActiveFlowTemplate("fix");
+      if (fixTmpl) {
+        plan = resolveFlowTemplate(fixTmpl, {
+          intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
+          hasFiles: true, userMessage: originalMessage,
+        });
+        if (plan.steps.length === 0) plan = buildFixPlan(originalMessage, scope);
+      } else {
+        plan = buildFixPlan(originalMessage, scope);
+      }
     }
   } else {
-    // Build mode: single frontend-dev pipeline
-    plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+    // Build mode: try flow template first
+    const buildTmpl = getActiveFlowTemplate("build");
+    if (buildTmpl) {
+      plan = resolveFlowTemplate(buildTmpl, {
+        intent: "build", scope, needsBackend: researchOutput ? needsBackend(researchOutput) : false,
+        hasFiles: false, userMessage: originalMessage,
+      });
+      if (plan.steps.length === 0) plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+    } else {
+      plan = buildExecutionPlan(originalMessage, researchOutput, "build", scope);
+    }
     // Remove architect step since it already ran
     plan.steps = plan.steps.filter((s) => s.agentName !== "architect");
     for (const step of plan.steps) {

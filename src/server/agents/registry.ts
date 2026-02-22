@@ -1,5 +1,6 @@
 import type { AgentConfig, AgentGroup, AgentLimitsConfig, AgentName, AgentToolConfig, ResolvedAgentConfig, ToolName } from "../../shared/types.ts";
-import { ALL_TOOLS, BUILTIN_AGENT_NAMES, FILE_TOOLS } from "../../shared/types.ts";
+import { ALL_TOOLS, BUILTIN_TOOL_NAMES, BUILTIN_AGENT_NAMES, FILE_TOOLS } from "../../shared/types.ts";
+import { getEnabledCustomToolNames } from "../tools/custom-tool-registry.ts";
 import {
   AGENT_MAX_OUTPUT_TOKENS,
   DEFAULT_MAX_OUTPUT_TOKENS,
@@ -244,15 +245,24 @@ export const DEFAULT_AGENT_TOOLS: Record<string, ToolName[]> = {
 
 export const TOOLS_READONLY_AGENTS = new Set<string>(["orchestrator", "orchestrator:classify", "orchestrator:title", "orchestrator:question", "orchestrator:summary"]);
 
+/** Get the set of all valid tool names (built-in + enabled custom). */
+function getAllValidToolNames(): Set<string> {
+  const names = new Set<string>(BUILTIN_TOOL_NAMES as readonly string[]);
+  for (const name of getEnabledCustomToolNames()) names.add(name);
+  return names;
+}
+
 /** Get the active tools for an agent (DB override or default). */
 export function getAgentTools(name: AgentName): ToolName[] {
+  const validNames = getAllValidToolNames();
+
   // Check app_settings override first (works for both built-in and custom)
   const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.tools`)).get();
   if (row) {
     try {
       const parsed = JSON.parse(row.value);
       if (Array.isArray(parsed)) {
-        return parsed.filter((t: string) => ALL_TOOLS.includes(t as ToolName)) as ToolName[];
+        return parsed.filter((t: string) => validNames.has(t));
       }
     } catch {
       // Invalid JSON — fall through
@@ -270,7 +280,7 @@ export function getAgentTools(name: AgentName): ToolName[] {
     try {
       const parsed = JSON.parse(custom.tools);
       if (Array.isArray(parsed)) {
-        return parsed.filter((t: string) => ALL_TOOLS.includes(t as ToolName)) as ToolName[];
+        return parsed.filter((t: string) => validNames.has(t));
       }
     } catch { /* ignore */ }
   }
