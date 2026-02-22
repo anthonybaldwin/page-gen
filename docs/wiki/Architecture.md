@@ -17,7 +17,7 @@ graph TB
   subgraph BE["Hono Backend"]
     direction TB
     REST["REST API<br>Routes"] ~~~ WSH["WebSocket<br>Handler"] ~~~ AGT["Agent System<br>+ Orchestrator"]
-    DB[("SQLite<br>Drizzle ORM")] ~~~ AIP["AI Providers<br>Anthropic · OpenAI · Google"]
+    DB[("SQLite<br>Drizzle ORM")] ~~~ AIP["AI Providers<br>Anthropic · OpenAI · Google<br>xAI · DeepSeek · Mistral"]
   end
 
   subgraph PV2["Per-Project Preview"]

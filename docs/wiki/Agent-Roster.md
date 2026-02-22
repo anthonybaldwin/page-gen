@@ -302,6 +302,29 @@ Each agent's provider, model, and system prompt can be overridden via **Settings
 - Resetting an agent removes all DB overrides, reverting to AGENT_ROSTER defaults
 - Changes take effect on the next pipeline run — no restart required
 
+### Supported Providers & Models
+
+All provider/model configuration lives in a single file: **`src/shared/providers.ts`**. This is the source of truth for both client and server.
+
+**6 providers**, **71 models** (as of Feb 2026):
+
+| Provider | Models | Key models |
+|----------|--------|------------|
+| Anthropic | 8 | Opus 4.6, Sonnet 4.6, Haiku 4.5, legacy Opus 4.0/4.1 |
+| OpenAI | 30 | GPT-5.2, 5.1, 5 families + Codex, o-series reasoning, TTS/audio/realtime |
+| Google AI | 9 | Gemini 3.1/3/2.5 Pro/Flash/Lite, image preview, TTS |
+| xAI (Grok) | 9 | Grok 4/4.1 Fast, Grok 3, code, vision |
+| DeepSeek | 2 | deepseek-chat, deepseek-reasoner |
+| Mistral AI | 14 | Large/Medium/Small, Devstral, Codestral, Pixtral, Magistral, Ministral |
+
+Adding a new provider requires only 2 files:
+1. `src/shared/providers.ts` — add provider def, models, pricing, cache multiplier, validation model
+2. `src/server/providers/registry.ts` — add 1 line to `SDK_FACTORIES` + `npm install @ai-sdk/{provider}`
+
+**Voice support:** Voice catalogs (OpenAI 13 voices, Google 30 voices, xAI 5 voices) are stored in `PROVIDER_VOICES`. Models with voice capability have a `voices` field indicating which voices they support.
+
+**Note on non-text models:** Voice/TTS/realtime models are cataloged for future voice features but will error if assigned to a text agent. "Responses API only" models (gpt-5.2-pro, gpt-5-pro, o3-pro, o1-pro) may require framework changes to support.
+
 ### Tool Assignments
 
 Each agent's native tool access can be configured via **Settings → Tools**. The four available tools are `write_file`, `write_files`, `read_file`, and `list_files`.
