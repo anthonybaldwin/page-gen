@@ -160,6 +160,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   if (collapsed) {
     return (
       <aside className="w-12 border-r border-sidebar-border bg-sidebar flex flex-col items-center py-3 transition-all duration-200">
+        <img src="/rated-pg.png" alt="Rated PG" className="h-6 w-auto mb-2" />
         <Button
           variant="ghost"
           size="icon"
@@ -167,7 +168,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           className="text-muted-foreground hover:text-foreground"
           aria-label="Expand sidebar"
         >
-          <img src="/rated-pg.png" alt="Rated PG" className="h-6 w-auto" />
+          <PanelLeft className="h-5 w-5" />
         </Button>
 
         {activeProject && (
