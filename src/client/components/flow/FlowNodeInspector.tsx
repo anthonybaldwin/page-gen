@@ -618,6 +618,21 @@ const KIND_DEFAULT_MAX_TOKENS: Record<string, number> = {
   "mood-analysis": 1000,
 };
 
+/** Human-readable description of what the default prompt does per kind */
+const KIND_DEFAULT_PROMPT_LABEL: Record<string, string> = {
+  "summary": "Built-in summary prompt (adapts for success/failure)",
+  "mood-analysis": "Built-in vision prompt (extracts palette, style, mood as JSON)",
+};
+
+/** Which agent/model each action kind uses under the hood */
+const KIND_AGENT_LABEL: Record<string, string> = {
+  "summary": "orchestrator:summary",
+  "mood-analysis": "Vision model (Sonnet / GPT-4o)",
+  "build-check": "build-fix (on errors)",
+  "test-run": "build-fix (on failures)",
+  "remediation": "fix + review agents",
+};
+
 const KIND_IO: Record<string, { input: string; outputKey: string }> = {
   "build-check": { input: "Project files on disk", outputKey: "build-check" },
   "test-run": { input: "Project test files", outputKey: "test-run" },
@@ -719,6 +734,12 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
+      {KIND_AGENT_LABEL[data.kind] && (
+        <div className="flex items-center gap-1.5 text-[10px]">
+          <span className="text-muted-foreground">Agent:</span>
+          <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">{KIND_AGENT_LABEL[data.kind]}</code>
+        </div>
+      )}
 
       {/* LLM Configuration (for agentic kinds) */}
       {isAgentic && (
@@ -760,7 +781,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
                 className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground rounded border border-transparent hover:border-border px-1 py-0.5"
                 onClick={() => handleToggleCustomPrompt(true)}
               >
-                <span>Using default prompt</span>
+                <span>{KIND_DEFAULT_PROMPT_LABEL[data.kind] ?? "Using default prompt"}</span>
                 <span className="text-primary/60">Customize</span>
               </div>
             )}
