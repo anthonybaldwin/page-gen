@@ -759,6 +759,14 @@ interface CheckpointEntry {
   resolve: (selectedIndex: number) => void;
   reject: (reason: string) => void;
   timeoutHandle: ReturnType<typeof setTimeout>;
+  data: {
+    checkpointId: string;
+    label: string;
+    message: string;
+    checkpointType: "approve" | "design_direction";
+    options: import("../../shared/types.ts").DesignOption[];
+    receivedAt: number;
+  };
 }
 const pendingCheckpoints = new Map<string, CheckpointEntry>();
 
@@ -771,13 +779,30 @@ export function awaitCheckpoint(
   checkpointId: string,
   step: CheckpointStep,
   options?: import("../../shared/types.ts").DesignOption[],
+  pipelineRunId?: string,
 ): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const timeoutMs = step.timeoutMs || getPipelineSetting("checkpointTimeoutMs");
+    const receivedAt = Date.now();
+    const checkpointPayload = {
+      checkpointId,
+      label: step.label,
+      message: step.message,
+      checkpointType: step.checkpointType as "approve" | "design_direction",
+      options: options ?? [],
+      receivedAt,
+    };
 
     const timeoutHandle = setTimeout(() => {
       pendingCheckpoints.delete(checkpointId);
       log("orchestrator", `Checkpoint ${checkpointId} timed out — auto-selecting option 0`);
+      // Persist resolved state
+      if (pipelineRunId) {
+        db.update(schema.pipelineRuns)
+          .set({ checkpointData: JSON.stringify({ ...checkpointPayload, resolved: { selectedIndex: 0, timedOut: true } }) })
+          .where(eq(schema.pipelineRuns.id, pipelineRunId))
+          .run();
+      }
       broadcast({
         type: "pipeline_checkpoint_resolved" as const,
         payload: { chatId, checkpointId, selectedIndex: 0, timedOut: true },
@@ -785,7 +810,15 @@ export function awaitCheckpoint(
       resolve(0);
     }, timeoutMs);
 
-    pendingCheckpoints.set(checkpointId, { chatId, resolve, reject, timeoutHandle });
+    pendingCheckpoints.set(checkpointId, { chatId, resolve, reject, timeoutHandle, data: checkpointPayload });
+
+    // Persist checkpoint data to pipeline_runs for refresh recovery
+    if (pipelineRunId) {
+      db.update(schema.pipelineRuns)
+        .set({ checkpointData: JSON.stringify(checkpointPayload), status: "awaiting_checkpoint" })
+        .where(eq(schema.pipelineRuns.id, pipelineRunId))
+        .run();
+    }
 
     // Broadcast checkpoint event to clients
     broadcast({
@@ -799,6 +832,7 @@ export function awaitCheckpoint(
         message: step.message,
         options: options ?? [],
         timeoutMs,
+        receivedAt,
       },
     });
 
@@ -813,6 +847,14 @@ export function resolveCheckpoint(checkpointId: string, selectedIndex: number): 
   const entry = pendingCheckpoints.get(checkpointId);
   if (!entry) return false;
   clearTimeout(entry.timeoutHandle);
+
+  // Persist resolved state to pipeline_runs
+  const resolvedData = { ...entry.data, resolved: { selectedIndex, timedOut: false } };
+  db.update(schema.pipelineRuns)
+    .set({ checkpointData: JSON.stringify(resolvedData), status: "running" })
+    .where(and(eq(schema.pipelineRuns.chatId, entry.chatId), eq(schema.pipelineRuns.status, "awaiting_checkpoint")))
+    .run();
+
   pendingCheckpoints.delete(checkpointId);
   entry.resolve(selectedIndex);
   return true;
@@ -821,9 +863,27 @@ export function resolveCheckpoint(checkpointId: string, selectedIndex: number): 
 /**
  * Get pending checkpoint for a chat (if any).
  */
-export function getPendingCheckpoint(chatId: string): { checkpointId: string } | null {
-  for (const [checkpointId, entry] of pendingCheckpoints) {
-    if (entry.chatId === chatId) return { checkpointId };
+export function getPendingCheckpoint(chatId: string): {
+  checkpointId: string;
+  label: string;
+  message: string;
+  checkpointType: "approve" | "design_direction";
+  options: import("../../shared/types.ts").DesignOption[];
+  receivedAt: number;
+  resolved?: { selectedIndex: number; timedOut?: boolean };
+} | null {
+  // Check in-memory pending checkpoints first (live session)
+  for (const [, entry] of pendingCheckpoints) {
+    if (entry.chatId === chatId) return entry.data;
+  }
+  // Fall back to DB for resolved checkpoint data (page refresh after resolution)
+  const run = db.select({ checkpointData: schema.pipelineRuns.checkpointData })
+    .from(schema.pipelineRuns)
+    .where(and(eq(schema.pipelineRuns.chatId, chatId), eq(schema.pipelineRuns.status, "awaiting_checkpoint")))
+    .orderBy(desc(schema.pipelineRuns.startedAt))
+    .get();
+  if (run?.checkpointData) {
+    try { return JSON.parse(run.checkpointData); } catch { /* ignore */ }
   }
   return null;
 }
@@ -1591,7 +1651,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     const pipelineOk = await executePipelineSteps({
       plan, chatId, projectId, projectPath, projectName, chatTitle,
       userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-      providers, apiKeys, signal,
+      providers, apiKeys, signal, pipelineRunId,
     });
     if (!pipelineOk) {
       const postCheck = checkCostLimit(chatId);
@@ -1658,7 +1718,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const pipelineOk = await executePipelineSteps({
     plan, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal,
+    providers, apiKeys, signal, pipelineRunId,
   });
   if (!pipelineOk) {
     const postCheck = checkCostLimit(chatId);
@@ -1825,7 +1885,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     const pipelineOk = await executePipelineSteps({
       plan: remainingPlan, chatId, projectId, projectPath, projectName, chatTitle,
       userMessage: originalMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-      providers, apiKeys, signal,
+      providers, apiKeys, signal, pipelineRunId,
     });
     if (!pipelineOk) {
       await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
@@ -1876,10 +1936,11 @@ async function executePipelineSteps(ctx: {
   providers: ProviderInstance;
   apiKeys: Record<string, string>;
   signal: AbortSignal;
+  pipelineRunId?: string;
 }): Promise<boolean> {
   const { plan, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal } = ctx;
+    providers, apiKeys, signal, pipelineRunId } = ctx;
   const actionOverrides = plan.actionOverrides;
 
   const completedSet = new Set<string>(
@@ -1949,21 +2010,28 @@ async function executePipelineSteps(ctx: {
               const vibeJson = JSON.stringify(vibe, null, 2);
               agentResults.set("vibe-brief", vibeJson);
 
-              // Surface as a chat message
+              // Surface as a chat message with structured metadata
               const lines: string[] = ["**Vibe Brief**"];
               if (vibe.adjectives?.length) lines.push(`**Feel:** ${vibe.adjectives.join(", ")}`);
               if (vibe.metaphor) lines.push(`**Metaphor:** ${vibe.metaphor}`);
               if (vibe.targetUser) lines.push(`**Target user:** ${vibe.targetUser}`);
               if (vibe.antiReferences?.length) lines.push(`**Avoid:** ${vibe.antiReferences.join(", ")}`);
               const vibeMessage = lines.join("\n");
+              const vibeMetadata = {
+                type: "vibe-brief",
+                adjectives: vibe.adjectives || [],
+                metaphor: vibe.metaphor || "",
+                targetUser: vibe.targetUser || "",
+                antiReferences: vibe.antiReferences || [],
+              };
               await db.insert(schema.messages).values({
                 id: nanoid(), chatId, role: "assistant",
                 content: vibeMessage,
-                agentName: "vibe-intake", metadata: null, createdAt: Date.now(),
+                agentName: "vibe-intake", metadata: JSON.stringify(vibeMetadata), createdAt: Date.now(),
               });
               broadcast({
                 type: "chat_message",
-                payload: { chatId, agentName: "vibe-intake", content: vibeMessage },
+                payload: { chatId, agentName: "vibe-intake", content: vibeMessage, metadata: vibeMetadata },
               });
 
               log("orchestrator", "Vibe brief injected via action step", { projectId });
@@ -1979,10 +2047,18 @@ async function executePipelineSteps(ctx: {
           if (moodResult) {
             agentResults.set("mood-analysis", moodResult);
 
-            // Surface as a chat message — format the JSON nicely
+            // Collect mood image filenames for client display
+            const moodDir = join(projectPath, "mood");
+            const moodImages = existsSync(moodDir)
+              ? readdirSync(moodDir).filter((f: string) => /\.(jpg|jpeg|png|webp|gif)$/i.test(f))
+              : [];
+
+            // Surface as a chat message with structured metadata
             let moodMessage = "**Mood Analysis**\n";
+            let moodData: Record<string, unknown> = {};
             try {
               const mood = JSON.parse(moodResult);
+              moodData = mood;
               if (mood.palette?.length) moodMessage += `**Palette:** ${mood.palette.join(", ")}\n`;
               if (mood.styleDescriptors?.length) moodMessage += `**Style:** ${mood.styleDescriptors.join(", ")}\n`;
               if (mood.moodKeywords?.length) moodMessage += `**Mood:** ${mood.moodKeywords.join(", ")}\n`;
@@ -1992,14 +2068,19 @@ async function executePipelineSteps(ctx: {
             } catch {
               moodMessage += moodResult.slice(0, 500);
             }
+            const moodMetadata = {
+              type: "mood-analysis",
+              data: moodData,
+              images: moodImages,
+            };
             await db.insert(schema.messages).values({
               id: nanoid(), chatId, role: "assistant",
               content: moodMessage,
-              agentName: "mood-analysis", metadata: null, createdAt: Date.now(),
+              agentName: "mood-analysis", metadata: JSON.stringify(moodMetadata), createdAt: Date.now(),
             });
             broadcast({
               type: "chat_message",
-              payload: { chatId, agentName: "mood-analysis", content: moodMessage },
+              payload: { chatId, agentName: "mood-analysis", content: moodMessage, metadata: moodMetadata },
             });
 
             log("orchestrator", "Mood analysis injected via action step", { projectId });
@@ -2128,6 +2209,7 @@ async function executePipelineSteps(ctx: {
     for (const cp of readyCheckpoints) {
       if (signal.aborted) break;
       const checkpointId = nanoid();
+      const cpKey = stepKey(cp);
       log("orchestrator", `Processing checkpoint: ${cp.label}`, { checkpointId, type: cp.checkpointType });
 
       // Gather design options from architect output if this is a design_direction checkpoint
@@ -2139,8 +2221,11 @@ async function executePipelineSteps(ctx: {
         }
       }
 
+      // Broadcast awaiting status for the checkpoint step in the progress bar
+      broadcastAgentStatus(chatId, cpKey, "awaiting_checkpoint");
+
       try {
-        const selectedIndex = await awaitCheckpoint(chatId, checkpointId, cp, designOptions);
+        const selectedIndex = await awaitCheckpoint(chatId, checkpointId, cp, designOptions, pipelineRunId);
         log("orchestrator", `Checkpoint resolved: ${cp.label} → option ${selectedIndex}`);
 
         // For design_direction: splice the selected design_system into the architect output
@@ -2153,9 +2238,11 @@ async function executePipelineSteps(ctx: {
           type: "pipeline_checkpoint_resolved" as const,
           payload: { chatId, checkpointId, selectedIndex, timedOut: false },
         });
-        completedSet.add(stepKey(cp));
+        broadcastAgentStatus(chatId, cpKey, "completed");
+        completedSet.add(cpKey);
       } catch (err) {
         // Checkpoint rejected (pipeline aborted)
+        broadcastAgentStatus(chatId, cpKey, "failed");
         log("orchestrator", `Checkpoint rejected: ${cp.label} — ${err}`);
         return false;
       }
