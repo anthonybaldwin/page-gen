@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
+import { api } from "../../lib/api.ts";
 import type { FlowNode, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, PostActionNodeData, PostActionType } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS } from "../../../shared/flow-types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
@@ -56,6 +57,8 @@ export function FlowNodeInspector({ node, agentNames, onUpdate, onDelete, pipeli
   );
 }
 
+const GENERIC_PROMPT = "Original request: {{userMessage}}";
+
 function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }: {
   data: AgentNodeData;
   nodeId: string;
@@ -67,6 +70,7 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
   const [inputTemplate, setInputTemplate] = useState(data.inputTemplate);
   const [maxOutputTokens, setMaxOutputTokens] = useState(data.maxOutputTokens?.toString() ?? "");
   const [maxToolSteps, setMaxToolSteps] = useState(data.maxToolSteps?.toString() ?? "");
+  const [agentDefaultPrompt, setAgentDefaultPrompt] = useState<string | null>(null);
 
   useEffect(() => {
     setAgentName(data.agentName);
@@ -75,7 +79,19 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
     setMaxToolSteps(data.maxToolSteps?.toString() ?? "");
   }, [data]);
 
-  const save = () => {
+  // Fetch default prompt when agent name is set
+  useEffect(() => {
+    if (!agentName) {
+      setAgentDefaultPrompt(null);
+      return;
+    }
+    api
+      .get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${agentName}/defaultPrompt`)
+      .then((res) => setAgentDefaultPrompt(res.defaultPrompt))
+      .catch(() => setAgentDefaultPrompt(null));
+  }, [agentName]);
+
+  const save = useCallback(() => {
     onUpdate(nodeId, {
       ...data,
       agentName,
@@ -83,7 +99,66 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
       maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
       maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
     });
-  };
+  }, [nodeId, data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, onUpdate]);
+
+  const handleAgentChange = useCallback((newAgentName: string) => {
+    setAgentName(newAgentName);
+    if (!newAgentName) return;
+
+    // Auto-populate prompt from agent's default when current prompt is empty or generic
+    api
+      .get<{ defaultPrompt: string; isCustom: boolean }>(`/settings/agents/${newAgentName}/defaultPrompt`)
+      .then((res) => {
+        setAgentDefaultPrompt(res.defaultPrompt);
+        const currentIsGenericOrEmpty =
+          !inputTemplate || inputTemplate === GENERIC_PROMPT || inputTemplate === "{{userMessage}}";
+        if (currentIsGenericOrEmpty) {
+          setInputTemplate(res.defaultPrompt);
+          // Save immediately with new values
+          onUpdate(nodeId, {
+            ...data,
+            agentName: newAgentName,
+            inputTemplate: res.defaultPrompt,
+            maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+            maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
+          });
+        } else {
+          onUpdate(nodeId, {
+            ...data,
+            agentName: newAgentName,
+            inputTemplate,
+            maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+            maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
+          });
+        }
+      })
+      .catch(() => {
+        setAgentDefaultPrompt(null);
+        onUpdate(nodeId, {
+          ...data,
+          agentName: newAgentName,
+          inputTemplate,
+          maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+          maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
+        });
+      });
+  }, [inputTemplate, maxOutputTokens, maxToolSteps, nodeId, data, onUpdate]);
+
+  const handleResetToDefault = useCallback(() => {
+    if (agentDefaultPrompt) {
+      setInputTemplate(agentDefaultPrompt);
+      onUpdate(nodeId, {
+        ...data,
+        agentName,
+        inputTemplate: agentDefaultPrompt,
+        maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+        maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
+      });
+    }
+  }, [agentDefaultPrompt, agentName, maxOutputTokens, maxToolSteps, nodeId, data, onUpdate]);
+
+  const isUsingDefault = agentDefaultPrompt !== null && inputTemplate === agentDefaultPrompt;
+  const isCustomized = agentDefaultPrompt !== null && inputTemplate !== agentDefaultPrompt;
 
   return (
     <div className="space-y-2">
@@ -91,8 +166,7 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
         <span className="text-xs text-muted-foreground">Agent</span>
         <select
           value={agentName}
-          onChange={(e) => setAgentName(e.target.value)}
-          onBlur={save}
+          onChange={(e) => handleAgentChange(e.target.value)}
           className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
         >
           <option value="">Select agent...</option>
@@ -102,13 +176,33 @@ function AgentInspector({ data, nodeId, agentNames, onUpdate, pipelineDefaults }
         </select>
       </label>
       <label className="block">
-        <span className="text-xs text-muted-foreground">Prompt</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Prompt</span>
+            {isCustomized && (
+              <span className="text-[10px] px-1 py-0.5 rounded bg-primary/20 text-primary">
+                custom
+              </span>
+            )}
+          </div>
+          {isCustomized && (
+            <button
+              type="button"
+              onClick={handleResetToDefault}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
         <textarea
           value={inputTemplate}
           onChange={(e) => setInputTemplate(e.target.value)}
           onBlur={save}
           rows={4}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+          className={`mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y ${
+            isUsingDefault ? "italic text-muted-foreground" : "font-medium"
+          }`}
           placeholder="Use {{userMessage}} for the user's request"
         />
       </label>

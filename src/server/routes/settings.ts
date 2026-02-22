@@ -4,6 +4,7 @@ import { db, schema } from "../db/index.ts";
 import { eq } from "drizzle-orm";
 import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents } from "../agents/registry.ts";
+import { loadDefaultPrompt, isDefaultPromptCustom } from "../agents/default-prompts.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
 import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
@@ -516,6 +517,34 @@ settingsRoutes.put("/agents/:name/prompt", async (c) => {
   }
 
   log("settings", `Agent prompt overridden: ${name}`, { agent: name, chars: body.prompt.length });
+  return c.json({ ok: true });
+});
+
+// Get agent default prompt (DB override or built-in default)
+settingsRoutes.get("/agents/:name/defaultPrompt", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const defaultPrompt = loadDefaultPrompt(name);
+  const isCustom = isDefaultPromptCustom(name);
+  return c.json({ defaultPrompt, isCustom });
+});
+
+// Upsert agent default prompt override
+settingsRoutes.put("/agents/:name/defaultPrompt", async (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  const body = await c.req.json<{ defaultPrompt: string }>();
+  const key = `agent.${name}.defaultPrompt`;
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: body.defaultPrompt }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: body.defaultPrompt }).run();
+  }
+
+  log("settings", `Agent default prompt overridden: ${name}`, { agent: name, chars: body.defaultPrompt.length });
   return c.json({ ok: true });
 });
 
