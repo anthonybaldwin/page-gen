@@ -46,11 +46,21 @@ export function VersionHistory() {
     loadVersions();
   }, [activeProject, loadVersions]);
 
-  // Re-fetch versions when a version_created WS event arrives for this project
+  // Re-fetch versions when a version step completes or version_created fires.
+  // Uses agent_status (proven broadcast) as primary signal, version_created as backup.
   useEffect(() => {
     if (!activeProject) return;
     return onWsMessage((msg) => {
       if (msg.type === "version_created" && msg.payload.projectId === activeProject.id) {
+        loadVersions();
+      }
+      // Also refetch when a version-related agent_status completes (proven broadcast path)
+      if (
+        msg.type === "agent_status" &&
+        msg.payload.status === "completed" &&
+        typeof msg.payload.agentName === "string" &&
+        msg.payload.agentName.startsWith("version")
+      ) {
         loadVersions();
       }
     });

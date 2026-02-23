@@ -2505,37 +2505,42 @@ async function executePipelineSteps(ctx: {
       const vk = stepKey(vs);
       log("orchestrator", `Executing version step: ${vs.label}`, { instanceId: vk });
       broadcastAgentStatus(chatId, vk, "running");
+      let sha: string | null = null;
       try {
-        const sha = autoCommit(projectPath, vs.label);
-        broadcastAgentStatus(chatId, vk, "completed");
-        completedSet.add(vk);
+        sha = autoCommit(projectPath, vs.label);
+      } catch (err) {
+        logWarn("orchestrator", `Version step ${vk} autoCommit failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      broadcastAgentStatus(chatId, vk, "completed");
+      completedSet.add(vk);
 
-        // Persist snapshot message in chat timeline + broadcast events
-        if (sha) {
+      // Persist snapshot message in chat timeline + broadcast version event
+      if (sha) {
+        try {
           const snapshotContent = `Snapshot saved: ${vs.label}`;
-          const snapshotMeta = JSON.stringify({ type: "version-snapshot", sha, label: vs.label });
+          const snapshotMeta = { type: "version-snapshot", sha, label: vs.label };
           await db.insert(schema.messages).values({
-            id: nanoid(), chatId, role: "system",
+            id: nanoid(), chatId, role: "assistant",
             content: snapshotContent,
             agentName: "orchestrator",
-            metadata: snapshotMeta,
+            metadata: JSON.stringify(snapshotMeta),
             createdAt: Date.now(),
           });
           broadcast({
             type: "chat_message",
-            payload: { chatId, agentName: "orchestrator", content: snapshotContent, metadata: { type: "version-snapshot", sha, label: vs.label } },
+            payload: { chatId, agentName: "orchestrator", content: snapshotContent, metadata: snapshotMeta },
           });
-          broadcast({
-            type: "version_created",
-            payload: { chatId, projectId, sha, label: vs.label },
-          });
+        } catch (err) {
+          logWarn("orchestrator", `Version step ${vk} message insert failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-      } catch (err) {
-        // Non-fatal — log and continue (matches pipeline-end autoCommit pattern)
-        logWarn("orchestrator", `Version step ${vk} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
-        broadcastAgentStatus(chatId, vk, "completed");
-        completedSet.add(vk);
       }
+
+      // Always broadcast version_created so the versions panel can refresh,
+      // even if no new commit was made (panel fetches full git log)
+      broadcast({
+        type: "version_created",
+        payload: { chatId, projectId, sha, label: vs.label },
+      });
     }
 
     // If only checkpoints/actions/versions were ready this round, continue to next iteration
@@ -2658,7 +2663,13 @@ async function finishPipeline(ctx: {
   // Final auto-commit after pipeline completes
   if (!signal.aborted) {
     try {
-      autoCommit(projectPath, buildOk ? "Pipeline completed" : "Pipeline completed (with errors)");
+      const sha = autoCommit(projectPath, buildOk ? "Pipeline completed" : "Pipeline completed (with errors)");
+      if (sha) {
+        broadcast({
+          type: "version_created",
+          payload: { chatId, projectId, sha, label: buildOk ? "Pipeline completed" : "Pipeline completed (with errors)" },
+        });
+      }
     } catch { /* non-fatal */ }
   }
 }
