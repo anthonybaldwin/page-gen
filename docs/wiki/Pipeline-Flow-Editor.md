@@ -24,8 +24,23 @@ Open **Settings > Pipeline** to access the flow editor.
 |------|------|---------|
 | Agent | Bot | Run a specific agent with an input template |
 | Condition | Branch | Evaluate a condition and route to true/false branches |
-| Checkpoint | Pause | Pause for user approval (Phase 2) |
-| Post-Action | Gear | Run build checks, tests, or remediation loops (Phase 2) |
+| Checkpoint | Pause | Pause for user approval |
+| Action | (varies by kind) | Run build checks, tests, remediation loops, summaries, or other actions |
+| Version | Bookmark | Create a project state snapshot at a pipeline stage |
+
+**Action kinds and icons:**
+
+| Kind | Icon | Description |
+|------|------|-------------|
+| `build-check` | Hammer | Run `vite build` to check for compile errors |
+| `test-run` | Flask | Run vitest test suite |
+| `remediation` | Refresh | Fix issues found by review agents (max N cycles) |
+| `summary` | FileText | Generate markdown summary of pipeline results |
+| `vibe-intake` | Sparkles | Collect vibe/design brief from user |
+| `mood-analysis` | Image | Analyze mood board images with vision model |
+| `answer` | MessageCircleReply | Direct answer to user question |
+| `shell` | Terminal | Run a shell command |
+| `llm-call` | MessageSquare | Make a standalone LLM call |
 
 ### Condition Nodes
 

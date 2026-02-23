@@ -234,7 +234,7 @@ Agents use the AI SDK's native `tool()` definitions instead of text-based `<tool
 
 **Fallback extraction:** If an agent outputs `<tool_call>` XML in its text instead of using native tools, `extractAndWriteFiles()` still parses and writes those files. Files already written natively are skipped (tracked via `alreadyWritten` set). A warning is logged when fallback extraction is triggered.
 
-**Tool-use loop limit:** `stopWhen: stepCountIs(N)` prevents runaway tool-use loops. Dev agents (frontend-dev, backend-dev, styling) have 8 steps; all other tool-using agents default to 10 steps. Agents without tools don't get `stopWhen` applied.
+**Tool-use loop limit:** `stopWhen: stepCountIs(N)` prevents runaway tool-use loops. Dev agents have higher limits: frontend-dev has 16 steps, backend-dev has 12 steps, and styling has 10 steps. All other tool-using agents default to 10 steps. Agents without tools don't get `stopWhen` applied.
 
 **Output token caps:** Each agent has a hard `maxOutputTokens` limit to prevent verbose output:
 - frontend-dev: 64,000 tokens (large multi-file writes with many components)

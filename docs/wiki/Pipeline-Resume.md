@@ -18,7 +18,8 @@ Every pipeline execution creates a row in the `pipeline_runs` table:
 | `scope` | TEXT | "frontend", "backend", "styling", or "full" |
 | `user_message` | TEXT | The original user message that triggered the pipeline |
 | `planned_agents` | TEXT | JSON array of agent names in the execution plan |
-| `status` | TEXT | "running", "completed", "failed", or "interrupted" |
+| `status` | TEXT | "running", "completed", "failed", "interrupted", or "awaiting_checkpoint" |
+| `checkpoint_data` | TEXT | JSON string of checkpoint options (nullable) |
 | `started_at` | INTEGER | Unix timestamp (ms) |
 | `completed_at` | INTEGER | Unix timestamp (ms), null while running |
 
@@ -30,7 +31,9 @@ stateDiagram-v2
   running --> completed : Pipeline finished successfully
   running --> failed : Agent error (not cost-related)
   running --> interrupted : Server restart OR cost limit
+  running --> awaiting_checkpoint : Checkpoint node reached
   interrupted --> running : User clicks Resume
+  awaiting_checkpoint --> running : User selects checkpoint option
 ```
 
 ### Server Restart Cleanup

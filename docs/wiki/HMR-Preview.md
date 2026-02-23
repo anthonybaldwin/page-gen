@@ -35,7 +35,8 @@ When preview is triggered (by the orchestrator after first file extraction, or w
 5. **`src/index.css`** exists with Tailwind CSS v4 import (`@import "tailwindcss"`)
 6. **`tsconfig.json`** is scaffolded for TypeScript support
 7. **`vitest.config.ts`** is scaffolded for testing support
-8. **`bun install`** is run to install dependencies into `node_modules`
+8. **`src/test-setup.ts`** is created with `@testing-library/jest-dom/vitest` import (referenced by `vitest.config.ts` setupFiles)
+9. **`bun install`** is run to install dependencies into `node_modules`
 
 Agent-generated `package.json` is merged — any deps the agent specifies are preserved, and core React deps are added if missing.
 

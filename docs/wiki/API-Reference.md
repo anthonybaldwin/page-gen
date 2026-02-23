@@ -98,7 +98,7 @@ Search file contents within a project.
 - `q` — Search query (min 2 characters)
 - `maxResults` — Max results to return (default 50, max 100)
 
-**Response:** `Array<{ path: string, line: number, content: string }>`
+**Response:** `Array<{ path: string, matches: Array<{ line: number, content: string }> }>` — results grouped by file, up to 3 matches per file
 
 ### POST /files/preview/:projectId
 Start (or return existing) preview dev server for a project.
@@ -109,6 +109,11 @@ Start (or return existing) preview dev server for a project.
 Stop the preview dev server for a project.
 
 **Response:** `{ ok: true }`
+
+### GET /files/raw/:projectId/*
+Serve a raw binary file (images, fonts, etc.) with the correct MIME type.
+
+**Response:** Binary file with appropriate `Content-Type` header
 
 ### GET /files/zip/:projectId
 Download a project's files as a ZIP archive.
@@ -144,6 +149,43 @@ Get unified diff between a commit and its parent.
 Get the file tree at a specific version.
 
 **Response:** `{ files: string[] }` — sorted list of file paths at that commit
+
+### POST /versions/:sha/preview?projectId={id}
+Enter preview mode for a specific version (view files at that commit without rollback).
+
+**Response:** `{ ok: true }`
+
+### DELETE /versions/preview?projectId={id}
+Exit preview mode and return to HEAD.
+
+**Response:** `{ ok: true }`
+
+### GET /versions/preview?projectId={id}
+Get current preview status.
+
+**Response:** `{ active: boolean, sha?: string }`
+
+## Projects (Extended)
+
+### POST /projects/:id/mood-images
+Upload a mood board image for a project.
+
+**Body:** Multipart form data with `file` field
+
+### GET /projects/:id/mood-images
+List mood board images for a project.
+
+**Response:** `Array<{ filename: string, originalName: string, size: number }>`
+
+### GET /projects/:id/mood-images/:filename/file
+Serve a mood board image file.
+
+**Response:** Binary image with appropriate `Content-Type`
+
+### DELETE /projects/:id/mood-images/:filename
+Delete a mood board image.
+
+**Response:** `{ ok: true }`
 
 ## Usage
 
@@ -377,6 +419,107 @@ Stop a running orchestration pipeline.
 
 **Body:** `{ chatId: string }`
 
+### POST /agents/checkpoint
+Resolve a pending checkpoint by submitting the user's selection.
+
+**Body:** `{ chatId: string, checkpointId: string, selectedIndex: number }`
+
+**Response:** `{ ok: true }`
+**Error (404):** Checkpoint not found
+
+## Fonts
+
+### GET /fonts
+List all custom fonts.
+
+### POST /fonts/upload
+Upload a custom font file.
+
+**Body:** Multipart form data with `file` field
+
+### DELETE /fonts/:id
+Delete a custom font.
+
+### GET /fonts/files/:id
+Serve a custom font file.
+
+## Settings (Extended)
+
+### Custom Tools
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/custom-tools` | List all custom tools |
+| GET | `/api/settings/custom-tools/:name` | Get tool by name |
+| PUT | `/api/settings/custom-tools/:name` | Create/update tool |
+| DELETE | `/api/settings/custom-tools/:name` | Delete tool |
+| POST | `/api/settings/custom-tools/:name/test` | Test-execute with sample params |
+
+### Flow Templates
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/flow/templates` | List all templates |
+| GET | `/api/settings/flow/templates/:id` | Get template by ID |
+| POST | `/api/settings/flow/templates` | Create new template |
+| PUT | `/api/settings/flow/templates/:id` | Update template |
+| DELETE | `/api/settings/flow/templates/:id` | Delete template |
+| GET | `/api/settings/flow/active` | Get active bindings |
+| PUT | `/api/settings/flow/active` | Set active template for intent |
+| POST | `/api/settings/flow/validate` | Validate without saving |
+| POST | `/api/settings/flow/templates/:id/reset` | Reset template to default |
+| POST | `/api/settings/flow/templates/:id/duplicate` | Duplicate a template |
+| GET | `/api/settings/flow/templates/:id/export` | Export template as JSON |
+| POST | `/api/settings/flow/templates/import` | Import template from JSON |
+| POST | `/api/settings/flow/defaults` | Seed missing default templates |
+
+### Pipeline Configuration
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/pipeline` | Get all pipeline settings |
+| PUT | `/api/settings/pipeline` | Update pipeline settings |
+| DELETE | `/api/settings/pipeline` | Reset pipeline settings to defaults |
+
+### Action Prompts
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/actions/:kind/defaultPrompt` | Get default action prompt |
+| GET | `/api/settings/actions/:kind/prompt` | Get custom or default action prompt |
+| PUT | `/api/settings/actions/:kind/prompt` | Save custom action prompt override |
+| DELETE | `/api/settings/actions/:kind/prompt` | Reset action prompt to default |
+
+### Pipeline Base Prompts
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/pipeline/basePrompt/:intent` | Get pipeline base prompt for intent |
+| PUT | `/api/settings/pipeline/basePrompt/:intent` | Save custom base prompt |
+| DELETE | `/api/settings/pipeline/basePrompt/:intent` | Reset base prompt to default |
+
+### Intent Classification
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/intent/classifyPrompt` | Get intent classification prompt |
+| PUT | `/api/settings/intent/classifyPrompt` | Save custom intent classification prompt |
+| DELETE | `/api/settings/intent/classifyPrompt` | Reset to default |
+
+### Fail Signals
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/pipeline/failSignals` | Get fail signals |
+| PUT | `/api/settings/pipeline/failSignals` | Update fail signals |
+| DELETE | `/api/settings/pipeline/failSignals` | Reset fail signals to defaults |
+
+### Agent Default Prompts
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/settings/agents/:name/defaultPrompt` | Get agent default prompt |
+
 ## WebSocket
 
 Connect to `ws://localhost:3000/ws` for real-time agent updates.
@@ -401,3 +544,4 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `backend_ready` — Backend server started and health check passed (projectId, port)
 - `backend_error` — Backend server failed to start or crashed (projectId, error, details)
 - `chat_renamed` — Chat title was auto-generated (chatId, title)
+- `version_created` — New version committed (projectId, sha, message)

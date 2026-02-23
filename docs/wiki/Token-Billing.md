@@ -8,7 +8,7 @@ Every AI API call is tracked with full metadata. Users can view their usage in a
 
 Each API request records:
 - **Agent name** — which agent made the call
-- **Provider** — anthropic, openai, or google
+- **Provider** — anthropic, openai, google, xai, deepseek, or mistral
 - **Model** — exact model ID (e.g., claude-sonnet-4-5-20250929)
 - **API key hash** — SHA-256 of the key used (never the key itself)
 - **Input tokens** — tokens sent to the model
@@ -86,6 +86,9 @@ Providers charge different rates for cache creation and cache read tokens relati
 | Anthropic | 1.25× | 0.1× |
 | OpenAI | 0× (no create charge) | 0.5× |
 | Google | 0× (no create charge) | 0.25× |
+| xAI | 1.0× | 0.25× |
+| DeepSeek | 1.0× | 0.1× |
+| Mistral | 1.0× | 1.0× |
 | Default (unknown) | 1.0× | 0.5× |
 
 These multipliers are configurable per-provider via Settings or the API:

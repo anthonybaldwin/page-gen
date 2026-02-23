@@ -70,6 +70,10 @@ Additional fields are spread to the top level of the JSON object (not nested und
 | `llm-http` | `src/server/providers/registry.ts` | Outbound LLM API calls (request model/messages/maxTokens, response status/elapsed/requestId/rateLimits/errors) |
 | `billing` | `src/server/services/token-tracker.ts`, `cost-limiter.ts`, `src/server/agents/base.ts`, `src/server/routes/usage.ts` | Per-call token counts and cost estimates (actual, provisional, finalized, voided), cost limit warnings, and usage resets |
 | `tool` | `src/server/agents/base.ts`, `tools.ts` | Agent tool invocations (write_file, read_file, etc.) and results |
+| `custom-tool` | `src/server/tools/custom-tool-executor.ts` | Custom tool execution (HTTP, JS, shell) and errors |
+| `flow` | `src/server/routes/flow.ts` | Flow template CRUD, auto-seeding, and auto-upgrading |
+| `flow-resolver` | `src/server/agents/flow-resolver.ts` | Flow template resolution and DAG execution |
+| `fonts` | `src/server/routes/fonts.ts` | Custom font upload, deletion, and serving |
 | `extractFiles` | `src/server/agents/orchestrator.ts` | File extraction warnings (malformed blocks, JSON repair, regex fallback) |
 
 ## Examples by Tag

@@ -62,7 +62,7 @@ The wiki sync action requires a `WIKI_SYNC_PAT` repository secret with `repo` sc
 - **Backend:** Hono
 - **Frontend:** React 19 + Vite 7
 - **Database:** Drizzle ORM + SQLite
-- **AI:** AI SDK 6.x (Anthropic, OpenAI, Google)
+- **AI:** AI SDK 6.x (Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral)
 - **UI:** Tailwind CSS + shadcn/ui
 - **Editor:** CodeMirror 6 (Nord theme)
 - **State:** Zustand

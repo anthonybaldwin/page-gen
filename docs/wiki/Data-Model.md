@@ -10,6 +10,7 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | id | TEXT PK | nanoid |
 | name | TEXT | Project name |
 | path | TEXT | Path to project directory (e.g., ./projects/{id}) |
+| vibe_brief | TEXT | JSON string of VibeBrief (nullable) |
 | created_at | INTEGER | Unix timestamp (ms) |
 | updated_at | INTEGER | Unix timestamp (ms) |
 
@@ -39,7 +40,7 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | id | TEXT PK | nanoid |
 | chat_id | TEXT FK | References chats.id |
 | agent_name | TEXT | Agent identifier |
-| status | TEXT | pending, running, completed, failed, retrying |
+| status | TEXT | pending, running, completed, failed, retrying, stopped |
 | input | TEXT | JSON input to the agent |
 | output | TEXT | JSON output (nullable) |
 | error | TEXT | Error message (nullable) |
@@ -54,7 +55,7 @@ All data is stored in a local SQLite database (`data/app.db`) via Drizzle ORM.
 | execution_id | TEXT FK | References agent_executions.id |
 | chat_id | TEXT FK | References chats.id |
 | agent_name | TEXT | Agent name |
-| provider | TEXT | anthropic, openai, google |
+| provider | TEXT | anthropic, openai, google, xai, deepseek, mistral |
 | model | TEXT | Exact model ID |
 | api_key_hash | TEXT | SHA-256 hash of the API key |
 | input_tokens | INTEGER | Input token count |
@@ -78,7 +79,7 @@ Permanent, append-only table with **no foreign keys**. Records survive chat/proj
 | chat_title | TEXT | Snapshot of chat title at record time (nullable) |
 | execution_id | TEXT | Associated execution ID (nullable) |
 | agent_name | TEXT | Agent name |
-| provider | TEXT | anthropic, openai, google |
+| provider | TEXT | anthropic, openai, google, xai, deepseek, mistral |
 | model | TEXT | Exact model ID |
 | api_key_hash | TEXT | SHA-256 hash of the API key |
 | input_tokens | INTEGER | Input token count |
@@ -101,9 +102,29 @@ Tracks each orchestration pipeline execution for resume and debugging.
 | scope | TEXT | 'frontend', 'backend', 'styling', or 'full' |
 | user_message | TEXT | The user message that triggered this run |
 | planned_agents | TEXT | JSON array of agent names in execution order |
-| status | TEXT | 'running', 'completed', 'failed', or 'interrupted' |
+| status | TEXT | 'running', 'completed', 'failed', 'interrupted', or 'awaiting_checkpoint' |
+| checkpoint_data | TEXT | JSON string of checkpoint options (nullable) |
 | started_at | INTEGER | Unix timestamp (ms) |
 | completed_at | INTEGER | Unix timestamp (ms, nullable) |
+
+### custom_agents
+Stores custom agent configurations. Custom agents appear alongside built-in agents in the registry.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| name | TEXT PK | Unique agent name (lowercase, hyphens allowed) |
+| display_name | TEXT | Human-readable name shown in UI |
+| provider | TEXT | AI provider ID (e.g., anthropic, openai) |
+| model | TEXT | Model ID |
+| description | TEXT | What the agent does |
+| agent_group | TEXT | UI grouping (e.g., 'custom') |
+| allowed_categories | TEXT | JSON array of allowed model categories (nullable) |
+| prompt | TEXT | Custom system prompt (nullable) |
+| tools | TEXT | JSON array of tool names (nullable) |
+| max_output_tokens | INTEGER | Output token limit (nullable) |
+| max_tool_steps | INTEGER | Max tool-use loop steps (nullable) |
+| created_at | INTEGER | Unix timestamp (ms) |
+| updated_at | INTEGER | Unix timestamp (ms) |
 
 ### app_settings
 Key-value store for persistent application configuration (e.g., cost limits).

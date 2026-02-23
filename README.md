@@ -8,7 +8,7 @@ A local-first, multi-agent page builder. Describe what you want in natural langu
 - **Full-stack generation** — Frontend (React + Tailwind) and backend (Hono + SQLite) with working API routes and data persistence
 - **Live preview** — Side-by-side HMR preview updates as agents write code, with `/api` proxy for full-stack projects
 - **Built-in editor** — CodeMirror editor with syntax highlighting for direct file editing
-- **Multi-provider AI** — Anthropic, OpenAI, Google (configurable per-agent)
+- **Multi-provider AI** — Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral (configurable per-agent)
 - **Token tracking & billing** — Real-time cost dashboard with per-agent, daily, and per-project limits
 - **Git versioning & rollback** — Automatic version checkpoints at every pipeline stage, manual saves, visual diffs, and one-click rollback
 - **Stop & resume** — Interrupt a running pipeline and continue from where it stopped
