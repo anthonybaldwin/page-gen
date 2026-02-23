@@ -67,8 +67,3 @@ export function onWsMessage(handler: WsHandler) {
   };
 }
 
-export function sendWsMessage(message: WsMessage) {
-  if (ws?.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(message));
-  }
-}

@@ -4,7 +4,6 @@ import {
   DEFAULT_PRICING,
   PROVIDER_CACHE_MULTIPLIERS,
   isKnownModel,
-  getKnownModelIds,
   getModelPricing,
   estimateCost,
   getCacheMultipliers,
@@ -43,14 +42,6 @@ describe("Pricing Module", () => {
   test("isKnownModel returns false for unknown models", () => {
     expect(isKnownModel("my-custom-model")).toBe(false);
     expect(isKnownModel("gpt-6")).toBe(false);
-  });
-
-  test("getKnownModelIds returns all model IDs", () => {
-    const ids = getKnownModelIds();
-    expect(ids.length).toBeGreaterThanOrEqual(8);
-    expect(ids).toContain("claude-opus-4-6");
-    expect(ids).toContain("gemini-2.5-flash");
-    expect(ids).toContain("deepseek-chat");
   });
 
   test("getModelPricing returns correct pricing for known models", () => {

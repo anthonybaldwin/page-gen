@@ -106,10 +106,6 @@ function formatUserFacingError(err: unknown): string {
 }
 
 
-/** Resolve a human-readable display name for an agent instance. */
-function resolveInstanceDisplayName(instanceId: string, fallback: string): string {
-  return fallback;
-}
 
 /**
  * Centralized wrapper for one-shot generateText calls with automatic billing.
@@ -273,7 +269,7 @@ export async function runAgent(
   const cid = chatId || "";
   // Use instanceId for broadcasting (distinguishes parallel instances), base name for config
   const broadcastName = instanceId ?? config.name;
-  const broadcastDisplayName = instanceId ? resolveInstanceDisplayName(instanceId, config.displayName) : config.displayName;
+  const broadcastDisplayName = config.displayName;
 
   if (!provider) {
     throw new Error(`No provider available for agent ${config.name} (needs ${config.provider})`);

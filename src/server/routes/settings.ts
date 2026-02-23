@@ -8,7 +8,7 @@ import { loadDefaultPrompt, isDefaultPromptCustom } from "../agents/default-prom
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
 import { getActionDefaultPrompt, DEFAULT_INTENT_SYSTEM_PROMPT, DEFAULT_FAIL_SIGNALS, getFailSignals } from "../agents/orchestrator.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
-import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
+import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory } from "../../shared/providers.ts";
 import { flowRoutes } from "./flow.ts";
 import type { AgentName, AgentGroup, ToolName } from "../../shared/types.ts";
 import { ALL_TOOLS } from "../../shared/types.ts";

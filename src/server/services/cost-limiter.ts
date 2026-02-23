@@ -74,9 +74,3 @@ export function checkProjectCostLimit(projectId: string): { allowed: boolean; cu
   return { allowed, currentCost, limit };
 }
 
-export function getCostLimitSettings() {
-  return {
-    defaultTokenLimit: getLimit("maxTokensPerChat"),
-    warningThreshold: getPipelineSetting("warningThreshold") / 100,
-  };
-}

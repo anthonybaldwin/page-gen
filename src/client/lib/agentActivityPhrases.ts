@@ -89,26 +89,3 @@ export function getAgentActivity(
   return getAgentIdlePhrase(agentName, phraseIndex);
 }
 
-interface AgentWithActivity {
-  name: string;
-  lastToolCall?: { toolName: string; input: Record<string, unknown> } | null;
-}
-
-export function getBestMultiActivity(
-  agents: AgentWithActivity[],
-  phraseIndex: number,
-): string {
-  // Prefer an agent that has an active tool call
-  const withTool = agents.find((a) => a.lastToolCall);
-  if (withTool) {
-    return humanizeToolActivity(
-      withTool.lastToolCall!.toolName,
-      withTool.lastToolCall!.input,
-    );
-  }
-  // Fall back to cycling idle phrase from the first agent
-  if (agents.length > 0) {
-    return getAgentIdlePhrase(agents[0]!.name, phraseIndex);
-  }
-  return "Working...";
-}

@@ -304,10 +304,3 @@ export function getSessionTokenTotal(chatId: string): number {
   return result?.total || 0;
 }
 
-export function getUsageByAgent(chatId: string) {
-  return db
-    .select()
-    .from(schema.tokenUsage)
-    .where(eq(schema.tokenUsage.chatId, chatId))
-    .all();
-}

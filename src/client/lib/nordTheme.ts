@@ -3,7 +3,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
 // Nord palette
-export const nord = {
+const nord = {
   // Polar Night
   nord0: "#2e3440",
   nord1: "#3b4252",
@@ -27,7 +27,7 @@ export const nord = {
 };
 
 // --- Dark editor chrome (Polar Night background) ---
-export const nordDarkTheme = EditorView.theme(
+const nordDarkTheme = EditorView.theme(
   {
     "&": { backgroundColor: nord.nord0, color: nord.nord4 },
     ".cm-content": { caretColor: nord.nord4 },
@@ -57,7 +57,7 @@ export const nordDarkTheme = EditorView.theme(
 );
 
 // --- Light editor chrome (Snow Storm background) ---
-export const nordLightTheme = EditorView.theme(
+const nordLightTheme = EditorView.theme(
   {
     "&": { backgroundColor: nord.nord6, color: nord.nord0 },
     ".cm-content": { caretColor: nord.nord0 },

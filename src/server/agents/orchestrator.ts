@@ -533,18 +533,6 @@ function isToolUsingAgent(name: string): boolean {
   return name === "frontend-dev" || name === "backend-dev" || name === "styling";
 }
 
-/**
- * Convert tool-using agent outputs to file manifests.
- * Review agents and non-tool agents keep their output as-is.
- */
-function manifestifyDevOutputs(result: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(result)) {
-    out[k] = isToolUsingAgent(k) ? buildFileManifest(v) : v;
-  }
-  return out;
-}
-
 
 /**
  * Filter upstream outputs so each agent only receives relevant data.

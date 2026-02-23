@@ -3,7 +3,7 @@ import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { trackTokenUsage, getSessionTokenTotal, getUsageByAgent, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
+import { trackTokenUsage, getSessionTokenTotal, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
 
 describe("Token Tracker", () => {
   let projectId: string;
@@ -65,12 +65,6 @@ describe("Token Tracker", () => {
   test("getSessionTokenTotal returns correct total", () => {
     const total = getSessionTokenTotal(chatId);
     expect(total).toBeGreaterThanOrEqual(150);
-  });
-
-  test("getUsageByAgent returns records", () => {
-    const records = getUsageByAgent(chatId);
-    expect(records.length).toBeGreaterThanOrEqual(1);
-    expect(records[0]!.agentName).toBe("research");
   });
 
   test("tracks multiple records", () => {

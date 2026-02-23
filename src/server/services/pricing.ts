@@ -16,9 +16,6 @@ export function isKnownModel(model: string): boolean {
   return model in DEFAULT_PRICING;
 }
 
-export function getKnownModelIds(): string[] {
-  return Object.keys(DEFAULT_PRICING);
-}
 
 /** DB key helpers — model IDs may contain dots, so we use a prefix scheme. */
 function pricingKey(model: string, field: "input" | "output"): string {
