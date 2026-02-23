@@ -884,7 +884,7 @@ settingsRoutes.post("/custom-tools/:name/test", async (c) => {
   return c.json(result);
 });
 
-// --- Action default prompt endpoint ---
+// --- Action prompt endpoints ---
 
 // Get the hardcoded default prompt for an action kind (summary, summary-failed, mood-analysis)
 settingsRoutes.get("/actions/:kind/defaultPrompt", (c) => {
@@ -892,6 +892,48 @@ settingsRoutes.get("/actions/:kind/defaultPrompt", (c) => {
   const prompt = getActionDefaultPrompt(kind);
   if (!prompt) return c.json({ error: `No default prompt for action kind "${kind}"` }, 404);
   return c.json({ prompt, kind });
+});
+
+// Get current action prompt (custom override or default)
+settingsRoutes.get("/actions/:kind/prompt", (c) => {
+  const kind = c.req.param("kind");
+  const defaultPrompt = getActionDefaultPrompt(kind);
+  if (!defaultPrompt) return c.json({ error: `No default prompt for action kind "${kind}"` }, 404);
+  const key = `action.${kind}.prompt`;
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  return c.json({ prompt: row?.value ?? defaultPrompt, isCustom: !!row, kind });
+});
+
+// Save custom action prompt override
+settingsRoutes.put("/actions/:kind/prompt", async (c) => {
+  const kind = c.req.param("kind");
+  const defaultPrompt = getActionDefaultPrompt(kind);
+  if (!defaultPrompt) return c.json({ error: `No default prompt for action kind "${kind}"` }, 404);
+
+  const body = await c.req.json<{ prompt: string }>();
+  if (!body.prompt?.trim()) return c.json({ error: "prompt is required" }, 400);
+
+  const key = `action.${kind}.prompt`;
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: body.prompt }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: body.prompt }).run();
+  }
+
+  log("settings", `Action prompt overridden: ${kind}`, { kind, chars: body.prompt.length });
+  return c.json({ ok: true });
+});
+
+// Reset action prompt to default
+settingsRoutes.delete("/actions/:kind/prompt", (c) => {
+  const kind = c.req.param("kind");
+  const defaultPrompt = getActionDefaultPrompt(kind);
+  if (!defaultPrompt) return c.json({ error: `No default prompt for action kind "${kind}"` }, 404);
+
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `action.${kind}.prompt`)).run();
+  log("settings", `Action prompt reset to default: ${kind}`, { kind });
+  return c.json({ ok: true, prompt: defaultPrompt });
 });
 
 // --- Intent classification prompt endpoints ---

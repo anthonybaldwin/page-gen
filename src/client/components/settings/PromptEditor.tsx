@@ -16,14 +16,33 @@ const GROUP_LABELS: Record<AgentGroup, string> = {
 
 const GROUP_ORDER: AgentGroup[] = ["planning", "development", "quality", "custom"];
 
+/** Action prompt entries — these are NOT agents, but action kinds with editable prompts. */
+const ACTION_PROMPT_ENTRIES = [
+  { key: "action:summary", label: "Summary (success)" },
+  { key: "action:summary-failed", label: "Summary (failed)" },
+  { key: "action:mood-analysis", label: "Mood Analysis" },
+] as const;
+
+/** Check if a selected item is an action prompt (not an agent). */
+function isActionPrompt(key: string): boolean {
+  return key.startsWith("action:");
+}
+
+/** Extract the action kind from a selection key, e.g. "action:summary" → "summary". */
+function getActionKind(key: string): string {
+  return key.replace("action:", "");
+}
+
 export function PromptEditor() {
   const [configs, setConfigs] = useState<ResolvedAgentConfig[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<string>("orchestrator");
+  const [selectedItem, setSelectedItem] = useState<string>("orchestrator");
   const [prompt, setPrompt] = useState("");
   const [isCustom, setIsCustom] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Track which action prompts have custom overrides
+  const [actionCustomMap, setActionCustomMap] = useState<Record<string, boolean>>({});
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
 
   const extensions = useMemo(() => [
@@ -34,26 +53,48 @@ export function PromptEditor() {
 
   useEffect(() => {
     api.get<ResolvedAgentConfig[]>("/settings/agents").then(setConfigs).catch(console.error);
+    // Fetch custom status for all action prompts
+    for (const entry of ACTION_PROMPT_ENTRIES) {
+      const kind = getActionKind(entry.key);
+      api.get<{ isCustom: boolean }>(`/settings/actions/${kind}/prompt`)
+        .then((res) => setActionCustomMap((prev) => ({ ...prev, [entry.key]: res.isCustom })))
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
     setLoading(true);
     setSaved(false);
-    api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`)
-      .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [selectedAgent]);
+    if (isActionPrompt(selectedItem)) {
+      const kind = getActionKind(selectedItem);
+      api.get<{ prompt: string; isCustom: boolean }>(`/settings/actions/${kind}/prompt`)
+        .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedItem}/prompt`)
+        .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, [selectedItem]);
 
   async function handleSave() {
     setSaving(true);
     setSaved(false);
     try {
-      await api.put(`/settings/agents/${selectedAgent}/prompt`, { prompt });
-      setIsCustom(true);
+      if (isActionPrompt(selectedItem)) {
+        const kind = getActionKind(selectedItem);
+        await api.put(`/settings/actions/${kind}/prompt`, { prompt });
+        setIsCustom(true);
+        setActionCustomMap((prev) => ({ ...prev, [selectedItem]: true }));
+      } else {
+        await api.put(`/settings/agents/${selectedItem}/prompt`, { prompt });
+        setIsCustom(true);
+        const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
+        setConfigs(updated);
+      }
       setSaved(true);
-      const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
-      setConfigs(updated);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       console.error("[prompt-editor] Save failed:", err);
@@ -65,12 +106,21 @@ export function PromptEditor() {
   async function handleReset() {
     setSaving(true);
     try {
-      await api.delete(`/settings/agents/${selectedAgent}/overrides`);
-      const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedAgent}/prompt`);
-      setPrompt(res.prompt);
-      setIsCustom(res.isCustom);
-      const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
-      setConfigs(updated);
+      if (isActionPrompt(selectedItem)) {
+        const kind = getActionKind(selectedItem);
+        await api.delete(`/settings/actions/${kind}/prompt`);
+        const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/actions/${kind}/prompt`);
+        setPrompt(res.prompt);
+        setIsCustom(res.isCustom);
+        setActionCustomMap((prev) => ({ ...prev, [selectedItem]: res.isCustom }));
+      } else {
+        await api.delete(`/settings/agents/${selectedItem}/overrides`);
+        const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedItem}/prompt`);
+        setPrompt(res.prompt);
+        setIsCustom(res.isCustom);
+        const updated = await api.get<ResolvedAgentConfig[]>("/settings/agents");
+        setConfigs(updated);
+      }
     } catch (err) {
       console.error("[prompt-editor] Reset failed:", err);
     } finally {
@@ -78,12 +128,15 @@ export function PromptEditor() {
     }
   }
 
-  const selectedConfig = configs.find((c) => c.name === selectedAgent);
+  const selectedConfig = configs.find((c) => c.name === selectedItem);
+  const displayName = isActionPrompt(selectedItem)
+    ? ACTION_PROMPT_ENTRIES.find((e) => e.key === selectedItem)?.label ?? selectedItem
+    : selectedConfig?.displayName || selectedItem;
 
   return (
     <div className="flex gap-3 flex-1 min-h-0">
-      {/* Agent list sidebar */}
-      <div className="w-40 shrink-0 space-y-2">
+      {/* Agent + action list sidebar */}
+      <div className="w-40 shrink-0 space-y-2 overflow-y-auto">
         {GROUP_ORDER.map((group) => {
           const groupConfigs = configs.filter((c) => c.group === group);
           if (groupConfigs.length === 0) return null;
@@ -96,9 +149,9 @@ export function PromptEditor() {
                 <Button
                   key={config.name}
                   variant="ghost"
-                  onClick={() => setSelectedAgent(config.name)}
+                  onClick={() => setSelectedItem(config.name)}
                   className={`w-full justify-start px-2 py-1.5 h-auto text-xs ${
-                    selectedAgent === config.name
+                    selectedItem === config.name
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground"
                   }`}
@@ -112,6 +165,29 @@ export function PromptEditor() {
             </div>
           );
         })}
+        {/* Action Prompts group */}
+        <div>
+          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider px-2 mb-0.5">
+            Action Prompts
+          </p>
+          {ACTION_PROMPT_ENTRIES.map((entry) => (
+            <Button
+              key={entry.key}
+              variant="ghost"
+              onClick={() => setSelectedItem(entry.key)}
+              className={`w-full justify-start px-2 py-1.5 h-auto text-xs ${
+                selectedItem === entry.key
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <span className="truncate flex-1 text-left">{entry.label}</span>
+              {actionCustomMap[entry.key] && (
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+              )}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Prompt editor */}
@@ -119,7 +195,7 @@ export function PromptEditor() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-foreground">
-              {selectedConfig?.displayName || selectedAgent}
+              {displayName}
             </span>
             {isCustom && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">

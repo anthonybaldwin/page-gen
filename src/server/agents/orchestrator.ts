@@ -426,10 +426,14 @@ async function analyzeMoodImages(
 
   try {
     const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+    // Priority chain: per-node override > global DB override > hardcoded default
+    const effectivePrompt = opts?.systemPrompt
+      ?? db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "action.mood-analysis.prompt")).get()?.value
+      ?? null;
     const defaultPrompt = MOOD_ANALYSIS_DEFAULT_PROMPT;
     const result = await generateText({
       model: visionProvider(modelId),
-      ...(opts?.systemPrompt ? { system: opts.systemPrompt } : {}),
+      ...(effectivePrompt ? { system: effectivePrompt } : {}),
       messages: [{
         role: "user",
         content: [
@@ -440,7 +444,7 @@ async function analyzeMoodImages(
           })),
           {
             type: "text" as const,
-            text: opts?.systemPrompt ? "Analyze the attached mood board images." : defaultPrompt,
+            text: effectivePrompt ? "Analyze the attached mood board images." : defaultPrompt,
           },
         ],
       }],
@@ -2565,7 +2569,15 @@ interface SummaryInput {
 
 async function generateSummary(input: SummaryInput): Promise<string> {
   const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed, customSystemPrompt, customMaxOutputTokens } = input;
-  const systemPrompt = customSystemPrompt ?? (buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT);
+  // Priority chain: per-node override > global DB override > hardcoded default
+  const resolvePrompt = (): string => {
+    if (customSystemPrompt) return customSystemPrompt;
+    const kind = buildFailed ? "summary-failed" : "summary";
+    const dbRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `action.${kind}.prompt`)).get();
+    if (dbRow) return dbRow.value;
+    return buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT;
+  };
+  const systemPrompt = resolvePrompt();
 
   const fallback = () => Array.from(agentResults.entries())
     .map(([agent, output]) => `**${agent}:** ${output}`)
