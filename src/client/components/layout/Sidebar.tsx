@@ -23,6 +23,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  DollarSign,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -187,6 +188,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         <div className="flex-1" />
 
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => setShowUsage(true)}
+          aria-label="Usage & billing"
+          title="Usage & billing"
+        >
+          <DollarSign className="h-4 w-4" />
+        </Button>
         <SettingsButton onClick={() => setShowSettings(true)} />
         <Button
           variant="ghost"
@@ -200,6 +211,16 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </Button>
 
         {/* Dialogs must be rendered even when collapsed */}
+        <Dialog open={showUsage} onOpenChange={setShowUsage}>
+          <DialogContent className="max-w-5xl max-h-[80vh] p-0 gap-0 top-[10vh] translate-y-0 flex flex-col overflow-hidden">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Usage Dashboard</DialogTitle>
+            </DialogHeader>
+            <Suspense fallback={<div className="p-8 text-center text-muted-foreground text-sm">Loading...</div>}>
+              <UsageDashboard onClose={() => setShowUsage(false)} />
+            </Suspense>
+          </DialogContent>
+        </Dialog>
         <Dialog open={showSettings} onOpenChange={setShowSettings}>
           <DialogContent className="max-w-[1600px] max-h-[90vh] p-0 gap-0 top-[5vh] translate-y-0 flex flex-col overflow-hidden">
             <DialogHeader className="sr-only">
