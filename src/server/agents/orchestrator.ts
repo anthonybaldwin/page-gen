@@ -9,6 +9,7 @@ import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { getActiveFlowTemplate, resolveFlowTemplate, ensureFlowDefaults } from "./flow-resolver.ts";
 import { runAgent, trackedGenerateText, AgentAbortError, loadSystemPrompt, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
+import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
 import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadcastFilesChanged, broadcastAgentThinking, broadcastTestResults, broadcastTestResultIncremental } from "../ws.ts";
@@ -392,7 +393,7 @@ async function analyzeMoodImages(
   providers: ProviderInstance,
   apiKeys: Record<string, string>,
   signal: AbortSignal,
-  opts?: { systemPrompt?: string; maxOutputTokens?: number; agentConfig?: string },
+  opts?: { systemPrompt?: string; maxOutputTokens?: number; agentConfig?: string; chatId?: string; projectId?: string; projectName?: string; chatTitle?: string },
 ): Promise<string | null> {
   const moodDir = join(projectPath, "mood");
   if (!existsSync(moodDir)) return null;
@@ -463,9 +464,55 @@ async function analyzeMoodImages(
       abortSignal: signal,
     });
     log("orchestrator", "Mood analysis completed", { imageCount: imageParts.length });
+
+    // Track billing for mood analysis vision call
+    const { cacheCreationInputTokens: moodCacheCreate, cacheReadInputTokens: moodCacheRead } = extractAnthropicCacheTokens(result);
+    const moodRawInput = result.usage.inputTokens || 0;
+    const moodInputTokens = Math.max(0, moodRawInput - moodCacheCreate - moodCacheRead);
+    const moodOutputTokens = result.usage.outputTokens || 0;
+
+    const moodProviderName = providers.anthropic ? "anthropic" : "openai";
+    const moodModelId = opts?.agentConfig
+      ? (getAgentConfigResolved(opts.agentConfig)?.model ?? (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o"))
+      : (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o");
+    const moodApiKey = apiKeys[moodProviderName];
+
+    if (moodApiKey) {
+      const { costEstimate } = trackBillingOnly({
+        agentName: "mood-analysis",
+        provider: moodProviderName,
+        model: moodModelId,
+        apiKey: moodApiKey,
+        inputTokens: moodInputTokens,
+        outputTokens: moodOutputTokens,
+        cacheCreationInputTokens: moodCacheCreate,
+        cacheReadInputTokens: moodCacheRead,
+        chatId: opts?.chatId,
+        projectId: opts?.projectId,
+        projectName: opts?.projectName,
+        chatTitle: opts?.chatTitle,
+      });
+
+      if (opts?.chatId) {
+        broadcastTokenUsage({
+          chatId: opts.chatId,
+          projectId: opts?.projectId,
+          agentName: "mood-analysis",
+          provider: moodProviderName,
+          model: moodModelId,
+          inputTokens: moodInputTokens,
+          outputTokens: moodOutputTokens,
+          totalTokens: moodRawInput + moodOutputTokens,
+          cacheCreationInputTokens: moodCacheCreate,
+          cacheReadInputTokens: moodCacheRead,
+          costEstimate,
+        });
+      }
+    }
+
     return result.text;
   } catch (err) {
-    logWarn("orchestrator", `Mood analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+    logWarn("orchestrator", `Mood analysis failed (tokens not billed): ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -2129,6 +2176,7 @@ async function executePipelineSteps(ctx: {
             systemPrompt: moodSystemPrompt,
             maxOutputTokens: act.maxOutputTokens,
             agentConfig: act.agentConfig,
+            chatId, projectId, projectName, chatTitle,
           });
           if (moodResult) {
             agentResults.set("mood-analysis", moodResult);
