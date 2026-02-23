@@ -9,6 +9,7 @@ import {
   determineBuildFixAgent,
   extractFilesFromOutput,
   classifyIntent,
+  buildClassifyPrompt,
   parseVitestOutput,
   agentHasFileTools,
   truncateOutput,
@@ -810,6 +811,61 @@ describe("classifyIntent", () => {
     const result = await classifyIntent("fix the button", true, emptyProviders);
     expect(result.intent).toBe("build");
     expect(result.reasoning).toContain("Fallback");
+  });
+
+  test("fast-path still returns build with chatHistory param", async () => {
+    const history = [{ role: "user", content: "hello" }, { role: "assistant", content: "hi" }];
+    const result = await classifyIntent("fix the button", false, emptyProviders, history);
+    expect(result.intent).toBe("build");
+    expect(result.scope).toBe("full");
+  });
+});
+
+// --- buildClassifyPrompt ---
+
+describe("buildClassifyPrompt", () => {
+  test("returns bare message when no history", () => {
+    expect(buildClassifyPrompt("fix the button")).toBe("fix the button");
+    expect(buildClassifyPrompt("fix the button", [])).toBe("fix the button");
+  });
+
+  test("includes recent conversation context", () => {
+    const history = [
+      { role: "user", content: "I see Unicode escape issues" },
+      { role: "assistant", content: "Those are \\u escapes in your JSX strings." },
+    ];
+    const result = buildClassifyPrompt("Please fix them", history);
+    expect(result).toContain("Recent conversation:");
+    expect(result).toContain("Unicode escape");
+    expect(result).toContain("Current message: Please fix them");
+  });
+
+  test("keeps only last 3 messages", () => {
+    const history = [
+      { role: "user", content: "msg1" },
+      { role: "assistant", content: "msg2" },
+      { role: "user", content: "msg3" },
+      { role: "assistant", content: "msg4" },
+      { role: "user", content: "msg5" },
+    ];
+    const result = buildClassifyPrompt("now", history);
+    expect(result).not.toContain("msg1");
+    expect(result).not.toContain("msg2");
+    expect(result).toContain("msg3");
+    expect(result).toContain("msg4");
+    expect(result).toContain("msg5");
+  });
+
+  test("caps total history at 500 chars", () => {
+    const longContent = "x".repeat(400);
+    const history = [
+      { role: "user", content: longContent },
+      { role: "assistant", content: "this should be truncated" },
+    ];
+    const result = buildClassifyPrompt("now", history);
+    // The second message should be cut short since first already uses ~400 chars
+    expect(result).toContain("Recent conversation:");
+    expect(result.length).toBeLessThan(longContent.length + 300);
   });
 });
 

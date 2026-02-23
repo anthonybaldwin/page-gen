@@ -1500,7 +1500,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // --- Intent classification ---
   const hasFiles = projectHasFiles(projectPath);
-  const classification = await classifyIntent(userMessage, hasFiles, providers);
+  const classification = await classifyIntent(userMessage, hasFiles, providers, chatHistory);
   log("orchestrator", "Intent classified", { intent: classification.intent, scope: classification.scope, reasoning: classification.reasoning });
 
   // --- Preflight: verify only planned agents can resolve a provider model ---
@@ -2455,9 +2455,30 @@ async function handleQuestion(ctx: {
     }
   }
 
+  // Build chat history section (same caps as buildSplitPrompt in base.ts)
+  let historySection = "";
+  if (chatHistory.length > 0) {
+    const maxMessages = 6;
+    const maxChars = 3_000;
+    const recent = chatHistory.slice(-maxMessages);
+    const lines: string[] = ["## Chat History"];
+    let chars = 0;
+    for (const msg of recent) {
+      const line = `**${msg.role}:** ${msg.content}`;
+      if (chars + line.length > maxChars) {
+        lines.push("_(remaining history truncated)_");
+        break;
+      }
+      lines.push(line);
+      chars += line.length;
+    }
+    lines.push("");
+    historySection = lines.join("\n");
+  }
+
   const prompt = projectSource
-    ? `## Project Source\n${projectSource}${pipelineWarning}\n\n## Question\n${userMessage}`
-    : `## Question\n${userMessage}\n\n(This project has no files yet.)`;
+    ? `${historySection}## Project Source\n${projectSource}${pipelineWarning}\n\n## Question\n${userMessage}`
+    : `${historySection}## Question\n${userMessage}\n\n(This project has no files yet.)`;
 
   try {
     const providerKey = apiKeys[questionConfig.provider];
@@ -3096,7 +3117,38 @@ Examples:
 - "Add a REST API for user signup" → {"intent":"build","scope":"backend","reasoning":"New API endpoint that doesn't exist yet"}
 - "How does the routing work?" → {"intent":"question","scope":"full","reasoning":"Asking about project architecture"}
 
+If recent conversation context is provided, use it to resolve pronouns and references (e.g., "them", "it", "those").
+
 Tie-breaking: If ambiguous between build and fix, prefer "fix" when the project already has files.`;
+
+const CLASSIFY_MAX_HISTORY_MESSAGES = 3;
+const CLASSIFY_MAX_HISTORY_CHARS = 500;
+
+/**
+ * Build the prompt string for intent classification, optionally including
+ * recent conversation context so the model can resolve pronouns/references.
+ */
+export function buildClassifyPrompt(
+  userMessage: string,
+  chatHistory: Array<{ role: string; content: string }> = [],
+): string {
+  if (!chatHistory || chatHistory.length === 0) return userMessage;
+
+  const recent = chatHistory.slice(-CLASSIFY_MAX_HISTORY_MESSAGES);
+  const lines: string[] = [];
+  let chars = 0;
+  for (const msg of recent) {
+    const line = `${msg.role}: ${msg.content}`;
+    if (chars + line.length > CLASSIFY_MAX_HISTORY_CHARS) {
+      lines.push(`${msg.role}: ${msg.content.slice(0, CLASSIFY_MAX_HISTORY_CHARS - chars)}`);
+      break;
+    }
+    lines.push(line);
+    chars += line.length;
+  }
+
+  return `Recent conversation:\n${lines.join("\n")}\n\nCurrent message: ${userMessage}`;
+}
 
 /**
  * Classify the user's intent using the orchestrator model.
@@ -3106,7 +3158,8 @@ Tie-breaking: If ambiguous between build and fix, prefer "fix" when the project 
 export async function classifyIntent(
   userMessage: string,
   hasExistingFiles: boolean,
-  providers: ProviderInstance
+  providers: ProviderInstance,
+  chatHistory: Array<{ role: string; content: string }> = [],
 ): Promise<IntentClassification & {
   tokenUsage?: {
     inputTokens: number;
@@ -3132,11 +3185,12 @@ export async function classifyIntent(
   }
 
   try {
-    logLLMInput("orchestrator", "orchestrator-classify", INTENT_SYSTEM_PROMPT, userMessage);
+    const classifyPrompt = buildClassifyPrompt(userMessage, chatHistory);
+    logLLMInput("orchestrator", "orchestrator-classify", INTENT_SYSTEM_PROMPT, classifyPrompt);
     const result = await generateText({
       model: classifyModel,
       system: INTENT_SYSTEM_PROMPT,
-      prompt: userMessage,
+      prompt: classifyPrompt,
       maxOutputTokens: 100,
     });
     logLLMOutput("orchestrator", "orchestrator-classify", result.text);
