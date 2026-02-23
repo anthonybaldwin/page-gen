@@ -6,7 +6,7 @@ import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import { log } from "../services/logger.ts";
 import type { OrchestratorIntent } from "../../shared/types.ts";
-import { generateAllDefaults, generateDefaultForIntent } from "./flow-defaults.ts";
+import { generateAllDefaults, generateDefaultForIntent, FLOW_DEFAULTS_VERSION } from "./flow-defaults.ts";
 
 /**
  * Get a flow template from app_settings by ID.
@@ -511,6 +511,35 @@ export function ensureFlowDefaults(): void {
     if (!baseRow) {
       db.insert(schema.appSettings).values({ key: baseKey, value: prompt }).run();
       log("flow", `Seeded pipeline base prompt for "${intent}" into app_settings`);
+    }
+  }
+
+  // Auto-upgrade outdated default templates and clean up non-default templates
+  const allTemplates = getAllFlowTemplates();
+  let upgraded = false;
+  for (const t of allTemplates) {
+    if (t.isDefault && (t.version ?? 0) < FLOW_DEFAULTS_VERSION) {
+      const fresh = generateDefaultForIntent(t.intent);
+      if (fresh) {
+        // Delete old default
+        deleteFlowTemplate(t.id);
+        // Save new default
+        saveFlowTemplate(fresh);
+        setActiveBinding(fresh.intent as OrchestratorIntent, fresh.id);
+        log("flow", `Upgraded default template for "${t.intent}" from v${t.version ?? 0} to v${FLOW_DEFAULTS_VERSION}`);
+        upgraded = true;
+      }
+    }
+  }
+
+  // Clean up non-default templates (user hasn't customized, stale from previous versions)
+  if (upgraded) {
+    const refreshed = getAllFlowTemplates();
+    for (const t of refreshed) {
+      if (!t.isDefault) {
+        deleteFlowTemplate(t.id);
+        log("flow", `Cleaned up non-default template "${t.name}" (${t.id})`);
+      }
     }
   }
 }

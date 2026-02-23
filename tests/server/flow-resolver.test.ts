@@ -31,8 +31,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 12", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(12);
+  test("is version 13", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(13);
   });
 });
 
@@ -91,6 +91,35 @@ describe("generateBuildDefault", () => {
     const template = generateBuildDefault();
     expect(template.description).toContain("Summary");
   });
+
+  test("includes post-dev and post-test version nodes", () => {
+    const template = generateBuildDefault();
+    const postDev = template.nodes.find((n) => n.id === "version-post-dev");
+    const postTest = template.nodes.find((n) => n.id === "version-post-test");
+    expect(postDev).toBeDefined();
+    expect(postDev!.data.type).toBe("version");
+    expect(postTest).toBeDefined();
+    expect(postTest!.data.type).toBe("version");
+  });
+
+  test("test-run depends on build-check (sequential)", () => {
+    const template = generateBuildDefault();
+    const edge = template.edges.find(
+      (e) => e.source === "build-check" && e.target === "test-run"
+    );
+    expect(edge).toBeDefined();
+  });
+
+  test("reviewers depend on version-post-test", () => {
+    const template = generateBuildDefault();
+    const reviewerIds = ["code-review", "security", "qa"];
+    for (const id of reviewerIds) {
+      const edge = template.edges.find(
+        (e) => e.source === "version-post-test" && e.target === id
+      );
+      expect(edge).toBeDefined();
+    }
+  });
 });
 
 // --- Fix default template ---
@@ -142,6 +171,29 @@ describe("generateFixDefault", () => {
     const testRun = template.nodes.find((n) => n.id === "test-run-fix");
     expect(buildCheck).toBeDefined();
     expect(testRun).toBeDefined();
+  });
+
+  test("test-run-fix depends on build-check-fix (sequential)", () => {
+    const template = generateFixDefault();
+    const edge = template.edges.find(
+      (e) => e.source === "build-check-fix" && e.target === "test-run-fix"
+    );
+    expect(edge).toBeDefined();
+  });
+
+  test("includes version-post-test-fix node before reviewers", () => {
+    const template = generateFixDefault();
+    const postTest = template.nodes.find((n) => n.id === "version-post-test-fix");
+    expect(postTest).toBeDefined();
+    expect(postTest!.data.type).toBe("version");
+    // Reviewers should depend on it
+    const reviewerIds = ["code-review-fix", "security-fix", "qa-fix"];
+    for (const id of reviewerIds) {
+      const edge = template.edges.find(
+        (e) => e.source === "version-post-test-fix" && e.target === id
+      );
+      expect(edge).toBeDefined();
+    }
   });
 });
 

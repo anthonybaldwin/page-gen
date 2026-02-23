@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useProjectStore } from "../../stores/projectStore.ts";
 import { useVersionStore } from "../../stores/versionStore.ts";
 import { useFileStore } from "../../stores/fileStore.ts";
 import { api } from "../../lib/api.ts";
+import { onWsMessage } from "../../lib/ws.ts";
 import type { VersionEntry } from "../../stores/versionStore.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
@@ -23,18 +24,12 @@ export function VersionHistory() {
   const [label, setLabel] = useState("");
   const [gitUnavailable, setGitUnavailable] = useState(false);
 
-  useEffect(() => {
-    if (!activeProject) return;
-    loadVersions();
-  }, [activeProject]);
-
-  async function loadVersions() {
+  const loadVersions = useCallback(async () => {
     if (!activeProject) return;
     try {
       const data = await api.get<VersionEntry[]>(`/versions?projectId=${activeProject.id}`);
       setVersions(data);
       setGitUnavailable(false);
-      // Keep the version store in sync
       useVersionStore.getState().setVersions(data);
     } catch (err: unknown) {
       const errObj = err as { gitUnavailable?: boolean };
@@ -44,7 +39,22 @@ export function VersionHistory() {
         setError("Failed to load versions");
       }
     }
-  }
+  }, [activeProject]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    loadVersions();
+  }, [activeProject, loadVersions]);
+
+  // Re-fetch versions when a version_created WS event arrives for this project
+  useEffect(() => {
+    if (!activeProject) return;
+    return onWsMessage((msg) => {
+      if (msg.type === "version_created" && msg.payload.projectId === activeProject.id) {
+        loadVersions();
+      }
+    });
+  }, [activeProject, loadVersions]);
 
   async function handleRollback(sha: string) {
     if (!activeProject) return;

@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 12;
+export const FLOW_DEFAULTS_VERSION = 13;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -137,6 +137,16 @@ export function generateBuildDefault(): FlowTemplate {
   nodes.push(backendDev);
   edges.push(makeEdge("cond-backend", "backend-dev", "true", "yes"));
 
+  // Version snapshot after dev (captures dev output before styling/testing)
+  col++;
+  const versionPostDev = makeNode("version-post-dev", "version", {
+    type: "version",
+    label: "Post-dev snapshot",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(versionPostDev);
+  edges.push(makeEdge("frontend-dev", "version-post-dev"));
+  edges.push(makeEdge("backend-dev", "version-post-dev"));
+
   // Styling
   col++;
   const styling = makeNode("styling", "agent", {
@@ -151,10 +161,9 @@ export function generateBuildDefault(): FlowTemplate {
     ],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(styling);
-  edges.push(makeEdge("frontend-dev", "styling"));
-  edges.push(makeEdge("backend-dev", "styling"));
+  edges.push(makeEdge("version-post-dev", "styling"));
 
-  // Build Check + Test Run after styling
+  // Build Check → Test Run (sequential)
   col++;
   const buildCheck = makeNode("build-check", "action", {
     type: "action",
@@ -164,10 +173,11 @@ export function generateBuildDefault(): FlowTemplate {
     maxAttempts: 3,
     maxUniqueErrors: 10,
     buildCommand: "bunx vite build --mode development",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(buildCheck);
   edges.push(makeEdge("styling", "build-check"));
 
+  col++;
   const testRun = makeNode("test-run", "action", {
     type: "action",
     kind: "test-run",
@@ -177,9 +187,18 @@ export function generateBuildDefault(): FlowTemplate {
     maxTestFailures: 5,
     maxUniqueErrors: 10,
     testCommand: "bunx vitest run",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(testRun);
-  edges.push(makeEdge("styling", "test-run"));
+  edges.push(makeEdge("build-check", "test-run"));
+
+  // Version snapshot after tests (captures tested state before reviews)
+  col++;
+  const versionPostTest = makeNode("version-post-test", "version", {
+    type: "version",
+    label: "Post-test snapshot",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(versionPostTest);
+  edges.push(makeEdge("test-run", "version-post-test"));
 
   // Shared upstream sources for reviewer agents
   const reviewerSources: UpstreamSource[] = [
@@ -190,7 +209,7 @@ export function generateBuildDefault(): FlowTemplate {
     { sourceKey: "project-source", transform: "project-source" },
   ];
 
-  // Parallel reviewers
+  // Parallel reviewers (depend on version-post-test)
   col++;
   const codeReview = makeNode("code-review", "agent", {
     type: "agent",
@@ -199,8 +218,7 @@ export function generateBuildDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(codeReview);
-  edges.push(makeEdge("build-check", "code-review"));
-  edges.push(makeEdge("test-run", "code-review"));
+  edges.push(makeEdge("version-post-test", "code-review"));
 
   const security = makeNode("security", "agent", {
     type: "agent",
@@ -209,8 +227,7 @@ export function generateBuildDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER);
   nodes.push(security);
-  edges.push(makeEdge("build-check", "security"));
-  edges.push(makeEdge("test-run", "security"));
+  edges.push(makeEdge("version-post-test", "security"));
 
   const qa = makeNode("qa", "agent", {
     type: "agent",
@@ -219,8 +236,7 @@ export function generateBuildDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(qa);
-  edges.push(makeEdge("build-check", "qa"));
-  edges.push(makeEdge("test-run", "qa"));
+  edges.push(makeEdge("version-post-test", "qa"));
 
   // Remediation after reviewers
   col++;
@@ -259,7 +275,7 @@ export function generateBuildDefault(): FlowTemplate {
   return {
     id: `default-build-${nanoid(8)}`,
     name: "Default Build Pipeline",
-    description: "Vibe Brief → Mood Analysis → Research → Architect → Dev → Styling → Build & Test → Reviews → Remediation → Summary",
+    description: "Vibe Brief → Mood Analysis → Research → Architect → Dev → Snapshot → Styling → Build → Test → Snapshot → Reviews → Remediation → Snapshot → Summary",
     intent: "build",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,
@@ -381,7 +397,7 @@ export function generateFixDefault(): FlowTemplate {
   edges.push(makeEdge("styling-quick", "build-check-quick"));
   edges.push(makeEdge("frontend-quick", "build-check-quick"));
 
-  // ── Col 4: Full-path build check + test run ──
+  // ── Col 4: Full-path build check → test run (sequential) ──
   col++;
   const buildCheckFix = makeNode("build-check-fix", "action", {
     type: "action",
@@ -391,11 +407,12 @@ export function generateFixDefault(): FlowTemplate {
     maxAttempts: 3,
     maxUniqueErrors: 10,
     buildCommand: "bunx vite build --mode development",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(buildCheckFix);
   edges.push(makeEdge("frontend-fix", "build-check-fix"));
   edges.push(makeEdge("backend-fix", "build-check-fix"));
 
+  col++;
   const testRunFix = makeNode("test-run-fix", "action", {
     type: "action",
     kind: "test-run",
@@ -405,20 +422,28 @@ export function generateFixDefault(): FlowTemplate {
     maxTestFailures: 5,
     maxUniqueErrors: 10,
     testCommand: "bunx vitest run",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(testRunFix);
-  edges.push(makeEdge("frontend-fix", "test-run-fix"));
-  edges.push(makeEdge("backend-fix", "test-run-fix"));
+  edges.push(makeEdge("build-check-fix", "test-run-fix"));
 
-  // ── Col 4: Quick-path version snapshot ──
+  // ── Quick-path version snapshot ──
   const versionQuick = makeNode("version-quick", "version", {
     type: "version",
     label: "Auto-snapshot (quick fix)",
-  }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
+  }, (col - 1) * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(versionQuick);
   edges.push(makeEdge("build-check-quick", "version-quick"));
 
-  // ── Col 5: Full-path reviewers ──
+  // ── Full-path version snapshot after tests ──
+  col++;
+  const versionPostTestFix = makeNode("version-post-test-fix", "version", {
+    type: "version",
+    label: "Post-test snapshot",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(versionPostTestFix);
+  edges.push(makeEdge("test-run-fix", "version-post-test-fix"));
+
+  // ── Full-path reviewers (depend on version-post-test-fix) ──
   col++;
   const reviewerSources: UpstreamSource[] = [
     { sourceKey: "frontend-fix", alias: "changed-files-frontend", transform: "file-manifest" },
@@ -433,8 +458,7 @@ export function generateFixDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(codeReviewFix);
-  edges.push(makeEdge("build-check-fix", "code-review-fix"));
-  edges.push(makeEdge("test-run-fix", "code-review-fix"));
+  edges.push(makeEdge("version-post-test-fix", "code-review-fix"));
 
   const securityFix = makeNode("security-fix", "agent", {
     type: "agent",
@@ -443,8 +467,7 @@ export function generateFixDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER);
   nodes.push(securityFix);
-  edges.push(makeEdge("build-check-fix", "security-fix"));
-  edges.push(makeEdge("test-run-fix", "security-fix"));
+  edges.push(makeEdge("version-post-test-fix", "security-fix"));
 
   const qaFix = makeNode("qa-fix", "agent", {
     type: "agent",
@@ -453,8 +476,7 @@ export function generateFixDefault(): FlowTemplate {
     upstreamSources: reviewerSources,
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(qaFix);
-  edges.push(makeEdge("build-check-fix", "qa-fix"));
-  edges.push(makeEdge("test-run-fix", "qa-fix"));
+  edges.push(makeEdge("version-post-test-fix", "qa-fix"));
 
   // ── Col 6: Remediation ──
   col++;

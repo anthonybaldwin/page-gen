@@ -2506,9 +2506,30 @@ async function executePipelineSteps(ctx: {
       log("orchestrator", `Executing version step: ${vs.label}`, { instanceId: vk });
       broadcastAgentStatus(chatId, vk, "running");
       try {
-        autoCommit(projectPath, vs.label);
+        const sha = autoCommit(projectPath, vs.label);
         broadcastAgentStatus(chatId, vk, "completed");
         completedSet.add(vk);
+
+        // Persist snapshot message in chat timeline + broadcast events
+        if (sha) {
+          const snapshotContent = `Snapshot saved: ${vs.label}`;
+          const snapshotMeta = JSON.stringify({ type: "version-snapshot", sha, label: vs.label });
+          await db.insert(schema.messages).values({
+            id: nanoid(), chatId, role: "system",
+            content: snapshotContent,
+            agentName: "orchestrator",
+            metadata: snapshotMeta,
+            createdAt: Date.now(),
+          });
+          broadcast({
+            type: "chat_message",
+            payload: { chatId, agentName: "orchestrator", content: snapshotContent, metadata: { type: "version-snapshot", sha, label: vs.label } },
+          });
+          broadcast({
+            type: "version_created",
+            payload: { chatId, projectId, sha, label: vs.label },
+          });
+        }
       } catch (err) {
         // Non-fatal — log and continue (matches pipeline-end autoCommit pattern)
         logWarn("orchestrator", `Version step ${vk} failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
