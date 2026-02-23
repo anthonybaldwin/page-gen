@@ -835,6 +835,42 @@ describe("fastPathNeedsBackend", () => {
     expect(fastPathNeedsBackend("Build an app with user authentication")).toBe(true);
   });
 
+  test("returns true for 'membership'", () => {
+    expect(fastPathNeedsBackend("Build me a membership site")).toBe(true);
+  });
+
+  test("returns true for 'members only'", () => {
+    expect(fastPathNeedsBackend("Create a members only content portal")).toBe(true);
+  });
+
+  test("returns true for 'sign up'", () => {
+    expect(fastPathNeedsBackend("Landing page with sign up flow")).toBe(true);
+  });
+
+  test("returns true for 'login'", () => {
+    expect(fastPathNeedsBackend("App with login page")).toBe(true);
+  });
+
+  test("returns true for 'log in'", () => {
+    expect(fastPathNeedsBackend("Users need to log in")).toBe(true);
+  });
+
+  test("returns true for 'password'", () => {
+    expect(fastPathNeedsBackend("Page with password reset")).toBe(true);
+  });
+
+  test("returns true for 'register'", () => {
+    expect(fastPathNeedsBackend("Build a page where users can register")).toBe(true);
+  });
+
+  test("returns true for 'subscriber'", () => {
+    expect(fastPathNeedsBackend("Subscriber dashboard for premium content")).toBe(true);
+  });
+
+  test("returns true for 'account'", () => {
+    expect(fastPathNeedsBackend("Build an account settings page")).toBe(true);
+  });
+
   test("returns false for generic frontend request", () => {
     expect(fastPathNeedsBackend("Build a simple landing page with hero and CTA")).toBe(false);
   });
@@ -869,6 +905,12 @@ describe("classifyIntent", () => {
 
   test("fast-path: needsBackend true when message mentions backend", async () => {
     const result = await classifyIntent("Build an app with a REST API and database", false, emptyProviders);
+    expect(result.intent).toBe("build");
+    expect(result.needsBackend).toBe(true);
+  });
+
+  test("fast-path: needsBackend true for membership site", async () => {
+    const result = await classifyIntent("Build me a membership site", false, emptyProviders);
     expect(result.intent).toBe("build");
     expect(result.needsBackend).toBe(true);
   });

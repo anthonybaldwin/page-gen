@@ -34,6 +34,7 @@ When the user describes a common page type, infer these standard requirements ev
 - **Form-heavy app** → client-side validation with inline error messages, success confirmations after submission, proper input types (email, tel, url), autofocus on first field, disabled submit during processing
 - **Blog / content site** → readable typography (max-width prose), table of contents for long content, responsive images, share buttons, semantic HTML for SEO
 - **Portfolio** → image gallery with lightbox, project cards with hover effects, responsive grid, contact section
+- **Membership / gated content** → user registration and login forms, authentication flow, member dashboard, access-gated content sections, account settings — ALL user/credential features require `requires_backend: true`
 
 Always include these unless the user explicitly opts out.
 

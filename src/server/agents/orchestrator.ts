@@ -3324,7 +3324,7 @@ Rules:
 - scope "backend": API routes, server logic, database
 - scope "styling": CSS, colors, fonts, spacing, visual polish
 - scope "full": Multiple areas or unclear
-- needsBackend: true ONLY when the request clearly requires server-side logic, API routes, or a database. Default to false when unclear.
+- needsBackend: true when the request involves user accounts, authentication, persistent user data, or any server-side logic. Default to false only for purely visual/static pages.
 
 Examples:
 - "Build me a landing page with a hero and contact form" → {"intent":"build","scope":"full","needsBackend":false,"reasoning":"New page request — contact form can be frontend-only"}
@@ -3333,6 +3333,7 @@ Examples:
 - "Change the header color to blue" → {"intent":"fix","scope":"styling","needsBackend":false,"reasoning":"Visual change to existing element"}
 - "Add a REST API for user signup" → {"intent":"build","scope":"backend","needsBackend":true,"reasoning":"New API endpoint requires server-side logic"}
 - "Build an app with user authentication and database" → {"intent":"build","scope":"full","needsBackend":true,"reasoning":"Auth and database require server-side logic"}
+- "Build me a membership site" → {"intent":"build","scope":"full","needsBackend":true,"reasoning":"Membership implies user accounts, authentication, and persistent data"}
 - "How does the routing work?" → {"intent":"question","scope":"full","needsBackend":false,"reasoning":"Asking about project architecture"}
 
 If recent conversation context is provided, use it to resolve pronouns and references (e.g., "them", "it", "those").
@@ -3386,7 +3387,7 @@ export function fastPathNeedsBackend(userMessage: string): boolean {
     return false;
   }
   // Positive backend signals
-  if (/api\s*route|server[\s-]*side|database|express|back\s*end|rest\s*api|graphql|authentication|user\s*auth/i.test(lower)) {
+  if (/api\s*route|server[\s-]*side|database|express|back\s*end|rest\s*api|graphql|authentication|user\s*auth|membership|members?\s*only|sign\s*up|log[\s-]*in|account|credential|subscriber|password|register/i.test(lower)) {
     return true;
   }
   return false;

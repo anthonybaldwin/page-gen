@@ -90,6 +90,7 @@ Always handle: empty arrays (show placeholder text), null/undefined (fallback de
 ## Rules
 
 - **Implement ALL files in the file plan.** You are the sole frontend developer.
+- **NEVER use `localStorage` or `sessionStorage` for user credentials, passwords, or authentication.** If the project needs user accounts but no backend was designed, flag this in your `notes` output — do not improvise client-side auth.
 - Implement exactly what the architecture specifies. No extras.
 - Every file must be importable and free of TypeScript errors.
 - No `// TODO` placeholders. No `any` type. Keep files under 200 lines.
