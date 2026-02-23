@@ -74,6 +74,9 @@ export interface ActionNodeData {
   // Remediation-specific configuration
   remediationFixAgents?: string[];     // agents to use for fixes (default: auto-detect via routing hints)
   remediationReviewerKeys?: string[];  // result keys to scan for issues (default: ["code-review", "qa", "security"])
+  // Build/test command overrides
+  buildCommand?: string;   // build-check: custom build command (default: "bunx vite build --mode development")
+  testCommand?: string;    // test-run: custom test command (default: "bunx vitest run")
 }
 
 export interface VersionNodeData {

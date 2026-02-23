@@ -1026,6 +1026,9 @@ export interface ActionStep {
   // Remediation-specific configuration
   remediationFixAgents?: string[];
   remediationReviewerKeys?: string[];
+  // Build/test command overrides
+  buildCommand?: string;
+  testCommand?: string;
 }
 
 export interface VersionStep {
@@ -2142,7 +2145,7 @@ async function executePipelineSteps(ctx: {
           if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
           const maxFixes = act.maxAttempts ?? effectiveSetting("maxBuildFixAttempts", actionOverrides);
 
-          let buildErrors = await checkProjectBuild(projectPath, chatId, stepOverrides, projectName);
+          let buildErrors = await checkProjectBuild(projectPath, chatId, stepOverrides, projectName, act.buildCommand);
           let fixAttempt = 0;
           while (buildErrors && fixAttempt < maxFixes && !signal.aborted) {
             fixAttempt++;
@@ -2155,7 +2158,7 @@ async function executePipelineSteps(ctx: {
               agentResults.set(`${sk}-fix-${fixAttempt}`, fixResult);
               completedAgents.push(`${sk} (build fix #${fixAttempt})`);
             }
-            buildErrors = await checkProjectBuild(projectPath, undefined, stepOverrides, projectName);
+            buildErrors = await checkProjectBuild(projectPath, undefined, stepOverrides, projectName, act.buildCommand);
           }
           if (!buildErrors) {
             broadcast({ type: "preview_ready", payload: { projectId } });
@@ -2174,7 +2177,7 @@ async function executePipelineSteps(ctx: {
 
           const hasTestFiles = testFilesExist(projectPath);
           if (hasTestFiles) {
-            let testResult = await runProjectTests(projectPath, chatId, projectId, undefined, stepOverrides, projectName);
+            let testResult = await runProjectTests(projectPath, chatId, projectId, undefined, stepOverrides, projectName, act.testCommand);
             let fixAttempt = 0;
             while (testResult && testResult.failed > 0 && fixAttempt < maxFixes && !signal.aborted) {
               fixAttempt++;
@@ -2193,7 +2196,7 @@ async function executePipelineSteps(ctx: {
                 ?.filter((t) => t.status === "failed")
                 .map((t) => t.suite)
                 .filter((v, i, a) => a.indexOf(v) === i);
-              testResult = await runProjectTests(projectPath, chatId, projectId, failedFiles, stepOverrides, projectName);
+              testResult = await runProjectTests(projectPath, chatId, projectId, failedFiles, stepOverrides, projectName, act.testCommand);
             }
             const passed = testResult ? testResult.passed : 0;
             const failed = testResult ? testResult.failed : 0;
@@ -3636,7 +3639,7 @@ function extractAndWriteFiles(
  * Run a Vite build check on the project to detect compile errors.
  * Returns error output string if there are errors, null if build succeeds.
  */
-async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: ActionOverrides, projectName?: string): Promise<string | null> {
+async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: ActionOverrides, projectName?: string, buildCommand?: string): Promise<string | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
     : join(process.cwd(), projectPath);
@@ -3660,10 +3663,12 @@ async function checkProjectBuild(projectPath: string, chatId?: string, overrides
     broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "\nRunning build check..." });
   }
 
-  log("build", "Running build check", { path: fullPath });
+  const buildCmd = buildCommand ?? "bunx vite build --mode development";
+  log("build", "Running build check", { path: fullPath, command: buildCmd });
 
   try {
-    const proc = Bun.spawn(["bunx", "vite", "build", "--mode", "development"], {
+    const buildArgs = buildCmd.split(/\s+/);
+    const proc = Bun.spawn(buildArgs, {
       cwd: fullPath,
       stdout: "pipe",
       stderr: "pipe",
@@ -4025,6 +4030,7 @@ export async function runProjectTests(
   failedTestFiles?: string[],
   overrides?: ActionOverrides,
   projectName?: string,
+  testCommand?: string,
 ): Promise<TestRunResult | null> {
   const fullPath = projectPath.startsWith("/") || projectPath.includes(":\\")
     ? projectPath
@@ -4033,11 +4039,13 @@ export async function runProjectTests(
   // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath, undefined, projectName);
 
-  log("test", "Running tests", { path: fullPath });
+  const testCmd = testCommand ?? "bunx vitest run";
+  log("test", "Running tests", { path: fullPath, command: testCmd });
 
   try {
     const jsonOutputFile = join(fullPath, "vitest-results.json");
-    const vitestArgs = ["bunx", "vitest", "run", "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile];
+    const baseTestArgs = testCmd.split(/\s+/);
+    const vitestArgs = [...baseTestArgs, "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile];
     // Smart re-run: only run specific failed test files instead of full suite
     if (failedTestFiles && failedTestFiles.length > 0) {
       vitestArgs.push(...failedTestFiles);

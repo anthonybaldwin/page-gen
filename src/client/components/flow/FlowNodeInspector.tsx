@@ -747,8 +747,8 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
 }
 
 const KIND_DESCRIPTIONS: Record<string, string> = {
-  "build-check": "Runs `vite build` to verify the project compiles. If errors are found, a build-fix agent attempts to fix them (up to Max Attempts). Configure the build-fix agent's prompt in Settings > System Prompts.",
-  "test-run": "Runs the project's test suite (vitest). If tests fail, a build-fix agent attempts to fix them and re-runs only the failed tests. Configure the build-fix agent's prompt in Settings > System Prompts.",
+  "build-check": "Runs the configured build command to verify the project compiles. If errors are found, a build-fix agent attempts to fix them (up to Max Attempts).",
+  "test-run": "Runs the configured test command. If tests fail, a build-fix agent attempts to fix them and re-runs only the failed tests.",
   "remediation": "Reads outputs from connected review agents, detects issues via fail signals, routes fixes to configured dev agents, then re-runs affected reviewers. Repeats up to Max Cycles or until all issues resolve. Configure which agents handle fixes below.",
   "summary": "LLM call — generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context. No LLM call.",
@@ -830,6 +830,9 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   const [remediationReviewerKeys, setRemediationReviewerKeys] = useState<string[]>(data.remediationReviewerKeys ?? []);
   const [useCustomFixAgents, setUseCustomFixAgents] = useState(!!data.remediationFixAgents);
   const [useCustomReviewerKeys, setUseCustomReviewerKeys] = useState(!!data.remediationReviewerKeys);
+  // Build/test command state
+  const [buildCommand, setBuildCommand] = useState(data.buildCommand ?? "");
+  const [testCommand, setTestCommand] = useState(data.testCommand ?? "");
 
   const isAgentic = AGENTIC_KINDS.has(data.kind);
   const isRemediation = data.kind === "remediation";
@@ -849,6 +852,8 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     setRemediationReviewerKeys(data.remediationReviewerKeys ?? []);
     setUseCustomFixAgents(!!data.remediationFixAgents);
     setUseCustomReviewerKeys(!!data.remediationReviewerKeys);
+    setBuildCommand(data.buildCommand ?? "");
+    setTestCommand(data.testCommand ?? "");
   }, [data]);
 
   const save = useCallback(() => {
@@ -863,8 +868,10 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
       remediationFixAgents: useCustomFixAgents && remediationFixAgents.length > 0 ? remediationFixAgents : undefined,
       remediationReviewerKeys: useCustomReviewerKeys && remediationReviewerKeys.length > 0 ? remediationReviewerKeys : undefined,
+      buildCommand: buildCommand || undefined,
+      testCommand: testCommand || undefined,
     });
-  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, onUpdate]);
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, onUpdate]);
 
   const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
     setUseCustomPrompt(enabled);
@@ -890,6 +897,38 @@ function ActionInspector({ data, nodeId, onUpdate }: {
         <div className="flex items-center gap-1.5 text-[10px]">
           <span className="text-muted-foreground">Agent:</span>
           <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">{KIND_AGENT_LABEL[data.kind]}</code>
+        </div>
+      )}
+
+      {/* Build Command (for build-check kind) */}
+      {data.kind === "build-check" && (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Build Command</span>
+            <Input
+              value={buildCommand}
+              onChange={(e) => setBuildCommand(e.target.value)}
+              onBlur={save}
+              className="mt-0.5 h-6 text-xs font-mono"
+              placeholder="bunx vite build --mode development"
+            />
+          </label>
+        </div>
+      )}
+
+      {/* Test Command (for test-run kind) */}
+      {data.kind === "test-run" && (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Test Command</span>
+            <Input
+              value={testCommand}
+              onChange={(e) => setTestCommand(e.target.value)}
+              onBlur={save}
+              className="mt-0.5 h-6 text-xs font-mono"
+              placeholder="bunx vitest run"
+            />
+          </label>
         </div>
       )}
 

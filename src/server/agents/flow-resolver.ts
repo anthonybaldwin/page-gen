@@ -272,6 +272,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         // Remediation-specific configuration
         remediationFixAgents: actionData.remediationFixAgents,
         remediationReviewerKeys: actionData.remediationReviewerKeys,
+        // Build/test command overrides
+        buildCommand: actionData.buildCommand,
+        testCommand: actionData.testCommand,
       });
       nodeToStepKey.set(nodeId, nodeId);
 
