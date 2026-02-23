@@ -23,6 +23,8 @@ export function ChatWindow() {
   const { blocks, reset: resetThinking, stopAll, handleThinking, addTestResults, updateTestResults, toggleExpanded } = useAgentThinkingStore();
   const { activeProject, updateProject } = useProjectStore();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottom = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
@@ -307,8 +309,25 @@ export function ChatWindow() {
     return unsub;
   }, [activeChat, addMessage, renameChat, resetThinking, stopAll, handleThinking, addTestResults, updateTestResults]);
 
+  // Track whether user is near the bottom of the scroll container
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    function handleScroll() {
+      if (!container) return;
+      const threshold = 150; // px from bottom
+      isNearBottom.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    }
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Only auto-scroll to bottom when user is already near the bottom
+  useEffect(() => {
+    if (isNearBottom.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, thinking, blocks, checkpoint]);
 
   async function handleResume() {
@@ -508,7 +527,7 @@ export function ChatWindow() {
           )}
         </div>
       )}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         <MergedTimeline
           messages={messages}
           blocks={blocks}
