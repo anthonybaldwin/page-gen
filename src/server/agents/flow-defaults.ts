@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 8;
+export const FLOW_DEFAULTS_VERSION = 9;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -146,6 +146,8 @@ export function generateBuildDefault(): FlowTemplate {
     upstreamSources: [
       { sourceKey: "architect" },
       { sourceKey: "architect", alias: "design-system", transform: "design-system" },
+      { sourceKey: "vibe-brief" },
+      { sourceKey: "mood-analysis" },
     ],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(styling);
@@ -258,7 +260,13 @@ export function generateBuildDefault(): FlowTemplate {
 }
 
 /**
- * Generate the default "fix" flow template that replicates buildFixPlan.
+ * Generate the default "fix" flow template.
+ *
+ * Scope routing:
+ *   styling  → styling agent (quick path)
+ *   frontend → frontend-dev agent (quick path)
+ *   backend  → backend-dev agent (full path with reviews)
+ *   full     → frontend-dev + backend-dev (full path with reviews)
  */
 export function generateFixDefault(): FlowTemplate {
   const now = Date.now();
@@ -266,7 +274,12 @@ export function generateFixDefault(): FlowTemplate {
   const edges: FlowEdge[] = [];
   let col = 0;
 
-  // Condition: scope
+  const fixPrompt = "Fix the following issue in the existing code (provided in Previous Agent Outputs as \"project-source\"). Use read_file and list_files to find and inspect only the files relevant to this fix. Keep changes minimal and targeted. Original request: {{userMessage}}";
+  const projectSourceUpstream: UpstreamSource[] = [
+    { sourceKey: "project-source", transform: "project-source" },
+  ];
+
+  // ── Col 0: Styling scope? ──
   const condScope = makeNode("cond-scope", "condition", {
     type: "condition",
     mode: "expression",
@@ -275,88 +288,126 @@ export function generateFixDefault(): FlowTemplate {
   }, col * X_SPACING, Y_CENTER);
   nodes.push(condScope);
 
-  // Quick-edit: styling
+  // ── Col 1: Quick-edit styling (true branch) ──
   col++;
   const stylingQuick = makeNode("styling-quick", "agent", {
     type: "agent",
     agentName: "styling",
-    inputTemplate: "Fix the following issue in the existing code. Use read_file and list_files to find and inspect only the files relevant to this fix. Keep changes minimal and targeted. Original request: {{userMessage}}",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING);
+    inputTemplate: fixPrompt,
+    upstreamSources: projectSourceUpstream,
+  }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(stylingQuick);
   edges.push(makeEdge("cond-scope", "styling-quick", "true", "styling"));
 
-  // Condition: frontend only?
+  // ── Col 1: Frontend scope? (false branch) ──
   const condFrontend = makeNode("cond-frontend", "condition", {
     type: "condition",
     mode: "expression",
     expression: "scope === 'frontend'",
     label: "Frontend only?",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(condFrontend);
   edges.push(makeEdge("cond-scope", "cond-frontend", "false"));
 
-  // Quick-edit: frontend
+  // ── Col 2: Quick-edit frontend (true branch) ──
   col++;
   const frontendQuick = makeNode("frontend-quick", "agent", {
     type: "agent",
     agentName: "frontend-dev",
-    inputTemplate: "Fix the following issue in the existing code. Use read_file and list_files to find and inspect only the files relevant to this fix. Keep changes minimal and targeted. Original request: {{userMessage}}",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
+    inputTemplate: fixPrompt,
+    upstreamSources: projectSourceUpstream,
+  }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(frontendQuick);
   edges.push(makeEdge("cond-frontend", "frontend-quick", "true", "frontend"));
 
-  // Full fix: dev agents
-  const devFix = makeNode("dev-fix", "agent", {
+  // ── Col 2: Backend-only scope? (false branch — handles backend + full) ──
+  const condBackendOnly = makeNode("cond-backend-only", "condition", {
+    type: "condition",
+    mode: "expression",
+    expression: "scope === 'backend'",
+    label: "Backend only?",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  nodes.push(condBackendOnly);
+  edges.push(makeEdge("cond-frontend", "cond-backend-only", "false"));
+
+  // ── Col 3: Full-path dev agents ──
+  col++;
+
+  // frontend-fix: runs when scope='full' (false branch of backend-only check)
+  const frontendFix = makeNode("frontend-fix", "agent", {
     type: "agent",
     agentName: "frontend-dev",
-    inputTemplate: "Fix the following issue in the existing code (provided in Previous Agent Outputs as \"project-source\"). Original request: {{userMessage}}",
-    upstreamSources: [
-      { sourceKey: "project-source", transform: "project-source" },
-    ],
-  }, col * X_SPACING, Y_CENTER + Y_SPACING);
-  nodes.push(devFix);
-  edges.push(makeEdge("cond-frontend", "dev-fix", "false"));
+    inputTemplate: fixPrompt,
+    upstreamSources: projectSourceUpstream,
+  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
+  nodes.push(frontendFix);
+  edges.push(makeEdge("cond-backend-only", "frontend-fix", "false", "full"));
 
-  // Build check after quick paths
-  col++;
+  // backend-fix: runs when scope='backend' OR scope='full'
+  // Gets BOTH true edge (backend-only) and false edge (full scope)
+  const backendFix = makeNode("backend-fix", "agent", {
+    type: "agent",
+    agentName: "backend-dev",
+    inputTemplate: fixPrompt,
+    upstreamSources: projectSourceUpstream,
+  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  nodes.push(backendFix);
+  edges.push(makeEdge("cond-backend-only", "backend-fix", "true", "backend"));
+  edges.push(makeEdge("cond-backend-only", "backend-fix", "false"));
+
+  // ── Col 3: Quick-path build check (shared by styling-quick + frontend-quick) ──
   const buildCheckQuick = makeNode("build-check-quick", "action", {
     type: "action",
     kind: "build-check",
-    label: "Build Check",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING * 0.75);
+    label: "Build Check (quick)",
+  }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(buildCheckQuick);
   edges.push(makeEdge("styling-quick", "build-check-quick"));
   edges.push(makeEdge("frontend-quick", "build-check-quick"));
 
-  // Build check + test run after full fix dev
+  // ── Col 4: Full-path build check + test run ──
+  col++;
   const buildCheckFix = makeNode("build-check-fix", "action", {
     type: "action",
     kind: "build-check",
     label: "Build Check",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
+  }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(buildCheckFix);
-  edges.push(makeEdge("dev-fix", "build-check-fix"));
+  edges.push(makeEdge("frontend-fix", "build-check-fix"));
+  edges.push(makeEdge("backend-fix", "build-check-fix"));
 
   const testRunFix = makeNode("test-run-fix", "action", {
     type: "action",
     kind: "test-run",
     label: "Test Run",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING * 1.5);
+  }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(testRunFix);
-  edges.push(makeEdge("dev-fix", "test-run-fix"));
+  edges.push(makeEdge("frontend-fix", "test-run-fix"));
+  edges.push(makeEdge("backend-fix", "test-run-fix"));
 
-  // Reviewers (for full fix path)
+  // ── Col 4: Quick-path version snapshot ──
+  const versionQuick = makeNode("version-quick", "version", {
+    type: "version",
+    label: "Auto-snapshot (quick fix)",
+  }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
+  nodes.push(versionQuick);
+  edges.push(makeEdge("build-check-quick", "version-quick"));
+
+  // ── Col 5: Full-path reviewers ──
   col++;
-  const codeReview = makeNode("code-review-fix", "agent", {
+  const reviewerSources: UpstreamSource[] = [
+    { sourceKey: "frontend-fix", alias: "changed-files-frontend", transform: "file-manifest" },
+    { sourceKey: "backend-fix", alias: "changed-files-backend", transform: "file-manifest" },
+    { sourceKey: "project-source", transform: "project-source" },
+  ];
+
+  const codeReviewFix = makeNode("code-review-fix", "agent", {
     type: "agent",
     agentName: "code-review",
     inputTemplate: "Review all code changes made by dev agents (provided in Previous Agent Outputs). Original request: {{userMessage}}",
-    upstreamSources: [
-      { sourceKey: "dev-fix", alias: "changed-files", transform: "file-manifest" },
-      { sourceKey: "project-source", transform: "project-source" },
-    ],
-  }, col * X_SPACING, Y_CENTER + Y_SPACING - Y_SPACING / 2);
-  nodes.push(codeReview);
+    upstreamSources: reviewerSources,
+  }, col * X_SPACING, Y_CENTER - Y_SPACING);
+  nodes.push(codeReviewFix);
   edges.push(makeEdge("build-check-fix", "code-review-fix"));
   edges.push(makeEdge("test-run-fix", "code-review-fix"));
 
@@ -364,58 +415,58 @@ export function generateFixDefault(): FlowTemplate {
     type: "agent",
     agentName: "security",
     inputTemplate: "Security review all code changes (provided in Previous Agent Outputs). Original request: {{userMessage}}",
-    upstreamSources: [
-      { sourceKey: "dev-fix", alias: "changed-files", transform: "file-manifest" },
-      { sourceKey: "project-source", transform: "project-source" },
-    ],
-  }, col * X_SPACING, Y_CENTER + Y_SPACING + Y_SPACING / 2);
+    upstreamSources: reviewerSources,
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(securityFix);
   edges.push(makeEdge("build-check-fix", "security-fix"));
   edges.push(makeEdge("test-run-fix", "security-fix"));
 
-  // Remediation
+  const qaFix = makeNode("qa-fix", "agent", {
+    type: "agent",
+    agentName: "qa",
+    inputTemplate: "Validate the fix against the original request (both provided in Previous Agent Outputs). Original request: {{userMessage}}",
+    upstreamSources: reviewerSources,
+  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  nodes.push(qaFix);
+  edges.push(makeEdge("build-check-fix", "qa-fix"));
+  edges.push(makeEdge("test-run-fix", "qa-fix"));
+
+  // ── Col 6: Remediation ──
   col++;
-  const remediation = makeNode("remediation-fix", "action", {
+  const remediationFix = makeNode("remediation-fix", "action", {
     type: "action",
     kind: "remediation",
     label: "Remediation",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING);
-  nodes.push(remediation);
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(remediationFix);
   edges.push(makeEdge("code-review-fix", "remediation-fix"));
   edges.push(makeEdge("security-fix", "remediation-fix"));
+  edges.push(makeEdge("qa-fix", "remediation-fix"));
 
-  // Auto-snapshot after quick path
+  // ── Col 7: Full-path version snapshot ──
   col++;
-  const versionQuick = makeNode("version-quick", "version", {
-    type: "version",
-    label: "Auto-snapshot (quick fix)",
-  }, col * X_SPACING, Y_CENTER - Y_SPACING * 0.75);
-  nodes.push(versionQuick);
-  edges.push(makeEdge("build-check-quick", "version-quick"));
-
-  // Auto-snapshot after full path
   const versionFull = makeNode("version-full", "version", {
     type: "version",
     label: "Auto-snapshot (full fix)",
-  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  }, col * X_SPACING, Y_CENTER);
   nodes.push(versionFull);
   edges.push(makeEdge("remediation-fix", "version-full"));
 
-  // Summary (shared endpoint for both quick and full paths)
+  // ── Col 8: Summary (shared endpoint for quick + full paths) ──
   col++;
-  const summary = makeNode("summary-fix", "action", {
+  const summaryFix = makeNode("summary-fix", "action", {
     type: "action",
     kind: "summary",
     label: "Summary",
-  }, col * X_SPACING, Y_CENTER);
-  nodes.push(summary);
+  }, col * X_SPACING, Y_CENTER - Y_SPACING);
+  nodes.push(summaryFix);
   edges.push(makeEdge("version-quick", "summary-fix"));
   edges.push(makeEdge("version-full", "summary-fix"));
 
   return {
     id: `default-fix-${nanoid(8)}`,
     name: "Default Fix Pipeline",
-    description: "Scope-based routing: styling/frontend quick-edit, full pipeline with reviewers for backend/full → Summary",
+    description: "Scope-based routing: styling/frontend quick-edit, backend/full with reviews + remediation → Summary",
     intent: "fix",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,

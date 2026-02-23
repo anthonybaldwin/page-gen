@@ -248,7 +248,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         systemPrompt: agentData.systemPrompt,
       });
 
-      nodeToStepKey.set(nodeId, agentData.agentName);
+      nodeToStepKey.set(nodeId, nodeId);
     }
 
     // Action nodes: ALL action kinds become direct executable steps

@@ -30,8 +30,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 8", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(8);
+  test("is version 9", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(9);
   });
 });
 
@@ -121,14 +121,18 @@ describe("generateFixDefault", () => {
     expect(versionFull!.data.type).toBe("version");
   });
 
-  test("quick-fix agents do not have upstreamSources (no project-source)", () => {
+  test("quick-fix agents have project-source upstream", () => {
     const template = generateFixDefault();
     const frontendQuick = template.nodes.find((n) => n.id === "frontend-quick");
     const stylingQuick = template.nodes.find((n) => n.id === "styling-quick");
     expect(frontendQuick).toBeDefined();
     expect(stylingQuick).toBeDefined();
-    expect((frontendQuick!.data as any).upstreamSources).toBeUndefined();
-    expect((stylingQuick!.data as any).upstreamSources).toBeUndefined();
+    const fqSources = (frontendQuick!.data as any).upstreamSources;
+    const sqSources = (stylingQuick!.data as any).upstreamSources;
+    expect(fqSources).toBeDefined();
+    expect(sqSources).toBeDefined();
+    expect(fqSources.some((s: any) => s.transform === "project-source")).toBe(true);
+    expect(sqSources.some((s: any) => s.transform === "project-source")).toBe(true);
   });
 
   test("includes build-check and test-run nodes for full path", () => {
@@ -309,6 +313,42 @@ describe("resolveFlowTemplate (fix template)", () => {
     expect(agentNames).toContain("frontend-dev");
   });
 
+  test("backend scope routes to backend-dev only (not frontend-dev)", () => {
+    const template = generateFixDefault();
+    const plan = resolveFlowTemplate(template, {
+      ...fixCtx,
+      scope: "backend",
+    });
+    const agents = plan.steps.filter((s) => isAgentStep(s));
+    const agentNames = agents.map((s) => (s as any).agentName);
+    expect(agentNames).toContain("backend-dev");
+    // frontend-dev should NOT appear (backend-only path)
+    expect(agentNames).not.toContain("frontend-dev");
+  });
+
+  test("full scope routes to both frontend-dev and backend-dev", () => {
+    const template = generateFixDefault();
+    const plan = resolveFlowTemplate(template, {
+      ...fixCtx,
+      scope: "full",
+    });
+    const agents = plan.steps.filter((s) => isAgentStep(s));
+    const agentNames = agents.map((s) => (s as any).agentName);
+    expect(agentNames).toContain("frontend-dev");
+    expect(agentNames).toContain("backend-dev");
+  });
+
+  test("full scope includes QA reviewer", () => {
+    const template = generateFixDefault();
+    const plan = resolveFlowTemplate(template, {
+      ...fixCtx,
+      scope: "full",
+    });
+    const agents = plan.steps.filter((s) => isAgentStep(s));
+    const agentNames = agents.map((s) => (s as any).agentName);
+    expect(agentNames).toContain("qa");
+  });
+
   test("fix template includes summary node in resolved plan", () => {
     const template = generateFixDefault();
     const plan = resolveFlowTemplate(template, {
@@ -318,6 +358,39 @@ describe("resolveFlowTemplate (fix template)", () => {
     const actions = actionSteps(plan.steps);
     const summary = actions.find((a) => a.actionKind === "summary");
     expect(summary).toBeDefined();
+  });
+});
+
+// --- Resolver: dependency keys match runtime stepKey ---
+
+describe("resolveFlowTemplate (dependency keys)", () => {
+  test("dependsOn uses nodeId (not agentName) for agent steps", () => {
+    const template = generateFixDefault();
+    const plan = resolveFlowTemplate(template, {
+      ...fixCtx,
+      scope: "backend",
+    });
+    // build-check-fix should depend on backend-fix (nodeId), NOT backend-dev (agentName)
+    const buildCheck = actionSteps(plan.steps).find((a) => a.instanceId === "build-check-fix");
+    expect(buildCheck).toBeDefined();
+    expect(buildCheck!.dependsOn).toContain("backend-fix");
+    expect(buildCheck!.dependsOn).not.toContain("backend-dev");
+  });
+
+  test("stepKey matches dependsOn entries for agent nodes", () => {
+    const template = generateFixDefault();
+    const plan = resolveFlowTemplate(template, {
+      ...fixCtx,
+      scope: "full",
+    });
+    // Collect all step keys
+    const allKeys = new Set(plan.steps.map((s) => stepKey(s)));
+    // All dependsOn entries should reference actual step keys
+    for (const step of plan.steps) {
+      for (const dep of step.dependsOn ?? []) {
+        expect(allKeys.has(dep)).toBe(true);
+      }
+    }
   });
 });
 
