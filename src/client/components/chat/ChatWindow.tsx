@@ -107,7 +107,7 @@ export function ChatWindow() {
           });
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn("[chat] Load messages failed:", err));
   }, [activeChat, setMessages, resetThinking]);
 
   // Listen for agent messages and status updates via WebSocket

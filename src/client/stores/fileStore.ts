@@ -276,6 +276,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const { openFiles, activeFilePath } = get();
     if (!activeFilePath || !openFiles[activeFilePath]) return;
     const f = openFiles[activeFilePath];
+    if (f.isSaving) return; // Prevent concurrent saves
 
     const savingFile: OpenFile = { ...f, isSaving: true };
     const savingOpenFiles = { ...openFiles, [activeFilePath]: savingFile };
@@ -301,7 +302,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           ...deriveActive(savedOpenFiles, current.activeFilePath),
         });
       }
-    } catch {
+    } catch (err) {
+      console.error("[fileStore] Save failed:", activeFilePath, err);
       const current = get();
       if (current.openFiles[activeFilePath]) {
         const failedFile: OpenFile = { ...current.openFiles[activeFilePath], isSaving: false };
@@ -345,7 +347,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
               });
             }
           })
-          .catch(() => {});
+          .catch((err) => console.warn("[fileStore] Re-fetch failed:", filePath, err));
       } else {
         updatedOpenFiles[filePath] = { ...file, externallyChanged: true };
         changed = true;
@@ -382,7 +384,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           ...deriveActive(refreshedOpenFiles, current.activeFilePath),
         });
       }
-    } catch {
+    } catch (err) {
+      console.error("[fileStore] Accept external failed:", activeFilePath, err);
       const current = get();
       if (current.openFiles[activeFilePath]) {
         const dismissed: OpenFile = { ...current.openFiles[activeFilePath], externallyChanged: false };

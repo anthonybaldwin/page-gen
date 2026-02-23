@@ -137,7 +137,7 @@ export function LivePreview() {
     // preventing the new server from colliding with an orphaned process.
     const stopThenStart = async () => {
       if (prevId && prevId !== newId) {
-        await fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch(() => {});
+        await fetch(`/api/files/preview/${prevId}`, { method: "DELETE" }).catch((err) => console.warn("[preview] Stop failed:", err));
       }
       if (switchGenRef.current !== gen) return; // project changed again while waiting
       checkAndMaybeStartPreview(activeProject.id, gen);
@@ -241,7 +241,7 @@ export function LivePreview() {
     return () => {
       const id = prevProjectRef.current;
       if (id) {
-        fetch(`/api/files/preview/${id}`, { method: "DELETE" }).catch(() => {});
+        fetch(`/api/files/preview/${id}`, { method: "DELETE" }).catch((err) => console.warn("[preview] Cleanup failed:", err));
       }
     };
   }, []);

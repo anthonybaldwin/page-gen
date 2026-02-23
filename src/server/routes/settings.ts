@@ -897,7 +897,7 @@ settingsRoutes.delete("/custom-tools/:name", (c) => {
         const filtered = tools.filter((t: string) => t !== name);
         db.update(schema.appSettings).set({ value: JSON.stringify(filtered) }).where(eq(schema.appSettings.key, row.key)).run();
       }
-    } catch { /* ignore */ }
+    } catch (err) { logWarn("settings", `Tool cleanup parse error for ${row.key}: ${err}`); }
   }
 
   log("settings", `Custom tool deleted: ${name}`, { tool: name });
