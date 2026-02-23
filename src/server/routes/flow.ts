@@ -15,6 +15,7 @@ import {
 import { getAllAgentConfigs } from "../agents/registry.ts";
 import type { FlowTemplate } from "../../shared/flow-types.ts";
 import type { OrchestratorIntent } from "../../shared/types.ts";
+import { nanoid } from "nanoid";
 
 export const flowRoutes = new Hono();
 
@@ -187,6 +188,79 @@ flowRoutes.post("/templates/:id/reset", (c) => {
 
   log("flow", `Template reset to default: ${reset.name}`, { id: reset.id, intent: reset.intent });
   return c.json({ ok: true, template: reset });
+});
+
+// --- Duplicate a template ---
+flowRoutes.post("/templates/:id/duplicate", async (c) => {
+  const id = c.req.param("id");
+  const template = getFlowTemplate(id);
+  if (!template) return c.json({ error: "Template not found" }, 404);
+
+  const body = await c.req.json<{ name?: string }>().catch(() => ({}));
+  const now = Date.now();
+  const dupe: FlowTemplate = {
+    ...template,
+    id: `${template.intent}-${nanoid(8)}`,
+    name: (body as { name?: string }).name || `${template.name} (copy)`,
+    isDefault: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  saveFlowTemplate(dupe);
+  log("flow", `Template duplicated: ${template.name} → ${dupe.name}`, { sourceId: id, newId: dupe.id });
+  return c.json({ ok: true, template: dupe });
+});
+
+// --- Export a template as JSON ---
+flowRoutes.get("/templates/:id/export", (c) => {
+  const id = c.req.param("id");
+  const template = getFlowTemplate(id);
+  if (!template) return c.json({ error: "Template not found" }, 404);
+
+  // Strip internal-only fields for clean export
+  const exported = { ...template, id: undefined, createdAt: undefined, updatedAt: undefined, isDefault: undefined };
+  return c.json(exported);
+});
+
+// --- Import a template from JSON ---
+flowRoutes.post("/templates/import", async (c) => {
+  const body = await c.req.json<Partial<FlowTemplate>>();
+  if (!body.name?.trim()) return c.json({ error: "name is required" }, 400);
+  if (!body.intent) return c.json({ error: "intent is required" }, 400);
+  if (!Array.isArray(body.nodes)) return c.json({ error: "nodes array is required" }, 400);
+  if (!Array.isArray(body.edges)) return c.json({ error: "edges array is required" }, 400);
+
+  const validIntents = ["build", "fix", "question"];
+  if (!validIntents.includes(body.intent)) {
+    return c.json({ error: `Invalid intent. Must be one of: ${validIntents.join(", ")}` }, 400);
+  }
+
+  const now = Date.now();
+  const imported: FlowTemplate = {
+    id: `${body.intent}-${nanoid(8)}`,
+    name: body.name,
+    description: body.description ?? "",
+    intent: body.intent as OrchestratorIntent,
+    version: body.version ?? 1,
+    enabled: true,
+    nodes: body.nodes,
+    edges: body.edges,
+    createdAt: now,
+    updatedAt: now,
+    isDefault: false,
+  };
+
+  // Validate before saving
+  const agentNames = getAllAgentConfigs().map((a) => a.name);
+  const errors = validateFlowTemplate(imported, agentNames);
+  const hasErrors = errors.some((e) => e.type === "error");
+  if (hasErrors) {
+    return c.json({ error: "Validation failed", errors }, 400);
+  }
+
+  saveFlowTemplate(imported);
+  log("flow", `Template imported: ${imported.name}`, { id: imported.id, intent: imported.intent, nodes: imported.nodes.length });
+  return c.json({ ok: true, template: imported, warnings: errors.filter((e) => e.type === "warning") });
 });
 
 // --- Seed missing default templates (only for intents with no templates) ---

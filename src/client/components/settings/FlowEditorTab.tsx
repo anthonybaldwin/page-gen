@@ -6,7 +6,7 @@ import { FlowCanvas } from "../flow/FlowCanvas.tsx";
 import { FlowNodeInspector } from "../flow/FlowNodeInspector.tsx";
 import { FlowToolbar } from "../flow/FlowToolbar.tsx";
 import { PipelineSettings, type PipelineConfig } from "./PipelineSettings.tsx";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2, Plus, Copy, Download, Upload } from "lucide-react";
 import type { FlowTemplate, FlowNode, FlowEdge, FlowNodeData } from "../../../shared/flow-types.ts";
 import { validateFlowTemplate, type ValidationError } from "../../../shared/flow-validation.ts";
 import type { OrchestratorIntent } from "../../../shared/types.ts";
@@ -220,6 +220,64 @@ export function FlowEditorTab() {
     }
   };
 
+  const handleDuplicate = async (template: FlowTemplate) => {
+    try {
+      const res = await api.post<{ ok: boolean; template: FlowTemplate }>(`/settings/flow/templates/${template.id}/duplicate`, {});
+      await refresh();
+      if (res.template) {
+        setSelectedTemplate(res.template);
+        setEditNodes(res.template.nodes);
+        setEditEdges(res.template.edges);
+        setDirty(false);
+      }
+    } catch (err) {
+      console.error("[flow-editor] Duplicate failed:", err);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!selectedTemplate) return;
+    try {
+      const exported = await api.get<Record<string, unknown>>(`/settings/flow/templates/${selectedTemplate.id}/export`);
+      const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${selectedTemplate.name.replace(/\s+/g, "-").toLowerCase()}.flow.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[flow-editor] Export failed:", err);
+    }
+  };
+
+  const handleImport = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        // Default intent to current tab if not specified
+        if (!data.intent) data.intent = activeIntent;
+        const res = await api.post<{ ok: boolean; template: FlowTemplate }>("/settings/flow/templates/import", data);
+        await refresh();
+        if (res.template) {
+          setSelectedTemplate(res.template);
+          setEditNodes(res.template.nodes);
+          setEditEdges(res.template.edges);
+          setDirty(false);
+        }
+      } catch (err) {
+        console.error("[flow-editor] Import failed:", err);
+      }
+    };
+    input.click();
+  };
+
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading flow templates...</p>;
   }
@@ -333,6 +391,13 @@ export function FlowEditorTab() {
                     </Button>
                   )}
                   <button
+                    onClick={(e) => { e.stopPropagation(); handleDuplicate(tmpl); }}
+                    className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+                    title="Duplicate template"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                  <button
                     onClick={(e) => { e.stopPropagation(); setDeleteTarget(tmpl); setDeleteDialogOpen(true); }}
                     disabled={isActive}
                     className={`p-0.5 rounded transition-colors ${
@@ -348,13 +413,29 @@ export function FlowEditorTab() {
               </div>
             );
           })}
-          {/* Add pipeline button */}
+          {/* Pipeline management buttons */}
           <button
             onClick={() => setNewPipelineDialogOpen(true)}
             className="flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
           >
             <Plus className="h-3 w-3" /> New Pipeline
           </button>
+          <button
+            onClick={handleImport}
+            className="flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            title="Import pipeline from JSON file"
+          >
+            <Upload className="h-3 w-3" /> Import
+          </button>
+          {selectedTemplate && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1 rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+              title="Export selected pipeline as JSON"
+            >
+              <Download className="h-3 w-3" /> Export
+            </button>
+          )}
         </div>
       </div>
 
