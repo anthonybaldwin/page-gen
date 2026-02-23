@@ -16,7 +16,6 @@
         "@codemirror/lang-javascript": "^6.2.4",
         "@codemirror/lang-json": "^6.0.2",
         "@codemirror/lang-markdown": "^6.5.0",
-        "@hono/node-server": "^1.19.9",
         "@radix-ui/react-collapsible": "^1.1.12",
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-scroll-area": "^1.2.10",
@@ -211,8 +210,6 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.7", "", { "dependencies": { "@floating-ui/dom": "^1.7.5" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-0tLRojf/1Go2JgEVm+3Frg9A3IW8bJgKgdO0BN5RkF//ufuz2joZM63Npau2ff3J6lUVYgDSNzNkR+aH3IVfjg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.10", "", {}, "sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ=="],
-
-    "@hono/node-server": ["@hono/node-server@1.19.9", "", { "peerDependencies": { "hono": "^4" } }, "sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
