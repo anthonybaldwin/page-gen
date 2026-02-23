@@ -118,7 +118,12 @@ If a `vibe-brief` appears in Previous Agent Outputs, incorporate it into the req
 - Use `targetUser` to refine accessibility and interaction requirements
 - Use `antiReferences` to add explicit anti-requirements (things the design must avoid)
 - Use `metaphor` to inform the layout vocabulary and tone
-- If `mood-analysis` is present, reference its palette and style descriptors in the `vibe.personality` field
+- If `mood-analysis` is present:
+  - Reference its `palette` and `styleDescriptors` in the `vibe.personality` field
+  - Map `layoutPatterns` into the `layout` field — use them as inspiration for spatial organization, not exact specs
+  - Map `designEra` into `vibe.personality` as a period/movement reference
+  - Map `componentPatterns` into `components` or `features` entries where they suggest concrete UI elements (e.g. "floating cards" → a card-based layout component)
+  - Treat all mood-analysis data as **design inspiration**, not specifications to replicate exactly
 
 The vibe brief does not replace explicit user requirements — it layers personality on top of them. If no vibe brief is provided, omit the `vibe` field entirely.
 

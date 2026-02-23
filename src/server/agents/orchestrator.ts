@@ -412,14 +412,16 @@ async function analyzeMoodImages(
 
   try {
     const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
-    const defaultPrompt = `Analyze these inspiration/mood board images. Extract a structured JSON response with:
+    const defaultPrompt = `Analyze these inspiration/mood board images. Extract design inspiration guidance (not exact specifications to replicate). Return a structured JSON response with:
 {
   "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
   "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
   "textureNotes": "description of textures and materials",
   "typographyHints": "description of typography style if visible",
   "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
-  "layoutPatterns": "description of layout patterns observed"
+  "layoutPatterns": "spatial organization, grid structure, element hierarchy, button/control shapes, display-to-control ratio, whitespace usage",
+  "designEra": "the design period or movement this evokes (e.g. 'mid-century modern', 'neo-brutalist', 'skeuomorphic 2010s', 'flat material')",
+  "componentPatterns": ["pattern1", ...]  // distinct UI component patterns visible (e.g. 'floating cards', 'segmented controls', 'pill buttons', 'inline validation')
 }
 Return ONLY the JSON.`;
     const result = await generateText({
@@ -2105,7 +2107,9 @@ async function executePipelineSteps(ctx: {
               if (mood.moodKeywords?.length) moodMessage += `**Mood:** ${mood.moodKeywords.join(", ")}\n`;
               if (mood.textureNotes) moodMessage += `**Textures:** ${mood.textureNotes}\n`;
               if (mood.typographyHints) moodMessage += `**Typography:** ${mood.typographyHints}\n`;
-              if (mood.layoutPatterns) moodMessage += `**Layout:** ${mood.layoutPatterns}`;
+              if (mood.layoutPatterns) moodMessage += `**Layout:** ${mood.layoutPatterns}\n`;
+              if (mood.designEra) moodMessage += `**Design Era:** ${mood.designEra}\n`;
+              if (mood.componentPatterns?.length) moodMessage += `**Components:** ${mood.componentPatterns.join(", ")}`;
             } catch {
               moodMessage += moodResult.slice(0, 500);
             }
@@ -2294,6 +2298,25 @@ async function executePipelineSteps(ctx: {
           type: "pipeline_checkpoint_resolved" as const,
           payload: { chatId, checkpointId, selectedIndex, timedOut: false },
         });
+
+        // Persist checkpoint resolution as a chat message so it survives page refresh
+        const cpMetadata = {
+          type: "checkpoint-resolved",
+          label: cp.label,
+          checkpointType: cp.checkpointType,
+          options: designOptions?.map((o) => ({ name: o.name, description: o.description })) ?? [],
+          selectedIndex,
+        };
+        await db.insert(schema.messages).values({
+          id: nanoid(), chatId, role: "assistant",
+          content: `Checkpoint resolved: ${cp.label}`,
+          agentName: "orchestrator", metadata: JSON.stringify(cpMetadata), createdAt: Date.now(),
+        });
+        broadcast({
+          type: "chat_message",
+          payload: { chatId, agentName: "orchestrator", content: `Checkpoint resolved: ${cp.label}`, metadata: cpMetadata },
+        });
+
         broadcastAgentStatus(chatId, cpKey, "completed");
         completedSet.add(cpKey);
       } catch (err) {

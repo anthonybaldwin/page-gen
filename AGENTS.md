@@ -234,6 +234,10 @@ Wiki syncing to GitHub Wiki is handled automatically by the `sync-wiki` GitHub A
 
 When adding a new wiki page, also add a link to it in both `README.md` (Documentation section) and `docs/wiki/Home.md` (Quick Links section).
 
+## Pipeline Chat Persistence Rule
+
+Any data surfaced in the chat timeline during a pipeline run (agent analysis results, checkpoint selections, structured cards) MUST be persisted as a row in the `messages` table with appropriate `metadata` JSON. In-memory or WebSocket-only data vanishes on page refresh. When adding a new pipeline step that produces chat-visible output, always `db.insert(schema.messages)` with a unique metadata `type` and ensure the client renders it from the loaded messages — not just from live events.
+
 ## Principles
 
 - Move fast.

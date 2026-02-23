@@ -596,18 +596,7 @@ function MergedTimeline({
   projectId?: string;
   onCheckpointSelect?: (checkpointId: string, selectedIndex: number) => void;
 }) {
-  const hasTimeline = blocks.length > 0 || checkpoint;
-
-  if (!hasTimeline) {
-    return (
-      <>
-        <MessageList messages={messages} />
-        {thinking && <ThinkingIndicator />}
-      </>
-    );
-  }
-
-  // Separate visible messages and vibe/mood card messages
+  // Separate visible messages and vibe/mood/checkpoint card messages
   const visibleMessages: Message[] = [];
   const cardMessages: Message[] = [];
   for (const msg of messages) {
@@ -617,6 +606,17 @@ function MergedTimeline({
     } else if (isVisibleChatMessage(msg)) {
       visibleMessages.push(msg);
     }
+  }
+
+  const hasTimeline = blocks.length > 0 || checkpoint || cardMessages.length > 0;
+
+  if (!hasTimeline) {
+    return (
+      <>
+        <MessageList messages={messages} />
+        {thinking && <ThinkingIndicator />}
+      </>
+    );
   }
 
   const items: Array<

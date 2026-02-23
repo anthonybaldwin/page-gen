@@ -17,14 +17,18 @@ export function VibeMoodCard({ msg, projectId }: Props) {
 
   const metaType = meta.type as string;
   const isVibe = metaType === "vibe-brief";
-  const displayName = isVibe ? "Vibe Brief" : "Mood Analysis";
+  const isMood = metaType === "mood-analysis";
+  const isCheckpointResolved = metaType === "checkpoint-resolved";
+  const displayName = isVibe ? "Vibe Brief" : isMood ? "Mood Analysis" : "Checkpoint";
 
   // Build summary text for collapsed view
   const summary = isVibe
     ? (meta.adjectives as string[] | undefined)?.slice(0, 3).join(", ") || "Vibe captured"
-    : (meta.data as Record<string, unknown>)?.moodKeywords
-      ? ((meta.data as Record<string, unknown>).moodKeywords as string[]).slice(0, 3).join(", ")
-      : "Mood analyzed";
+    : isMood
+      ? (meta.data as Record<string, unknown>)?.moodKeywords
+        ? ((meta.data as Record<string, unknown>).moodKeywords as string[]).slice(0, 3).join(", ")
+        : "Mood analyzed"
+      : (meta.label as string) || "Checkpoint resolved";
 
   return (
     <div className="flex justify-start px-4 py-1.5">
@@ -50,6 +54,8 @@ export function VibeMoodCard({ msg, projectId }: Props) {
           <div className="border-t border-border/60 px-4 py-3 space-y-3">
             {isVibe ? (
               <VibeContent meta={meta} />
+            ) : isCheckpointResolved ? (
+              <CheckpointResolvedContent meta={meta} />
             ) : (
               <MoodContent meta={meta} projectId={projectId} />
             )}
@@ -112,6 +118,9 @@ function MoodContent({ meta, projectId }: { meta: Record<string, unknown>; proje
   const moodKeywords = (data.moodKeywords as string[]) || [];
   const textureNotes = data.textureNotes as string | undefined;
   const typographyHints = data.typographyHints as string | undefined;
+  const layoutPatterns = data.layoutPatterns as string | undefined;
+  const designEra = data.designEra as string | undefined;
+  const componentPatterns = (data.componentPatterns as string[]) || [];
 
   return (
     <>
@@ -162,6 +171,28 @@ function MoodContent({ meta, projectId }: { meta: Record<string, unknown>; proje
           <p className="text-xs text-foreground mt-0.5">{typographyHints}</p>
         </div>
       )}
+      {layoutPatterns && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Layout</span>
+          <p className="text-xs text-foreground mt-0.5">{layoutPatterns}</p>
+        </div>
+      )}
+      {designEra && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Design Era</span>
+          <p className="text-xs text-foreground mt-0.5">{designEra}</p>
+        </div>
+      )}
+      {componentPatterns.length > 0 && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Component Patterns</span>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {componentPatterns.map((p, i) => (
+              <Badge key={i} variant="secondary" className="text-xs px-2 py-0.5">{p}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
       {images.length > 0 && projectId && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Inspiration Images</span>
@@ -173,6 +204,44 @@ function MoodContent({ meta, projectId }: { meta: Record<string, unknown>; proje
                 alt={`Mood ${i + 1}`}
                 className="w-16 h-16 object-cover rounded-md border border-border/40"
               />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function CheckpointResolvedContent({ meta }: { meta: Record<string, unknown> }) {
+  const label = meta.label as string | undefined;
+  const options = (meta.options as Array<{ name: string; description?: string }>) || [];
+  const selectedIndex = meta.selectedIndex as number | undefined;
+
+  return (
+    <>
+      {label && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Decision</span>
+          <p className="text-xs text-foreground mt-0.5">{label}</p>
+        </div>
+      )}
+      {options.length > 0 && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Options</span>
+          <div className="space-y-1 mt-1">
+            {options.map((opt, i) => (
+              <div
+                key={i}
+                className={`text-xs px-2 py-1 rounded border ${
+                  i === selectedIndex
+                    ? "border-emerald-500/50 bg-emerald-500/10 text-foreground"
+                    : "border-border/40 text-muted-foreground"
+                }`}
+              >
+                <span className="font-medium">{opt.name}</span>
+                {opt.description && <span className="ml-1 opacity-70">— {opt.description}</span>}
+                {i === selectedIndex && <span className="ml-1 text-emerald-500 text-[10px]">(selected)</span>}
+              </div>
             ))}
           </div>
         </div>
