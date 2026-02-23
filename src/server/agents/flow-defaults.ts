@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 7;
+export const FLOW_DEFAULTS_VERSION = 8;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -223,7 +223,16 @@ export function generateBuildDefault(): FlowTemplate {
   edges.push(makeEdge("security", "remediation"));
   edges.push(makeEdge("qa", "remediation"));
 
-  // Summary after remediation
+  // Auto-snapshot after remediation
+  col++;
+  const versionBuild = makeNode("version-build", "version", {
+    type: "version",
+    label: "Auto-snapshot",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(versionBuild);
+  edges.push(makeEdge("remediation", "version-build"));
+
+  // Summary after version snapshot
   col++;
   const summary = makeNode("summary", "action", {
     type: "action",
@@ -231,7 +240,7 @@ export function generateBuildDefault(): FlowTemplate {
     label: "Summary",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(summary);
-  edges.push(makeEdge("remediation", "summary"));
+  edges.push(makeEdge("version-build", "summary"));
 
   return {
     id: `default-build-${nanoid(8)}`,
@@ -271,10 +280,7 @@ export function generateFixDefault(): FlowTemplate {
   const stylingQuick = makeNode("styling-quick", "agent", {
     type: "agent",
     agentName: "styling",
-    inputTemplate: "Fix the following styling issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: {{userMessage}}",
-    upstreamSources: [
-      { sourceKey: "project-source", transform: "project-source" },
-    ],
+    inputTemplate: "Fix the following issue in the existing code. Use read_file and list_files to find and inspect only the files relevant to this fix. Keep changes minimal and targeted. Original request: {{userMessage}}",
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(stylingQuick);
   edges.push(makeEdge("cond-scope", "styling-quick", "true", "styling"));
@@ -294,10 +300,7 @@ export function generateFixDefault(): FlowTemplate {
   const frontendQuick = makeNode("frontend-quick", "agent", {
     type: "agent",
     agentName: "frontend-dev",
-    inputTemplate: "Fix the following issue in the existing code. Use read_file/list_files to inspect relevant files and keep changes minimal and targeted. Original request: {{userMessage}}",
-    upstreamSources: [
-      { sourceKey: "project-source", transform: "project-source" },
-    ],
+    inputTemplate: "Fix the following issue in the existing code. Use read_file and list_files to find and inspect only the files relevant to this fix. Keep changes minimal and targeted. Original request: {{userMessage}}",
   }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(frontendQuick);
   edges.push(makeEdge("cond-frontend", "frontend-quick", "true", "frontend"));
@@ -381,6 +384,23 @@ export function generateFixDefault(): FlowTemplate {
   edges.push(makeEdge("code-review-fix", "remediation-fix"));
   edges.push(makeEdge("security-fix", "remediation-fix"));
 
+  // Auto-snapshot after quick path
+  col++;
+  const versionQuick = makeNode("version-quick", "version", {
+    type: "version",
+    label: "Auto-snapshot (quick fix)",
+  }, col * X_SPACING, Y_CENTER - Y_SPACING * 0.75);
+  nodes.push(versionQuick);
+  edges.push(makeEdge("build-check-quick", "version-quick"));
+
+  // Auto-snapshot after full path
+  const versionFull = makeNode("version-full", "version", {
+    type: "version",
+    label: "Auto-snapshot (full fix)",
+  }, col * X_SPACING, Y_CENTER + Y_SPACING);
+  nodes.push(versionFull);
+  edges.push(makeEdge("remediation-fix", "version-full"));
+
   // Summary (shared endpoint for both quick and full paths)
   col++;
   const summary = makeNode("summary-fix", "action", {
@@ -389,8 +409,8 @@ export function generateFixDefault(): FlowTemplate {
     label: "Summary",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(summary);
-  edges.push(makeEdge("build-check-quick", "summary-fix"));
-  edges.push(makeEdge("remediation-fix", "summary-fix"));
+  edges.push(makeEdge("version-quick", "summary-fix"));
+  edges.push(makeEdge("version-full", "summary-fix"));
 
   return {
     id: `default-fix-${nanoid(8)}`,

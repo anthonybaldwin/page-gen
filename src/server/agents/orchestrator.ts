@@ -2213,7 +2213,9 @@ async function executePipelineSteps(ctx: {
           agentResults.set(sk, "Remediation complete");
         } else if (act.actionKind === "summary") {
           // Summary: generate final recap using all agent outputs
-          const buildCheckResult = agentResults.get("build-check") ?? "";
+          // Find any build-check result (key may be "build-check", "build-check-quick", "build-check-fix", etc.)
+          const buildCheckResult = [...agentResults.entries()]
+            .find(([k]) => k.startsWith("build-check") && !/-fix-\d+$/.test(k))?.[1] ?? "";
           const buildFailed = buildCheckResult.startsWith("Build failed");
 
           const summary = await generateSummary({
@@ -2440,8 +2442,9 @@ async function finishPipeline(ctx: {
 }): Promise<void> {
   const { chatId, projectId, projectPath, agentResults, signal } = ctx;
 
-  // Determine build status from build-check results (if a build-check node ran)
-  const buildCheckResult = agentResults.get("build-check") ?? "";
+  // Determine build status from build-check results (key may be "build-check", "build-check-quick", etc.)
+  const buildCheckResult = [...agentResults.entries()]
+    .find(([k]) => k.startsWith("build-check") && !/-fix-\d+$/.test(k))?.[1] ?? "";
   const buildOk = !buildCheckResult.startsWith("Build failed");
 
   broadcastAgentStatus(chatId, "orchestrator", buildOk ? "completed" : "failed");

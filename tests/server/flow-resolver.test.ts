@@ -30,8 +30,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 7", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(7);
+  test("is version 8", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(8);
   });
 });
 
@@ -47,12 +47,23 @@ describe("generateBuildDefault", () => {
     expect(summaryNode!.id).toBe("summary");
   });
 
-  test("summary is connected after remediation", () => {
+  test("summary is connected after remediation via version node", () => {
     const template = generateBuildDefault();
-    const edge = template.edges.find(
-      (e) => e.source === "remediation" && e.target === "summary"
+    const remToVersion = template.edges.find(
+      (e) => e.source === "remediation" && e.target === "version-build"
     );
-    expect(edge).toBeDefined();
+    const versionToSummary = template.edges.find(
+      (e) => e.source === "version-build" && e.target === "summary"
+    );
+    expect(remToVersion).toBeDefined();
+    expect(versionToSummary).toBeDefined();
+  });
+
+  test("includes version node for auto-snapshot", () => {
+    const template = generateBuildDefault();
+    const versionNode = template.nodes.find((n) => n.id === "version-build");
+    expect(versionNode).toBeDefined();
+    expect(versionNode!.data.type).toBe("version");
   });
 
   test("includes build-check and test-run nodes", () => {
@@ -92,12 +103,32 @@ describe("generateFixDefault", () => {
     expect(summaryNode).toBeDefined();
   });
 
-  test("summary receives edges from both quick and full paths", () => {
+  test("summary receives edges from both quick and full version nodes", () => {
     const template = generateFixDefault();
     const summaryEdges = template.edges.filter((e) => e.target === "summary-fix");
     const sources = summaryEdges.map((e) => e.source);
-    expect(sources).toContain("build-check-quick");
-    expect(sources).toContain("remediation-fix");
+    expect(sources).toContain("version-quick");
+    expect(sources).toContain("version-full");
+  });
+
+  test("includes version nodes for auto-snapshot on both paths", () => {
+    const template = generateFixDefault();
+    const versionQuick = template.nodes.find((n) => n.id === "version-quick");
+    const versionFull = template.nodes.find((n) => n.id === "version-full");
+    expect(versionQuick).toBeDefined();
+    expect(versionQuick!.data.type).toBe("version");
+    expect(versionFull).toBeDefined();
+    expect(versionFull!.data.type).toBe("version");
+  });
+
+  test("quick-fix agents do not have upstreamSources (no project-source)", () => {
+    const template = generateFixDefault();
+    const frontendQuick = template.nodes.find((n) => n.id === "frontend-quick");
+    const stylingQuick = template.nodes.find((n) => n.id === "styling-quick");
+    expect(frontendQuick).toBeDefined();
+    expect(stylingQuick).toBeDefined();
+    expect((frontendQuick!.data as any).upstreamSources).toBeUndefined();
+    expect((stylingQuick!.data as any).upstreamSources).toBeUndefined();
   });
 
   test("includes build-check and test-run nodes for full path", () => {
@@ -158,8 +189,8 @@ describe("resolveFlowTemplate (action steps)", () => {
     const plan = resolveFlowTemplate(template, buildCtx);
     const actions = actionSteps(plan.steps);
     const summary = actions.find((a) => a.actionKind === "summary");
-    // Summary depends on remediation
-    expect(summary!.dependsOn).toContain("remediation");
+    // Summary depends on version-build (which depends on remediation)
+    expect(summary!.dependsOn).toContain("version-build");
   });
 
   test("per-node settings are copied to ActionStep", () => {
