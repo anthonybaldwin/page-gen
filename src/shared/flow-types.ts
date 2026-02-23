@@ -57,7 +57,7 @@ export interface CheckpointNodeData {
   timeoutMs?: number;
 }
 
-export type ActionKind = "build-check" | "test-run" | "remediation" | "summary" | "vibe-intake" | "mood-analysis" | "answer";
+export type ActionKind = "build-check" | "test-run" | "remediation" | "summary" | "vibe-intake" | "mood-analysis" | "answer" | "shell" | "llm-call";
 
 export interface ActionNodeData {
   type: "action";
@@ -81,6 +81,11 @@ export interface ActionNodeData {
   failSignals?: string[];    // remediation: custom fail signals (overrides global default)
   // Build-fix agent routing
   buildFixAgent?: string;    // build-check, test-run: agent to use for fixes (overrides auto-detect)
+  // Shell action
+  shellCommand?: string;          // shell: command to run (required for shell kind)
+  shellCaptureOutput?: boolean;   // shell: store stdout as node output (default: true)
+  // LLM call action
+  llmInputTemplate?: string;      // llm-call: user message template with {{variable}} substitution
 }
 
 export interface VersionNodeData {

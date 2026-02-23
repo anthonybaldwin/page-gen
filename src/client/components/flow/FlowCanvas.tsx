@@ -296,6 +296,8 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
                   case "vibe-intake": return "#ec4899";
                   case "mood-analysis": return "#0ea5e9";
                   case "answer": return "#6366f1";
+                  case "shell": return "#64748b";
+                  case "llm-call": return "#818cf8";
                   default: return "#f97316";
                 }
               }

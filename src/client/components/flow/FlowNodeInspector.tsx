@@ -754,15 +754,18 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context. No LLM call.",
   "mood-analysis": "LLM call (vision) — analyzes uploaded mood board images and extracts color palette, style descriptors, and mood keywords as structured JSON.",
   "answer": "Relays the most recent agent output as the assistant chat message. No LLM call — just pass-through.",
+  "shell": "Runs an arbitrary shell command in the project directory. Captures stdout as node output.",
+  "llm-call": "Makes a custom LLM call with a user-defined system prompt and input template. Use {{variables}} for template substitution.",
 };
 
 /** Action kinds that make direct LLM calls and support system prompt / maxOutputTokens overrides */
-const AGENTIC_KINDS = new Set(["summary", "mood-analysis"]);
+const AGENTIC_KINDS = new Set(["summary", "mood-analysis", "llm-call"]);
 
 /** Default max output tokens per agentic kind */
 const KIND_DEFAULT_MAX_TOKENS: Record<string, number> = {
   "summary": 1024,
   "mood-analysis": 1000,
+  "llm-call": 4096,
 };
 
 /** Human-readable description of what the default prompt does per kind */
@@ -779,6 +782,8 @@ const KIND_AGENT_LABEL: Record<string, string> = {
   "test-run": "build-fix (on failures)",
   "remediation": "fix + review agents",
   "answer": "None (relays agent output)",
+  "shell": "None (subprocess)",
+  "llm-call": "Orchestrator model",
 };
 
 const KIND_IO: Record<string, { input: string; outputKey: string }> = {
@@ -789,6 +794,8 @@ const KIND_IO: Record<string, { input: string; outputKey: string }> = {
   "vibe-intake": { input: "DB project vibe brief", outputKey: "vibe-brief" },
   "mood-analysis": { input: "Mood board images on disk", outputKey: "mood-analysis" },
   "answer": { input: "Previous agent output", outputKey: "answer" },
+  "shell": { input: "Shell command", outputKey: "shell" },
+  "llm-call": { input: "Rendered template + system prompt", outputKey: "llm-call" },
 };
 
 /** Which override fields to show per action kind */
@@ -806,6 +813,9 @@ const KIND_FIELDS: Record<string, Array<{ key: keyof ActionNodeData; label: stri
   ],
   "remediation": [
     { key: "maxAttempts", label: "Max Cycles", placeholder: "2" },
+  ],
+  "shell": [
+    { key: "timeoutMs", label: "Timeout (ms)", placeholder: "60000" },
   ],
 };
 
@@ -838,6 +848,11 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   const [failSignalsText, setFailSignalsText] = useState((data.failSignals ?? []).join("\n"));
   // Build-fix agent state
   const [buildFixAgent, setBuildFixAgent] = useState(data.buildFixAgent ?? "");
+  // Shell action state
+  const [shellCommand, setShellCommand] = useState(data.shellCommand ?? "");
+  const [shellCaptureOutput, setShellCaptureOutput] = useState(data.shellCaptureOutput !== false);
+  // LLM call action state
+  const [llmInputTemplate, setLlmInputTemplate] = useState(data.llmInputTemplate ?? "");
   // Default prompt viewing state (for agentic kinds)
   const [defaultPromptText, setDefaultPromptText] = useState<string | null>(null);
   const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
@@ -865,6 +880,9 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     setUseCustomFailSignals(!!data.failSignals);
     setFailSignalsText((data.failSignals ?? []).join("\n"));
     setBuildFixAgent(data.buildFixAgent ?? "");
+    setShellCommand(data.shellCommand ?? "");
+    setShellCaptureOutput(data.shellCaptureOutput !== false);
+    setLlmInputTemplate(data.llmInputTemplate ?? "");
   }, [data]);
 
   const save = useCallback(() => {
@@ -883,8 +901,11 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       testCommand: testCommand || undefined,
       failSignals: useCustomFailSignals && failSignalsText.trim() ? failSignalsText.split("\n").filter((s) => s.trim()) : undefined,
       buildFixAgent: buildFixAgent || undefined,
+      shellCommand: shellCommand || undefined,
+      shellCaptureOutput: data.kind === "shell" ? shellCaptureOutput : undefined,
+      llmInputTemplate: llmInputTemplate || undefined,
     });
-  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, useCustomFailSignals, failSignalsText, buildFixAgent, onUpdate]);
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, useCustomFailSignals, failSignalsText, buildFixAgent, shellCommand, shellCaptureOutput, llmInputTemplate, onUpdate]);
 
   const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
     setUseCustomPrompt(enabled);
@@ -962,6 +983,52 @@ function ActionInspector({ data, nodeId, onUpdate }: {
             </select>
             <p className="text-[10px] text-muted-foreground/60 mt-0.5">
               Agent that handles build/test fix attempts. Auto-detect routes based on error content.
+            </p>
+          </label>
+        </div>
+      )}
+
+      {/* Shell Command (for shell kind) */}
+      {data.kind === "shell" && (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Command</span>
+            <textarea
+              value={shellCommand}
+              onChange={(e) => setShellCommand(e.target.value)}
+              onBlur={save}
+              rows={3}
+              className="mt-0.5 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+              placeholder="echo 'hello world'"
+            />
+          </label>
+          <label className="flex items-center gap-2 mt-1.5">
+            <input
+              type="checkbox"
+              checked={shellCaptureOutput}
+              onChange={(e) => { setShellCaptureOutput(e.target.checked); setTimeout(save, 0); }}
+              className="rounded border-border h-3 w-3"
+            />
+            <span className="text-[10px] text-muted-foreground">Capture output as node result</span>
+          </label>
+        </div>
+      )}
+
+      {/* LLM Call Input Template (for llm-call kind) */}
+      {data.kind === "llm-call" && (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Input Template</span>
+            <textarea
+              value={llmInputTemplate}
+              onChange={(e) => setLlmInputTemplate(e.target.value)}
+              onBlur={save}
+              rows={4}
+              className="mt-0.5 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+              placeholder={"{{userMessage}}\n\nContext:\n{{output:architect}}"}
+            />
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              Use {"{{userMessage}}"} for user request, {"{{output:nodeId}}"} for upstream outputs.
             </p>
           </label>
         </div>

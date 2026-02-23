@@ -278,6 +278,11 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         // Fail signals + build-fix agent routing
         failSignals: actionData.failSignals,
         buildFixAgent: actionData.buildFixAgent,
+        // Shell action
+        shellCommand: actionData.shellCommand,
+        shellCaptureOutput: actionData.shellCaptureOutput,
+        // LLM call action
+        llmInputTemplate: actionData.llmInputTemplate,
       });
       nodeToStepKey.set(nodeId, nodeId);
 

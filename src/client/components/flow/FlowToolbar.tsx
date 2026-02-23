@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Bookmark } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Bookmark, Terminal, MessageSquare } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -23,6 +23,8 @@ const ACTION_LABELS: Record<ActionKind, string> = {
   "vibe-intake": "Vibe Brief",
   "mood-analysis": "Mood Analysis",
   "answer": "Answer",
+  "shell": "Shell Command",
+  "llm-call": "LLM Call",
 };
 
 function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
@@ -99,6 +101,12 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "answer"))} className="h-7 text-xs gap-1">
           <FileText className="h-3 w-3" /> Answer
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "shell"))} className="h-7 text-xs gap-1">
+          <Terminal className="h-3 w-3" /> Shell
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "llm-call"))} className="h-7 text-xs gap-1">
+          <MessageSquare className="h-3 w-3" /> LLM Call
         </Button>
       </div>
 

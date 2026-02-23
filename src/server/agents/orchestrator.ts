@@ -1040,6 +1040,11 @@ export interface ActionStep {
   failSignals?: string[];
   // Build-fix agent routing
   buildFixAgent?: string;
+  // Shell action
+  shellCommand?: string;
+  shellCaptureOutput?: boolean;
+  // LLM call action
+  llmInputTemplate?: string;
 }
 
 export interface VersionStep {
@@ -2276,6 +2281,69 @@ async function executePipelineSteps(ctx: {
             payload: { chatId, agentName: "orchestrator", content: lastAgentOutput },
           });
           agentResults.set(sk, lastAgentOutput);
+        } else if (act.actionKind === "shell") {
+          // Shell: run arbitrary command in project directory
+          if (!act.shellCommand) {
+            throw new Error("Shell action requires a shellCommand");
+          }
+          broadcastAgentThinking(chatId, sk, `Running: ${act.shellCommand}`);
+          const timeout = act.timeoutMs ?? 60000;
+          const proc = Bun.spawn(["sh", "-c", act.shellCommand], {
+            cwd: projectPath,
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...process.env, PATH: process.env.PATH },
+          });
+          const timeoutId = setTimeout(() => proc.kill(), timeout);
+          const [stdout, stderr] = await Promise.all([
+            new Response(proc.stdout).text(),
+            new Response(proc.stderr).text(),
+          ]);
+          clearTimeout(timeoutId);
+          const exitCode = await proc.exited;
+          const output = (stdout + (stderr ? `\n--- stderr ---\n${stderr}` : "")).trim();
+          if (exitCode !== 0) {
+            log("orchestrator", `Shell command failed (exit ${exitCode}): ${act.shellCommand}`);
+            agentResults.set(sk, `Shell failed (exit ${exitCode}):\n${output.slice(0, 2000)}`);
+          } else {
+            log("orchestrator", `Shell command completed: ${act.shellCommand}`, { exitCode, outputLength: output.length });
+            const captureOutput = act.shellCaptureOutput !== false; // default true
+            agentResults.set(sk, captureOutput ? output.slice(0, 50000) : `Shell completed (exit 0)`);
+          }
+        } else if (act.actionKind === "llm-call") {
+          // LLM Call: custom LLM call with user-defined system prompt and input template
+          if (!act.systemPrompt) {
+            throw new Error("LLM Call action requires a systemPrompt");
+          }
+          // Render input template with variable substitution
+          let userInput = act.llmInputTemplate ?? "{{userMessage}}";
+          userInput = userInput.replace(/\{\{userMessage\}\}/g, userMessage);
+          // Substitute {{output:key}} references from agentResults
+          userInput = userInput.replace(/\{\{output:([^}]+)\}\}/g, (_, key) => {
+            return agentResults.get(key) ?? `[no output for ${key}]`;
+          });
+
+          const llmConfig = getAgentConfigResolved("orchestrator:summary");
+          if (!llmConfig) throw new Error("No model config available for LLM call");
+          const llmModel = resolveProviderModel(llmConfig, providers);
+          if (!llmModel) throw new Error("No model available for LLM call");
+          const llmProviderKey = apiKeys[llmConfig.provider];
+          if (!llmProviderKey) throw new Error("No API key for LLM call provider");
+
+          broadcastAgentThinking(chatId, sk, "Making custom LLM call...");
+          const { text: llmResult } = await trackedGenerateText({
+            model: llmModel,
+            system: act.systemPrompt,
+            prompt: userInput,
+            maxOutputTokens: act.maxOutputTokens ?? 4096,
+            agentName: `action:${sk}`,
+            provider: llmConfig.provider,
+            modelId: llmConfig.model,
+            apiKey: llmProviderKey,
+            chatId, projectId, projectName, chatTitle,
+          });
+          agentResults.set(sk, llmResult);
+          log("orchestrator", `LLM call completed for ${sk}`, { outputLength: llmResult.length });
         }
 
         broadcastAgentStatus(chatId, sk, "completed");

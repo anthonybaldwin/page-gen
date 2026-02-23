@@ -151,9 +151,15 @@ function validateNode(
       break;
     }
     case "action": {
-      const validKinds = ["build-check", "test-run", "remediation", "summary", "vibe-intake", "mood-analysis"];
+      const validKinds = ["build-check", "test-run", "remediation", "summary", "vibe-intake", "mood-analysis", "answer", "shell", "llm-call"];
       if (!validKinds.includes(data.kind)) {
         errors.push({ type: "error", message: `Action node "${node.id}" has invalid kind "${data.kind}"`, nodeId: node.id });
+      }
+      if (data.kind === "shell" && !data.shellCommand?.trim()) {
+        errors.push({ type: "error", message: `Shell node "${node.id}" requires a command`, nodeId: node.id });
+      }
+      if (data.kind === "llm-call" && !data.systemPrompt?.trim()) {
+        errors.push({ type: "error", message: `LLM Call node "${node.id}" requires a system prompt`, nodeId: node.id });
       }
       break;
     }
