@@ -133,6 +133,10 @@ export function ChatWindow() {
           metadata: payload.metadata ?? null,
           createdAt: Date.now(),
         });
+        // Hide live CheckpointCard once the persisted checkpoint-resolved card arrives
+        if (payload.metadata?.type === "checkpoint-resolved") {
+          setCheckpoint(null);
+        }
       }
 
       // Incremental test results (streaming one-by-one) — inline as thinking block

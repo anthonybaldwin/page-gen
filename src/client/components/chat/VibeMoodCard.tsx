@@ -69,8 +69,12 @@ export function VibeMoodCard({ msg, projectId }: Props) {
 function VibeContent({ meta }: { meta: Record<string, unknown> }) {
   const adjectives = (meta.adjectives as string[] | undefined) || [];
   const metaphor = meta.metaphor as string | undefined;
+  const customMetaphor = meta.customMetaphor as string | undefined;
   const targetUser = meta.targetUser as string | undefined;
   const antiRefs = meta.antiReferences as string[] | undefined;
+  const additionalNotes = meta.additionalNotes as string | undefined;
+
+  const displayMetaphor = metaphor === "custom" && customMetaphor ? customMetaphor : metaphor;
 
   return (
     <>
@@ -84,10 +88,10 @@ function VibeContent({ meta }: { meta: Record<string, unknown> }) {
           </div>
         </div>
       )}
-      {metaphor && (
+      {displayMetaphor && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Metaphor</span>
-          <p className="text-xs text-foreground mt-0.5">{metaphor}</p>
+          <p className="text-xs text-foreground mt-0.5">{displayMetaphor}</p>
         </div>
       )}
       {targetUser && (
@@ -96,7 +100,7 @@ function VibeContent({ meta }: { meta: Record<string, unknown> }) {
           <p className="text-xs text-foreground mt-0.5">{targetUser}</p>
         </div>
       )}
-      {antiRefs && antiRefs.length > 0 && (
+      {antiRefs && (Array.isArray(antiRefs) ? antiRefs.length > 0 : String(antiRefs).length > 0) && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Avoid</span>
           <div className="flex flex-wrap gap-1.5 mt-1">
@@ -104,6 +108,12 @@ function VibeContent({ meta }: { meta: Record<string, unknown> }) {
               <Badge key={i} variant="outline" className="text-xs px-2 py-0.5 text-destructive/70 border-destructive/30">{ref}</Badge>
             ))}
           </div>
+        </div>
+      )}
+      {additionalNotes && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Notes</span>
+          <p className="text-xs text-foreground mt-0.5">{additionalNotes}</p>
         </div>
       )}
     </>
@@ -214,7 +224,7 @@ function MoodContent({ meta, projectId }: { meta: Record<string, unknown>; proje
 
 function CheckpointResolvedContent({ meta }: { meta: Record<string, unknown> }) {
   const label = meta.label as string | undefined;
-  const options = (meta.options as Array<{ name: string; description?: string }>) || [];
+  const options = (meta.options as Array<{ name: string; description?: string; colorPreview?: string[] }>) || [];
   const selectedIndex = meta.selectedIndex as number | undefined;
 
   return (
@@ -228,19 +238,28 @@ function CheckpointResolvedContent({ meta }: { meta: Record<string, unknown> }) 
       {options.length > 0 && (
         <div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium">Options</span>
-          <div className="space-y-1 mt-1">
+          <div className="space-y-1.5 mt-1">
             {options.map((opt, i) => (
               <div
                 key={i}
-                className={`text-xs px-2 py-1 rounded border ${
+                className={`text-xs rounded border overflow-hidden ${
                   i === selectedIndex
                     ? "border-emerald-500/50 bg-emerald-500/10 text-foreground"
-                    : "border-border/40 text-muted-foreground"
+                    : "border-border/40 text-muted-foreground opacity-50"
                 }`}
               >
-                <span className="font-medium">{opt.name}</span>
-                {opt.description && <span className="ml-1 opacity-70">— {opt.description}</span>}
-                {i === selectedIndex && <span className="ml-1 text-emerald-500 text-[10px]">(selected)</span>}
+                {opt.colorPreview && opt.colorPreview.length > 0 && (
+                  <div className="flex h-3">
+                    {opt.colorPreview.map((hex, ci) => (
+                      <div key={ci} className="flex-1" style={{ backgroundColor: hex }} />
+                    ))}
+                  </div>
+                )}
+                <div className="px-2 py-1">
+                  <span className="font-medium">{opt.name}</span>
+                  {opt.description && <span className="ml-1 opacity-70">— {opt.description}</span>}
+                  {i === selectedIndex && <span className="ml-1 text-emerald-500 text-[10px]">(selected)</span>}
+                </div>
               </div>
             ))}
           </div>

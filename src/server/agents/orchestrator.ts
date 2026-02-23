@@ -2095,15 +2095,18 @@ async function executePipelineSteps(ctx: {
               if (vibe.adjectives?.length) lines.push(`**Feel:** ${vibe.adjectives.join(", ")}`);
               if (vibe.metaphor) lines.push(`**Metaphor:** ${vibe.metaphor}`);
               if (vibe.targetUser) lines.push(`**Target user:** ${vibe.targetUser}`);
-              if (vibe.antiReferences?.length) lines.push(`**Avoid:** ${vibe.antiReferences.join(", ")}`);
+              if (vibe.antiReferences?.length) lines.push(`**Avoid:** ${typeof vibe.antiReferences === "string" ? vibe.antiReferences : vibe.antiReferences.join(", ")}`);
+              if (vibe.additionalNotes) lines.push(`**Notes:** ${vibe.additionalNotes}`);
               const vibeMessage = lines.join("\n");
-              const vibeMetadata = {
+              const vibeMetadata: Record<string, unknown> = {
                 type: "vibe-brief",
                 adjectives: vibe.adjectives || [],
                 metaphor: vibe.metaphor || "",
                 targetUser: vibe.targetUser || "",
                 antiReferences: vibe.antiReferences || [],
               };
+              if (vibe.customMetaphor) vibeMetadata.customMetaphor = vibe.customMetaphor;
+              if (vibe.additionalNotes) vibeMetadata.additionalNotes = vibe.additionalNotes;
               await db.insert(schema.messages).values({
                 id: nanoid(), chatId, role: "assistant",
                 content: vibeMessage,
@@ -2415,7 +2418,7 @@ async function executePipelineSteps(ctx: {
           type: "checkpoint-resolved",
           label: cp.label,
           checkpointType: cp.checkpointType,
-          options: designOptions?.map((o) => ({ name: o.name, description: o.description })) ?? [],
+          options: designOptions?.map((o) => ({ name: o.name, description: o.description, colorPreview: o.colorPreview })) ?? [],
           selectedIndex,
         };
         await db.insert(schema.messages).values({
