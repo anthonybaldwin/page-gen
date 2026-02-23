@@ -6,7 +6,7 @@ import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents, getAgentTools } from "../agents/registry.ts";
 import { loadDefaultPrompt, isDefaultPromptCustom } from "../agents/default-prompts.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
-import { getActionDefaultPrompt, DEFAULT_INTENT_SYSTEM_PROMPT } from "../agents/orchestrator.ts";
+import { getActionDefaultPrompt, DEFAULT_INTENT_SYSTEM_PROMPT, DEFAULT_FAIL_SIGNALS, getFailSignals } from "../agents/orchestrator.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
 import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
 import { flowRoutes } from "./flow.ts";
@@ -928,6 +928,42 @@ settingsRoutes.delete("/intent/classifyPrompt", (c) => {
   db.delete(schema.appSettings).where(eq(schema.appSettings.key, "intent.classifyPrompt")).run();
   log("settings", "Intent classification prompt reset to default");
   return c.json({ ok: true, prompt: DEFAULT_INTENT_SYSTEM_PROMPT });
+});
+
+// --- Fail signals endpoints ---
+
+// Get current fail signals (custom or default)
+settingsRoutes.get("/pipeline/failSignals", (c) => {
+  const signals = getFailSignals();
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "pipeline.failSignals")).get();
+  return c.json({ signals, defaults: DEFAULT_FAIL_SIGNALS, isCustom: !!row });
+});
+
+// Save custom fail signals
+settingsRoutes.put("/pipeline/failSignals", async (c) => {
+  const body = await c.req.json<{ signals: string[] }>();
+  if (!Array.isArray(body.signals)) return c.json({ error: "signals must be an array" }, 400);
+  const filtered = body.signals.filter((s) => typeof s === "string" && s.trim().length > 0);
+  if (filtered.length === 0) return c.json({ error: "signals must contain at least one non-empty string" }, 400);
+
+  const key = "pipeline.failSignals";
+  const value = JSON.stringify(filtered);
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value }).run();
+  }
+
+  log("settings", `Fail signals updated`, { count: filtered.length });
+  return c.json({ ok: true, signals: filtered });
+});
+
+// Reset fail signals to default
+settingsRoutes.delete("/pipeline/failSignals", (c) => {
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, "pipeline.failSignals")).run();
+  log("settings", "Fail signals reset to default");
+  return c.json({ ok: true, signals: DEFAULT_FAIL_SIGNALS });
 });
 
 // --- Flow pipeline routes (mounted as sub-router) ---

@@ -833,6 +833,11 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   // Build/test command state
   const [buildCommand, setBuildCommand] = useState(data.buildCommand ?? "");
   const [testCommand, setTestCommand] = useState(data.testCommand ?? "");
+  // Fail signals state
+  const [useCustomFailSignals, setUseCustomFailSignals] = useState(!!data.failSignals);
+  const [failSignalsText, setFailSignalsText] = useState((data.failSignals ?? []).join("\n"));
+  // Build-fix agent state
+  const [buildFixAgent, setBuildFixAgent] = useState(data.buildFixAgent ?? "");
   // Default prompt viewing state (for agentic kinds)
   const [defaultPromptText, setDefaultPromptText] = useState<string | null>(null);
   const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
@@ -857,6 +862,9 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     setUseCustomReviewerKeys(!!data.remediationReviewerKeys);
     setBuildCommand(data.buildCommand ?? "");
     setTestCommand(data.testCommand ?? "");
+    setUseCustomFailSignals(!!data.failSignals);
+    setFailSignalsText((data.failSignals ?? []).join("\n"));
+    setBuildFixAgent(data.buildFixAgent ?? "");
   }, [data]);
 
   const save = useCallback(() => {
@@ -873,8 +881,10 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       remediationReviewerKeys: useCustomReviewerKeys && remediationReviewerKeys.length > 0 ? remediationReviewerKeys : undefined,
       buildCommand: buildCommand || undefined,
       testCommand: testCommand || undefined,
+      failSignals: useCustomFailSignals && failSignalsText.trim() ? failSignalsText.split("\n").filter((s) => s.trim()) : undefined,
+      buildFixAgent: buildFixAgent || undefined,
     });
-  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, onUpdate]);
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, useCustomFailSignals, failSignalsText, buildFixAgent, onUpdate]);
 
   const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
     setUseCustomPrompt(enabled);
@@ -931,6 +941,28 @@ function ActionInspector({ data, nodeId, onUpdate }: {
               className="mt-0.5 h-6 text-xs font-mono"
               placeholder="bunx vitest run"
             />
+          </label>
+        </div>
+      )}
+
+      {/* Build Fix Agent (for build-check and test-run kinds) */}
+      {(data.kind === "build-check" || data.kind === "test-run") && (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Build Fix Agent</span>
+            <select
+              value={buildFixAgent}
+              onChange={(e) => { setBuildFixAgent(e.target.value); setTimeout(save, 0); }}
+              className="mt-0.5 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+            >
+              <option value="">Auto-detect (default)</option>
+              <option value="frontend-dev">frontend-dev</option>
+              <option value="backend-dev">backend-dev</option>
+              <option value="styling">styling</option>
+            </select>
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              Agent that handles build/test fix attempts. Auto-detect routes based on error content.
+            </p>
           </label>
         </div>
       )}
@@ -1087,6 +1119,42 @@ function ActionInspector({ data, nodeId, onUpdate }: {
             ) : (
               <div className="text-[10px] text-muted-foreground italic">
                 Auto-detect from review routing hints
+              </div>
+            )}
+          </div>
+
+          {/* Fail Signals */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground">Fail Signals</span>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={useCustomFailSignals}
+                  onChange={(e) => {
+                    setUseCustomFailSignals(e.target.checked);
+                    if (!e.target.checked) {
+                      setFailSignalsText("");
+                      setTimeout(save, 0);
+                    }
+                  }}
+                  className="rounded border-border h-3 w-3"
+                />
+                <span className="text-[10px] text-muted-foreground">Override</span>
+              </label>
+            </div>
+            {useCustomFailSignals ? (
+              <textarea
+                value={failSignalsText}
+                onChange={(e) => setFailSignalsText(e.target.value)}
+                onBlur={save}
+                rows={4}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-[10px] font-mono resize-y"
+                placeholder={'One signal per line, e.g.:\n"status": "fail"\n[FAIL]\ncritical issue'}
+              />
+            ) : (
+              <div className="text-[10px] text-muted-foreground italic">
+                Using global fail signals (11 defaults)
               </div>
             )}
           </div>

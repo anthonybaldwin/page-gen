@@ -103,6 +103,12 @@ export function PipelineSettings() {
   const [intentIsCustom, setIntentIsCustom] = useState(false);
   const [intentSaving, setIntentSaving] = useState(false);
   const [intentSaved, setIntentSaved] = useState(false);
+  // Fail signals state
+  const [failSignalsText, setFailSignalsText] = useState("");
+  const [failSignalsDefaults, setFailSignalsDefaults] = useState<string[]>([]);
+  const [failSignalsIsCustom, setFailSignalsIsCustom] = useState(false);
+  const [failSignalsSaving, setFailSignalsSaving] = useState(false);
+  const [failSignalsSaved, setFailSignalsSaved] = useState(false);
 
   useEffect(() => {
     api
@@ -118,6 +124,14 @@ export function PipelineSettings() {
         setIntentPrompt(res.prompt);
         setIntentDefault(res.defaultPrompt);
         setIntentIsCustom(res.isCustom);
+      })
+      .catch(console.error);
+    api
+      .get<{ signals: string[]; defaults: string[]; isCustom: boolean }>("/settings/pipeline/failSignals")
+      .then((res) => {
+        setFailSignalsText(res.signals.join("\n"));
+        setFailSignalsDefaults(res.defaults);
+        setFailSignalsIsCustom(res.isCustom);
       })
       .catch(console.error);
   }, []);
@@ -305,6 +319,84 @@ export function PipelineSettings() {
               }
             }}
             disabled={intentSaving}
+            className="text-xs text-muted-foreground"
+          >
+            Reset to default
+          </Button>
+        )}
+      </div>
+
+      {/* Fail Signals section */}
+      <hr className="border-border my-4" />
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+        Fail Signals
+      </h4>
+      <p className="text-[10px] text-muted-foreground/50 mb-2">
+        Strings that trigger remediation when found in review agent output. One signal per line.
+      </p>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <label className="block text-sm font-medium text-muted-foreground">
+            Fail Signal Patterns
+          </label>
+          {failSignalsIsCustom && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+              custom
+            </span>
+          )}
+        </div>
+        <textarea
+          value={failSignalsText}
+          onChange={(e) => {
+            setFailSignalsText(e.target.value);
+            setFailSignalsIsCustom(e.target.value !== failSignalsDefaults.join("\n"));
+          }}
+          rows={6}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono resize-y"
+          placeholder={failSignalsDefaults.join("\n")}
+        />
+        <p className="text-xs text-muted-foreground/60 mt-1">
+          {failSignalsDefaults.length} default signals. Case-insensitive matching.
+        </p>
+      </div>
+      <div className="flex gap-2 mt-2">
+        <Button
+          onClick={async () => {
+            setFailSignalsSaving(true);
+            setFailSignalsSaved(false);
+            try {
+              const signals = failSignalsText.split("\n").filter((s) => s.trim());
+              await api.put("/settings/pipeline/failSignals", { signals });
+              setFailSignalsIsCustom(true);
+              setFailSignalsSaved(true);
+              setTimeout(() => setFailSignalsSaved(false), 2000);
+            } catch (err) {
+              console.error("[pipeline] Failed to save fail signals:", err);
+            } finally {
+              setFailSignalsSaving(false);
+            }
+          }}
+          disabled={failSignalsSaving}
+        >
+          {failSignalsSaving ? "Saving..." : failSignalsSaved ? "Saved" : "Save Fail Signals"}
+        </Button>
+        {failSignalsIsCustom && (
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              setFailSignalsSaving(true);
+              try {
+                const res = await api.delete<{ signals: string[] }>("/settings/pipeline/failSignals");
+                setFailSignalsText(res.signals.join("\n"));
+                setFailSignalsIsCustom(false);
+                setFailSignalsSaved(false);
+              } catch (err) {
+                console.error("[pipeline] Failed to reset fail signals:", err);
+              } finally {
+                setFailSignalsSaving(false);
+              }
+            }}
+            disabled={failSignalsSaving}
             className="text-xs text-muted-foreground"
           >
             Reset to default

@@ -1032,6 +1032,10 @@ export interface ActionStep {
   // Build/test command overrides
   buildCommand?: string;
   testCommand?: string;
+  // Fail signals (remediation)
+  failSignals?: string[];
+  // Build-fix agent routing
+  buildFixAgent?: string;
 }
 
 export interface VersionStep {
@@ -2156,6 +2160,7 @@ async function executePipelineSteps(ctx: {
             const fixResult = await runBuildFix({
               buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
               userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides: stepOverrides,
+              fixAgentOverride: act.buildFixAgent,
             });
             if (fixResult) {
               agentResults.set(`${sk}-fix-${fixAttempt}`, fixResult);
@@ -2189,6 +2194,7 @@ async function executePipelineSteps(ctx: {
                 buildErrors: formatTestFailures(testResult.failures, stepOverrides),
                 chatId, projectId, projectPath, projectName, chatTitle,
                 userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides: stepOverrides,
+                fixAgentOverride: act.buildFixAgent,
               });
               if (testFixResult) {
                 agentResults.set(`${sk}-fix-${fixAttempt}`, testFixResult);
@@ -2226,6 +2232,7 @@ async function executePipelineSteps(ctx: {
             providers, apiKeys, signal, actionOverrides: stepOverrides,
             remediationFixAgents: act.remediationFixAgents,
             remediationReviewerKeys: act.remediationReviewerKeys,
+            failSignals: act.failSignals,
           });
           agentResults.set(sk, "Remediation complete");
         } else if (act.actionKind === "summary") {
@@ -2614,8 +2621,8 @@ export interface ReviewFindings {
   };
 }
 
-/** Fail signals that indicate a review agent found real issues. */
-const FAIL_SIGNALS = [
+/** Default fail signals that indicate a review agent found real issues. */
+export const DEFAULT_FAIL_SIGNALS = [
   '"status": "fail"',
   '"status":"fail"',
   "[FAIL]",
@@ -2629,14 +2636,27 @@ const FAIL_SIGNALS = [
   '"severity": "high"',
 ];
 
-/** Check if review output contains explicit failure indicators. */
-export function outputHasFailSignals(output: string): boolean {
-  if (!output || output.trim() === "") return false;
-  const lower = output.toLowerCase();
-  return FAIL_SIGNALS.some((signal) => lower.includes(signal.toLowerCase()));
+/** Read custom fail signals from app_settings, falling back to DEFAULT_FAIL_SIGNALS. */
+export function getFailSignals(): string[] {
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "pipeline.failSignals")).get();
+  if (row) {
+    try {
+      const parsed = JSON.parse(row.value);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch { /* fall through */ }
+  }
+  return DEFAULT_FAIL_SIGNALS;
 }
 
-export function detectIssues(agentResults: Map<string, string>, reviewerKeys?: string[]): ReviewFindings {
+/** Check if review output contains explicit failure indicators. */
+export function outputHasFailSignals(output: string, signals?: string[]): boolean {
+  if (!output || output.trim() === "") return false;
+  const lower = output.toLowerCase();
+  const effectiveSignals = signals ?? getFailSignals();
+  return effectiveSignals.some((signal) => lower.includes(signal.toLowerCase()));
+}
+
+export function detectIssues(agentResults: Map<string, string>, reviewerKeys?: string[], failSignals?: string[]): ReviewFindings {
   const keys = reviewerKeys ?? ["code-review", "qa", "security"];
   const codeReviewOutput = agentResults.get(keys[0] ?? "code-review") || "";
   const qaOutput = keys.length > 1 ? (agentResults.get(keys[1]!) || "") : "";
@@ -2644,9 +2664,9 @@ export function detectIssues(agentResults: Map<string, string>, reviewerKeys?: s
 
   // Inverted logic: treat output as clean UNLESS it contains explicit fail signals.
   // This is far more robust — LLMs vary in how they say "pass" but are consistent about flagging problems.
-  const codeReviewClean = !outputHasFailSignals(codeReviewOutput);
-  const qaClean = !outputHasFailSignals(qaOutput);
-  const securityClean = !outputHasFailSignals(securityOutput);
+  const codeReviewClean = !outputHasFailSignals(codeReviewOutput, failSignals);
+  const qaClean = !outputHasFailSignals(qaOutput, failSignals);
+  const securityClean = !outputHasFailSignals(securityOutput, failSignals);
 
   // Parse routing hints from code-review and QA findings
   const allFindings = codeReviewOutput + "\n" + qaOutput;
@@ -2720,6 +2740,7 @@ interface RemediationContext {
   // Per-node remediation configuration
   remediationFixAgents?: string[];
   remediationReviewerKeys?: string[];
+  failSignals?: string[];
 }
 
 /**
@@ -2736,7 +2757,7 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
     if (ctx.signal.aborted) return;
 
     // 1. Check for issues in current code-review/QA/security output
-    const findings = detectIssues(ctx.agentResults, ctx.remediationReviewerKeys);
+    const findings = detectIssues(ctx.agentResults, ctx.remediationReviewerKeys, ctx.failSignals);
     if (!findings.hasIssues) return; // All clean — exit loop
 
     // Count current issues — break if not improving (prevents ping-pong loops)
@@ -3769,9 +3790,10 @@ async function runBuildFix(params: {
   apiKeys: Record<string, string>;
   signal: AbortSignal;
   actionOverrides?: ActionOverrides;
+  fixAgentOverride?: string;
 }): Promise<string | null> {
   const { buildErrors, chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides } = params;
+    userMessage, chatHistory, agentResults, callCounter, buildFixCounter, providers, apiKeys, signal, actionOverrides, fixAgentOverride } = params;
 
   // Enforce per-pipeline build-fix attempt limit
   const maxBuildFixes = effectiveSetting("maxBuildFixAttempts", actionOverrides);
@@ -3795,7 +3817,7 @@ async function runBuildFix(params: {
     return null;
   }
 
-  const fixAgent = determineBuildFixAgent(buildErrors);
+  const fixAgent = (fixAgentOverride || determineBuildFixAgent(buildErrors)) as AgentName;
   const config = getAgentConfigResolved(fixAgent);
   if (!config) return null;
 

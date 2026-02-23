@@ -77,6 +77,10 @@ export interface ActionNodeData {
   // Build/test command overrides
   buildCommand?: string;   // build-check: custom build command (default: "bunx vite build --mode development")
   testCommand?: string;    // test-run: custom test command (default: "bunx vitest run")
+  // Fail signals (remediation)
+  failSignals?: string[];    // remediation: custom fail signals (overrides global default)
+  // Build-fix agent routing
+  buildFixAgent?: string;    // build-check, test-run: agent to use for fixes (overrides auto-detect)
 }
 
 export interface VersionNodeData {

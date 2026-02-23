@@ -275,6 +275,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         // Build/test command overrides
         buildCommand: actionData.buildCommand,
         testCommand: actionData.testCommand,
+        // Fail signals + build-fix agent routing
+        failSignals: actionData.failSignals,
+        buildFixAgent: actionData.buildFixAgent,
       });
       nodeToStepKey.set(nodeId, nodeId);
 
