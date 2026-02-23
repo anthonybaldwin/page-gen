@@ -207,7 +207,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 <DollarSign className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right" className="py-2 px-3">
+            <TooltipContent side="right" className="bg-popover text-popover-foreground border py-2 px-3">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-xs">Total spent</span>
                 <span className="text-xs font-medium text-emerald-400">{formatCost(totalCost)}</span>
