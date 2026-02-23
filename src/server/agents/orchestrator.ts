@@ -1552,7 +1552,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     if (titleModel && titleConfig && titleApiKey) {
       trackedGenerateText({
         model: titleModel,
-        system: "Generate a short title (3-6 words, no quotes) for a chat based on the user's message. Just output the title, nothing else.",
+        system: "Generate a short title (3-6 words, no quotes, no markdown formatting) for a chat based on the user's message. Just output the title, nothing else.",
         prompt: userMessage,
         maxOutputTokens: ORCHESTRATOR_CLASSIFY_MAX_TOKENS,
         agentName: "orchestrator:title",
@@ -1561,7 +1561,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         apiKey: titleApiKey,
         chatId, projectId, projectName, chatTitle,
       }).then(({ text }) => {
-        const autoTitle = text.trim().replace(/^["']|["']$/g, "").slice(0, getPipelineSetting("titleMaxChars"));
+        const autoTitle = text.trim().replace(/^#+\s*/, "").replace(/^["']|["']$/g, "").replace(/[*_]/g, "").slice(0, getPipelineSetting("titleMaxChars"));
         if (!autoTitle) return;
         db.update(schema.chats)
           .set({ title: autoTitle, updatedAt: Date.now() })
