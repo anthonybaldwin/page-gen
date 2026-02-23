@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope } from "../../shared/types.ts";
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
-import { getActiveFlowTemplate, resolveFlowTemplate } from "./flow-resolver.ts";
+import { getActiveFlowTemplate, resolveFlowTemplate, ensureFlowDefaults } from "./flow-resolver.ts";
 import { runAgent, trackedGenerateText, AgentAbortError, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
@@ -30,7 +30,6 @@ import {
   STAGGER_MS,
   ORCHESTRATOR_CLASSIFY_MAX_TOKENS,
   SUMMARY_MAX_OUTPUT_TOKENS,
-  QUESTION_MAX_OUTPUT_TOKENS,
   DATA_DIR_PATTERNS,
   getPipelineSetting,
 } from "../config/pipeline.ts";
@@ -153,7 +152,12 @@ function resolveProviderModel(config: { provider: string; model: string }, provi
  * Used for plan-scoped preflight validation.
  */
 export function getPlannedAgents(intent: OrchestratorIntent, scope: IntentScope, hasFiles: boolean): AgentName[] {
-  if (intent === "question") return [];
+  if (intent === "question") {
+    const template = getActiveFlowTemplate("question");
+    if (!template) return [];
+    const plan = resolveFlowTemplate(template, { intent, scope, needsBackend: false, hasFiles, userMessage: "" });
+    return plan.steps.filter(s => s.kind === "agent").map(s => (s as { agentName: string }).agentName) as AgentName[];
+  }
   if (intent === "fix" && !hasFiles) return []; // will fall through to build
 
   if (intent === "fix") {
@@ -1369,6 +1373,9 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   abortControllers.set(chatId, controller);
   const { signal } = controller;
 
+  // Ensure all default flow templates exist before routing
+  ensureFlowDefaults();
+
   // Auto-exit version preview before running the pipeline
   if (isInPreview(projectPath)) {
     exitPreview(projectPath);
@@ -1586,30 +1593,58 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     }
   }
 
-  // --- Question mode: direct answer, no pipeline ---
+  // --- Question mode: route through flow template pipeline ---
   if (classification.intent === "question") {
-    broadcast({
-      type: "pipeline_plan",
-      payload: { chatId, agents: [] },
+    const scope = classification.scope as IntentScope;
+
+    // Seed project source into agentResults so the question agent can access it
+    const projectSource = readProjectSource(projectPath);
+    if (projectSource) agentResults.set("project-source", projectSource);
+
+    // Resolve flow template
+    const questionTemplate = getActiveFlowTemplate("question");
+    if (!questionTemplate) {
+      broadcastAgentError(chatId, "orchestrator", "No question flow template found. Reset templates in Settings → Pipelines.");
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
+      abortControllers.delete(chatId);
+      return;
+    }
+    const plan = resolveFlowTemplate(questionTemplate, {
+      intent: "question", scope, needsBackend: false, hasFiles, userMessage,
+    });
+    if (plan.steps.length === 0) {
+      broadcastAgentError(chatId, "orchestrator", "Question pipeline resolved to empty plan. Check template in Settings → Pipelines.");
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
+      abortControllers.delete(chatId);
+      return;
+    }
+
+    // Persist pipeline run
+    const pipelineRunId = nanoid();
+    await db.insert(schema.pipelineRuns).values({
+      id: pipelineRunId, chatId, intent: "question", scope: classification.scope,
+      userMessage, plannedAgents: JSON.stringify(plan.steps.map(s => stepKey(s))),
+      status: "running", startedAt: Date.now(), completedAt: null,
     });
 
-    const answer = await handleQuestion({
-      chatId, projectId, projectPath, projectName, chatTitle,
-      userMessage, chatHistory, providers, apiKeys,
+    broadcast({ type: "pipeline_plan", payload: { chatId, agents: plan.steps.map(s => stepKey(s)) } });
+
+    const pipelineOk = await executePipelineSteps({
+      plan, chatId, projectId, projectPath, projectName, chatTitle,
+      userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
+      providers, apiKeys, signal, pipelineRunId,
     });
 
-    await db.insert(schema.messages).values({
-      id: nanoid(), chatId, role: "assistant",
-      content: answer,
-      agentName: "orchestrator", metadata: null, createdAt: Date.now(),
-    });
+    if (!pipelineOk) {
+      const postCheck = checkCostLimit(chatId);
+      const pipelineStatus = !postCheck.allowed ? "interrupted" : "failed";
+      await db.update(schema.pipelineRuns).set({ status: pipelineStatus, completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
+      abortControllers.delete(chatId);
+      return;
+    }
 
-    log("orchestrator", `Question answered directly`, { chatId, chars: answer.length });
-    broadcast({
-      type: "chat_message",
-      payload: { chatId, agentName: "orchestrator", content: answer },
-    });
-
+    await db.update(schema.pipelineRuns).set({ status: "completed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
     broadcastAgentStatus(chatId, "orchestrator", "completed");
     abortControllers.delete(chatId);
     return;
@@ -1623,21 +1658,24 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       agentResults.set("project-source", projectSource);
     }
 
-    // Resolve flow template — handles scope routing via condition nodes (no quick-edit bypass)
-    let plan: ExecutionPlan;
+    // Resolve flow template — handles scope routing via condition nodes
     const fixTemplate = getActiveFlowTemplate("fix");
-    if (fixTemplate) {
-      log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
-      plan = resolveFlowTemplate(fixTemplate, {
-        intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
-        hasFiles: true, userMessage,
-      });
-      if (plan.steps.length === 0) {
-        log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
-        plan = buildFixPlan(userMessage, scope);
-      }
-    } else {
-      plan = buildFixPlan(userMessage, scope);
+    if (!fixTemplate) {
+      broadcastAgentError(chatId, "orchestrator", "No fix flow template found. Reset templates in Settings → Pipelines.");
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
+      abortControllers.delete(chatId);
+      return;
+    }
+    log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
+    const plan = resolveFlowTemplate(fixTemplate, {
+      intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
+      hasFiles: true, userMessage,
+    });
+    if (plan.steps.length === 0) {
+      broadcastAgentError(chatId, "orchestrator", "Fix pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
+      broadcastAgentStatus(chatId, "orchestrator", "failed");
+      abortControllers.delete(chatId);
+      return;
     }
 
     // Persist pipeline run
@@ -1689,22 +1727,25 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
 
   // --- Build mode: resolve flow template and let it drive everything ---
   const buildTemplate = getActiveFlowTemplate("build");
-  let plan: ExecutionPlan;
-  if (buildTemplate) {
-    log("orchestrator", `Using flow template "${buildTemplate.name}" for build intent`);
-    plan = resolveFlowTemplate(buildTemplate, {
-      intent: "build",
-      scope: classification.scope,
-      needsBackend: classification.scope === "backend" || classification.scope === "full",
-      hasFiles: projectHasFiles(projectPath),
-      userMessage,
-    });
-    if (plan.steps.length === 0) {
-      log("orchestrator", "Flow template resolved to empty plan — falling back to hardcoded");
-      plan = buildExecutionPlan(userMessage, "", "build", classification.scope);
-    }
-  } else {
-    plan = buildExecutionPlan(userMessage, "", "build", classification.scope);
+  if (!buildTemplate) {
+    broadcastAgentError(chatId, "orchestrator", "No build flow template found. Reset templates in Settings → Pipelines.");
+    broadcastAgentStatus(chatId, "orchestrator", "failed");
+    abortControllers.delete(chatId);
+    return;
+  }
+  log("orchestrator", `Using flow template "${buildTemplate.name}" for build intent`);
+  const plan = resolveFlowTemplate(buildTemplate, {
+    intent: "build",
+    scope: classification.scope,
+    needsBackend: classification.scope === "backend" || classification.scope === "full",
+    hasFiles: projectHasFiles(projectPath),
+    userMessage,
+  });
+  if (plan.steps.length === 0) {
+    broadcastAgentError(chatId, "orchestrator", "Build pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
+    broadcastAgentStatus(chatId, "orchestrator", "failed");
+    abortControllers.delete(chatId);
+    return;
   }
 
   // Persist pipeline run
@@ -1827,53 +1868,36 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   // Mark pipeline as running again
   await db.update(schema.pipelineRuns).set({ status: "running" }).where(eq(schema.pipelineRuns.id, pipelineRunId));
 
-  // For fix mode, inject project source if not already in results.
-  // Quick-edit (styling/frontend) skips this to avoid huge prompt overhead.
-  const isQuickFixResume = intent === "fix" && (scope === "styling" || scope === "frontend");
-  if (intent === "fix" && !isQuickFixResume && !agentResults.has("project-source")) {
+  // Inject project source if not already in results (fix and question modes)
+  if ((intent === "fix" || intent === "question") && !agentResults.has("project-source")) {
     const projectSource = readProjectSource(projectPath);
     if (projectSource) agentResults.set("project-source", projectSource);
   }
 
-  // Rebuild execution plan
+  // Ensure flow defaults exist before resolving templates
+  ensureFlowDefaults();
+
+  // Rebuild execution plan — all intents route through flow templates
   let plan: ExecutionPlan;
-  if (intent === "fix") {
-    if (scope === "styling" || scope === "frontend") {
-      const agentName: AgentName = scope === "styling" ? "styling" : "frontend-dev";
-      plan = {
-        steps: [{
-          kind: "agent" as const,
-          agentName,
-          input: buildQuickEditInput(scope, originalMessage),
-        }],
-      };
-    } else {
-      const fixTmpl = getActiveFlowTemplate("fix");
-      if (fixTmpl) {
-        plan = resolveFlowTemplate(fixTmpl, {
-          intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
-          hasFiles: true, userMessage: originalMessage,
-        });
-        if (plan.steps.length === 0) plan = buildFixPlan(originalMessage, scope);
-      } else {
-        plan = buildFixPlan(originalMessage, scope);
-      }
-    }
-  } else {
-    // Build mode: resolve flow template and let it drive everything
-    const buildTmpl = getActiveFlowTemplate("build");
-    if (buildTmpl) {
-      plan = resolveFlowTemplate(buildTmpl, {
-        intent: "build",
-        scope,
-        needsBackend: scope === "backend" || scope === "full",
-        hasFiles: projectHasFiles(projectPath),
-        userMessage: originalMessage,
-      });
-      if (plan.steps.length === 0) plan = buildExecutionPlan(originalMessage, "", "build", scope);
-    } else {
-      plan = buildExecutionPlan(originalMessage, "", "build", scope);
-    }
+  const template = getActiveFlowTemplate(intent);
+  if (!template) {
+    broadcastAgentError(chatId, "orchestrator", `No ${intent} flow template found. Reset templates in Settings → Pipelines.`);
+    broadcastAgentStatus(chatId, "orchestrator", "failed");
+    abortControllers.delete(chatId);
+    return;
+  }
+  plan = resolveFlowTemplate(template, {
+    intent,
+    scope,
+    needsBackend: scope === "backend" || scope === "full",
+    hasFiles: intent === "build" ? projectHasFiles(projectPath) : true,
+    userMessage: originalMessage,
+  });
+  if (plan.steps.length === 0) {
+    broadcastAgentError(chatId, "orchestrator", `${intent} pipeline resolved to an empty plan. Check the template in Settings → Pipelines.`);
+    broadcastAgentStatus(chatId, "orchestrator", "failed");
+    abortControllers.delete(chatId);
+    return;
   }
 
   // Filter plan to only remaining steps
@@ -2206,6 +2230,19 @@ async function executePipelineSteps(ctx: {
             payload: { chatId, agentName: "orchestrator", content: summary },
           });
           agentResults.set(sk, summary);
+        } else if (act.actionKind === "answer") {
+          // Relay: find the most recent agent output and broadcast as assistant message
+          const lastAgentOutput = [...agentResults.values()].pop() ?? "No answer generated.";
+          await db.insert(schema.messages).values({
+            id: nanoid(), chatId, role: "assistant",
+            content: lastAgentOutput,
+            agentName: "orchestrator", metadata: null, createdAt: Date.now(),
+          });
+          broadcast({
+            type: "chat_message",
+            payload: { chatId, agentName: "orchestrator", content: lastAgentOutput },
+          });
+          agentResults.set(sk, lastAgentOutput);
         }
 
         broadcastAgentStatus(chatId, sk, "completed");
@@ -2411,97 +2448,6 @@ async function finishPipeline(ctx: {
     try {
       autoCommit(projectPath, buildOk ? "Pipeline completed" : "Pipeline completed (with errors)");
     } catch { /* non-fatal */ }
-  }
-}
-
-const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a React + TypeScript + Tailwind CSS page builder.
-Answer the user's question based on the project source code provided.
-Keep answers to 2-3 short paragraphs max. Be direct — answer the question, don't restate it.
-If the project has no files yet, say so in one sentence and suggest they describe what they'd like to build.`;
-
-/**
- * Handle a "question" intent by answering directly with the orchestrator model.
- * No agent pipeline — just one Opus call with project context.
- */
-async function handleQuestion(ctx: {
-  chatId: string;
-  projectId: string;
-  projectPath: string;
-  projectName: string;
-  chatTitle: string;
-  userMessage: string;
-  chatHistory: Array<{ role: string; content: string }>;
-  providers: ProviderInstance;
-  apiKeys: Record<string, string>;
-}): Promise<string> {
-  const { chatId, projectId, projectPath, projectName, chatTitle,
-    userMessage, chatHistory, providers, apiKeys } = ctx;
-
-  const questionConfig = getAgentConfigResolved("orchestrator:question");
-  if (!questionConfig) return "I couldn't process your question. Please try again.";
-  const questionModel = resolveProviderModel(questionConfig, providers);
-  if (!questionModel) return "No model available to answer questions. Please check your API keys.";
-
-  const projectSource = readProjectSource(projectPath);
-
-  // Detect incomplete pipeline: if App.tsx is missing and pipeline was interrupted,
-  // make sure the LLM doesn't say "everything looks complete"
-  let pipelineWarning = "";
-  const interruptedPipeline = findInterruptedPipelineRun(chatId);
-  if (interruptedPipeline) {
-    const hasAppTsx = existsSync(join(projectPath, "src", "App.tsx"));
-    if (!hasAppTsx) {
-      pipelineWarning = "\n\nIMPORTANT: The previous build pipeline was interrupted before completion. The project is missing its root App.tsx and has not been styled or reviewed. Do NOT say the project is complete. Inform the user the pipeline needs to be resumed.\n";
-    }
-  }
-
-  // Build chat history section (same caps as buildSplitPrompt in base.ts)
-  let historySection = "";
-  if (chatHistory.length > 0) {
-    const maxMessages = 6;
-    const maxChars = 3_000;
-    const recent = chatHistory.slice(-maxMessages);
-    const lines: string[] = ["## Chat History"];
-    let chars = 0;
-    for (const msg of recent) {
-      const line = `**${msg.role}:** ${msg.content}`;
-      if (chars + line.length > maxChars) {
-        lines.push("_(remaining history truncated)_");
-        break;
-      }
-      lines.push(line);
-      chars += line.length;
-    }
-    lines.push("");
-    historySection = lines.join("\n");
-  }
-
-  const prompt = projectSource
-    ? `${historySection}## Project Source\n${projectSource}${pipelineWarning}\n\n## Question\n${userMessage}`
-    : `${historySection}## Question\n${userMessage}\n\n(This project has no files yet.)`;
-
-  try {
-    const providerKey = apiKeys[questionConfig.provider];
-    if (!providerKey) return "No API key configured for the question model.";
-
-    logLLMInput("orchestrator", "orchestrator-question", QUESTION_SYSTEM_PROMPT, prompt);
-    const { text } = await trackedGenerateText({
-      model: questionModel,
-      system: QUESTION_SYSTEM_PROMPT,
-      prompt,
-      maxOutputTokens: QUESTION_MAX_OUTPUT_TOKENS,
-      agentName: "orchestrator:question",
-      provider: questionConfig.provider,
-      modelId: questionConfig.model,
-      apiKey: providerKey,
-      chatId, projectId, projectName, chatTitle,
-    });
-    logBlock("orchestrator:question", "response", text);
-
-    return text;
-  } catch (err) {
-    logError("orchestrator", "Question handling failed", err);
-    return "I encountered an error processing your question. Please try again.";
   }
 }
 

@@ -22,6 +22,7 @@ const ACTION_LABELS: Record<ActionKind, string> = {
   "summary": "Summary",
   "vibe-intake": "Vibe Brief",
   "mood-analysis": "Mood Analysis",
+  "answer": "Answer",
 };
 
 function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
@@ -95,6 +96,9 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "summary"))} className="h-7 text-xs gap-1">
           <FileText className="h-3 w-3" /> Summary
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("action", "answer"))} className="h-7 text-xs gap-1">
+          <FileText className="h-3 w-3" /> Answer
         </Button>
       </div>
 

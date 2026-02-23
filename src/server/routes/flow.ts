@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { log } from "../services/logger.ts";
 import { validateFlowTemplate } from "../../shared/flow-validation.ts";
-import { generateAllDefaults, generateDefaultForIntent, FLOW_DEFAULTS_VERSION } from "../agents/flow-defaults.ts";
+import { generateDefaultForIntent, FLOW_DEFAULTS_VERSION } from "../agents/flow-defaults.ts";
 import {
   getFlowTemplate,
   getAllFlowTemplates,
@@ -10,6 +10,7 @@ import {
   getActiveBindings,
   setActiveBinding,
   clearActiveBinding,
+  ensureFlowDefaults,
 } from "../agents/flow-resolver.ts";
 import { getAllAgentConfigs } from "../agents/registry.ts";
 import type { FlowTemplate } from "../../shared/flow-types.ts";
@@ -19,18 +20,9 @@ export const flowRoutes = new Hono();
 
 // --- List all flow templates (auto-seed defaults on first access, auto-upgrade outdated) ---
 flowRoutes.get("/templates", (c) => {
+  ensureFlowDefaults();
   let templates = getAllFlowTemplates();
-  if (templates.length === 0) {
-    const defaults = generateAllDefaults();
-    for (const template of defaults) {
-      saveFlowTemplate(template);
-    }
-    for (const template of defaults) {
-      setActiveBinding(template.intent, template.id);
-    }
-    templates = defaults;
-    log("flow", "Auto-seeded default templates on first access", { count: defaults.length });
-  } else {
+  if (templates.length > 0) {
     // Auto-upgrade outdated default templates
     let upgraded = false;
     templates = templates.map((tmpl) => {
@@ -199,24 +191,7 @@ flowRoutes.post("/templates/:id/reset", (c) => {
 
 // --- Seed missing default templates (only for intents with no templates) ---
 flowRoutes.post("/defaults", (c) => {
-  const existing = getAllFlowTemplates();
-  const existingIntents = new Set(existing.map((t) => t.intent));
-
-  const defaults = generateAllDefaults();
-  const created: FlowTemplate[] = [];
-
-  for (const template of defaults) {
-    if (existingIntents.has(template.intent)) continue;
-    saveFlowTemplate(template);
-    setActiveBinding(template.intent, template.id);
-    created.push(template);
-  }
-
-  if (created.length === 0) {
-    log("flow", "No missing defaults to seed — all intents already have templates");
-  } else {
-    log("flow", `Seeded ${created.length} missing default templates`, { intents: created.map((t) => t.intent) });
-  }
-
-  return c.json({ ok: true, templates: [...existing, ...created] });
+  ensureFlowDefaults();
+  const templates = getAllFlowTemplates();
+  return c.json({ ok: true, templates });
 });

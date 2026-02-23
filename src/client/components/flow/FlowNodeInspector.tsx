@@ -685,6 +685,7 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   "summary": "LLM call — generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context. No LLM call.",
   "mood-analysis": "LLM call (vision) — analyzes uploaded mood board images and extracts color palette, style descriptors, and mood keywords as structured JSON.",
+  "answer": "Relays the most recent agent output as the assistant chat message. No LLM call — just pass-through.",
 };
 
 /** Action kinds that make direct LLM calls and support system prompt / maxOutputTokens overrides */
@@ -709,6 +710,7 @@ const KIND_AGENT_LABEL: Record<string, string> = {
   "build-check": "build-fix (on errors)",
   "test-run": "build-fix (on failures)",
   "remediation": "fix + review agents",
+  "answer": "None (relays agent output)",
 };
 
 const KIND_IO: Record<string, { input: string; outputKey: string }> = {
@@ -718,6 +720,7 @@ const KIND_IO: Record<string, { input: string; outputKey: string }> = {
   "summary": { input: "All agent outputs (truncated)", outputKey: "summary" },
   "vibe-intake": { input: "DB project vibe brief", outputKey: "vibe-brief" },
   "mood-analysis": { input: "Mood board images on disk", outputKey: "mood-analysis" },
+  "answer": { input: "Previous agent output", outputKey: "answer" },
 };
 
 /** Which override fields to show per action kind */

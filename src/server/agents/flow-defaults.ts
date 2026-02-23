@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, UpstreamSource } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, UpstreamSource, ActionKind } from "../../shared/flow-types.ts";
 import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
@@ -416,7 +416,7 @@ export function generateQuestionDefault(): FlowTemplate {
   return {
     id: `default-question-${nanoid(8)}`,
     name: "Default Question Pipeline",
-    description: "Single orchestrator:question node — answers questions with project context",
+    description: "Answers questions about the project with full context",
     intent: "question",
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,
@@ -425,9 +425,19 @@ export function generateQuestionDefault(): FlowTemplate {
         type: "agent",
         agentName: "orchestrator:question",
         inputTemplate: loadDefaultPrompt("orchestrator:question"),
+        upstreamSources: [
+          { sourceKey: "project-source", transform: "project-source" },
+        ],
       }, 0, Y_CENTER),
+      makeNode("question-answer", "action", {
+        type: "action",
+        kind: "answer" as ActionKind,
+        label: "Answer",
+      }, 350, Y_CENTER),
     ],
-    edges: [],
+    edges: [
+      { id: "e-question-answer", source: "question-agent", target: "question-answer" },
+    ],
     createdAt: now,
     updatedAt: now,
     isDefault: true,

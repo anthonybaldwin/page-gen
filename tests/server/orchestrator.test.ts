@@ -25,6 +25,7 @@ import {
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
 import type { ReviewFindings } from "../../src/server/agents/orchestrator.ts";
+import { ensureFlowDefaults, getActiveFlowTemplate, getAllFlowTemplates } from "../../src/server/agents/flow-resolver.ts";
 
 /** Helper: extract agent steps from a plan (all steps from buildExecutionPlan are agents) */
 function agentSteps(plan: ReturnType<typeof buildExecutionPlan>): AgentStep[] {
@@ -1575,8 +1576,10 @@ describe("buildFixPlan", () => {
 // --- getPlannedAgents (preflight scoping) ---
 
 describe("getPlannedAgents", () => {
-  test("question intent returns empty list", () => {
-    expect(getPlannedAgents("question", "full", true)).toEqual([]);
+  test("question intent returns agents from template when seeded", () => {
+    ensureFlowDefaults();
+    const agents = getPlannedAgents("question", "full", true);
+    expect(agents).toContain("orchestrator:question");
   });
 
   test("fix + styling returns [styling]", () => {
@@ -1722,5 +1725,43 @@ describe("filterUpstreamOutputs (reviewer manifest)", () => {
     expect(filtered).toHaveProperty("architect");
     expect(filtered).toHaveProperty("project-source");
     expect(filtered).not.toHaveProperty("changed-files");
+  });
+});
+
+// --- ensureFlowDefaults ---
+
+describe("ensureFlowDefaults", () => {
+  test("creates default templates when none exist", () => {
+    ensureFlowDefaults();
+    const templates = getAllFlowTemplates();
+    const intents = templates.map((t) => t.intent);
+    expect(intents).toContain("build");
+    expect(intents).toContain("fix");
+    expect(intents).toContain("question");
+  });
+
+  test("is idempotent — does not duplicate templates", () => {
+    ensureFlowDefaults();
+    const count1 = getAllFlowTemplates().length;
+    ensureFlowDefaults();
+    const count2 = getAllFlowTemplates().length;
+    expect(count2).toBe(count1);
+  });
+
+  test("seeds question system prompt into app_settings", () => {
+    ensureFlowDefaults();
+    const questionTemplate = getActiveFlowTemplate("question");
+    expect(questionTemplate).not.toBeNull();
+    expect(questionTemplate!.intent).toBe("question");
+  });
+});
+
+// --- getPlannedAgents with seeded templates ---
+
+describe("getPlannedAgents (with templates)", () => {
+  test("question intent returns agent names from seeded template", () => {
+    ensureFlowDefaults();
+    const agents = getPlannedAgents("question", "full", true);
+    expect(agents).toContain("orchestrator:question");
   });
 });

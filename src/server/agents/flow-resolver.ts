@@ -6,6 +6,7 @@ import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import { log } from "../services/logger.ts";
 import type { OrchestratorIntent } from "../../shared/types.ts";
+import { generateAllDefaults, generateDefaultForIntent } from "./flow-defaults.ts";
 
 /**
  * Get a flow template from app_settings by ID.
@@ -416,5 +417,50 @@ function collectActionOverrides(data: ActionNodeData, out: ActionOverrides): voi
     case "remediation":
       if (data.maxAttempts !== undefined) out.maxRemediationCycles = data.maxAttempts;
       break;
+  }
+}
+
+/** Default system prompt for the question agent (seeded into DB). */
+const QUESTION_SYSTEM_PROMPT = `You are a helpful assistant for a React + TypeScript + Tailwind CSS page builder.
+Answer the user's question based on the project source code provided.
+Keep answers to 2-3 short paragraphs max. Be direct — answer the question, don't restate it.
+If the project has no files yet, say so in one sentence and suggest they describe what they'd like to build.`;
+
+/**
+ * Ensure all three intent default flow templates exist.
+ * Called at the top of runOrchestration() (idempotent, synchronous SQLite).
+ * Also seeds the question agent system prompt into app_settings if missing.
+ */
+export function ensureFlowDefaults(): void {
+  const templates = getAllFlowTemplates();
+  if (templates.length === 0) {
+    const defaults = generateAllDefaults();
+    for (const t of defaults) saveFlowTemplate(t);
+    for (const t of defaults) setActiveBinding(t.intent, t.id);
+    log("flow", "Auto-seeded default templates", { count: defaults.length });
+  } else {
+    // Seed any missing intents
+    const existingIntents = new Set(templates.map(t => t.intent));
+    for (const intent of ["build", "fix", "question"] as const) {
+      if (!existingIntents.has(intent)) {
+        const fresh = generateDefaultForIntent(intent);
+        if (fresh) {
+          saveFlowTemplate(fresh);
+          setActiveBinding(intent, fresh.id);
+          log("flow", `Auto-seeded missing default template for "${intent}"`);
+        }
+      }
+    }
+  }
+
+  // Seed question system prompt into DB if not already present
+  const promptKey = "agent.orchestrator:question.prompt";
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, promptKey)).get();
+  if (!existing) {
+    db.insert(schema.appSettings).values({
+      key: promptKey,
+      value: QUESTION_SYSTEM_PROMPT,
+    }).run();
+    log("flow", "Seeded question agent system prompt into app_settings");
   }
 }
