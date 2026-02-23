@@ -323,12 +323,14 @@ export function ChatWindow() {
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Only auto-scroll to bottom when user is already near the bottom
+  // Only auto-scroll to bottom when user is already near the bottom.
+  // Depend on blocks.length (not blocks) so expand/collapse toggles don't trigger scroll.
   useEffect(() => {
     if (isNearBottom.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, thinking, blocks, checkpoint]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, thinking, blocks.length, checkpoint]);
 
   async function handleResume() {
     if (!activeChat || !messages.length) return;
