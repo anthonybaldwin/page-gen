@@ -30,8 +30,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 9", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(9);
+  test("is version 10", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(10);
   });
 });
 
@@ -217,14 +217,14 @@ describe("resolveFlowTemplate (action steps)", () => {
     expect(buildCheck!.maxUniqueErrors).toBe(15);
   });
 
-  test("per-node settings are undefined when not set on node", () => {
+  test("per-node settings from defaults are resolved to ActionStep", () => {
     const template = generateBuildDefault();
     const plan = resolveFlowTemplate(template, buildCtx);
     const actions = actionSteps(plan.steps);
     const buildCheck = actions.find((a) => a.actionKind === "build-check");
-    // Default template doesn't set explicit values
-    expect(buildCheck!.timeoutMs).toBeUndefined();
-    expect(buildCheck!.maxAttempts).toBeUndefined();
+    // Default template now sets explicit values
+    expect(buildCheck!.timeoutMs).toBe(30_000);
+    expect(buildCheck!.maxAttempts).toBe(3);
   });
 
   test("systemPrompt is copied to ActionStep when set", () => {
@@ -265,12 +265,12 @@ describe("resolveFlowTemplate (action steps)", () => {
     expect(summary!.maxOutputTokens).toBe(2048);
   });
 
-  test("maxOutputTokens is undefined when not set on node", () => {
+  test("maxOutputTokens from defaults is resolved to ActionStep", () => {
     const template = generateBuildDefault();
     const plan = resolveFlowTemplate(template, buildCtx);
     const actions = actionSteps(plan.steps);
     const summary = actions.find((a) => a.actionKind === "summary");
-    expect(summary!.maxOutputTokens).toBeUndefined();
+    expect(summary!.maxOutputTokens).toBe(1024);
   });
 
   test("action overrides are still collected for backwards compat", () => {
@@ -439,5 +439,70 @@ describe("resolveFlowTemplate (node removal)", () => {
     const plan = resolveFlowTemplate(template, buildCtx);
     const actions = actionSteps(plan.steps);
     expect(actions.find((a) => a.actionKind === "summary")).toBeUndefined();
+  });
+});
+
+// --- Default pipeline explicit configuration ---
+
+describe("default pipeline explicit configuration", () => {
+  test("remediation-fix node has correct reviewer keys matching fix pipeline nodeIds", () => {
+    const template = generateFixDefault();
+    const remediationFix = template.nodes.find((n) => n.id === "remediation-fix");
+    expect(remediationFix).toBeDefined();
+    expect(remediationFix!.data.type).toBe("action");
+    if (remediationFix!.data.type === "action") {
+      expect(remediationFix!.data.remediationReviewerKeys).toEqual([
+        "code-review-fix",
+        "security-fix",
+        "qa-fix",
+      ]);
+    }
+  });
+
+  test("build remediation node has reviewer keys matching build pipeline nodeIds", () => {
+    const template = generateBuildDefault();
+    const remediation = template.nodes.find((n) => n.id === "remediation");
+    expect(remediation).toBeDefined();
+    expect(remediation!.data.type).toBe("action");
+    if (remediation!.data.type === "action") {
+      expect(remediation!.data.remediationReviewerKeys).toEqual([
+        "code-review",
+        "security",
+        "qa",
+      ]);
+    }
+  });
+
+  test("all action nodes in build default have explicit configuration", () => {
+    const template = generateBuildDefault();
+    const actionNodes = template.nodes.filter((n) => n.data.type === "action");
+
+    for (const node of actionNodes) {
+      if (node.data.type !== "action") continue;
+      const { kind } = node.data;
+
+      switch (kind) {
+        case "build-check":
+          expect(node.data.timeoutMs).toBe(30_000);
+          expect(node.data.maxAttempts).toBe(3);
+          expect(node.data.maxUniqueErrors).toBe(10);
+          expect(node.data.buildCommand).toBe("bunx vite build --mode development");
+          break;
+        case "test-run":
+          expect(node.data.timeoutMs).toBe(60_000);
+          expect(node.data.maxAttempts).toBe(2);
+          expect(node.data.maxTestFailures).toBe(5);
+          expect(node.data.maxUniqueErrors).toBe(10);
+          expect(node.data.testCommand).toBe("bunx vitest run");
+          break;
+        case "remediation":
+          expect(node.data.maxAttempts).toBe(2);
+          expect(node.data.remediationReviewerKeys).toBeDefined();
+          break;
+        case "summary":
+          expect(node.data.maxOutputTokens).toBe(1024);
+          break;
+      }
+    }
   });
 });

@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 9;
+export const FLOW_DEFAULTS_VERSION = 10;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -160,6 +160,10 @@ export function generateBuildDefault(): FlowTemplate {
     type: "action",
     kind: "build-check",
     label: "Build Check",
+    timeoutMs: 30_000,
+    maxAttempts: 3,
+    maxUniqueErrors: 10,
+    buildCommand: "bunx vite build --mode development",
   }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(buildCheck);
   edges.push(makeEdge("styling", "build-check"));
@@ -168,6 +172,11 @@ export function generateBuildDefault(): FlowTemplate {
     type: "action",
     kind: "test-run",
     label: "Test Run",
+    timeoutMs: 60_000,
+    maxAttempts: 2,
+    maxTestFailures: 5,
+    maxUniqueErrors: 10,
+    testCommand: "bunx vitest run",
   }, col * X_SPACING, Y_CENTER + Y_SPACING / 2);
   nodes.push(testRun);
   edges.push(makeEdge("styling", "test-run"));
@@ -219,6 +228,8 @@ export function generateBuildDefault(): FlowTemplate {
     type: "action",
     kind: "remediation",
     label: "Remediation",
+    maxAttempts: 2,
+    remediationReviewerKeys: ["code-review", "security", "qa"],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(remediation);
   edges.push(makeEdge("code-review", "remediation"));
@@ -240,6 +251,7 @@ export function generateBuildDefault(): FlowTemplate {
     type: "action",
     kind: "summary",
     label: "Summary",
+    maxOutputTokens: 1024,
   }, col * X_SPACING, Y_CENTER);
   nodes.push(summary);
   edges.push(makeEdge("version-build", "summary"));
@@ -360,6 +372,10 @@ export function generateFixDefault(): FlowTemplate {
     type: "action",
     kind: "build-check",
     label: "Build Check (quick)",
+    timeoutMs: 30_000,
+    maxAttempts: 3,
+    maxUniqueErrors: 10,
+    buildCommand: "bunx vite build --mode development",
   }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(buildCheckQuick);
   edges.push(makeEdge("styling-quick", "build-check-quick"));
@@ -371,6 +387,10 @@ export function generateFixDefault(): FlowTemplate {
     type: "action",
     kind: "build-check",
     label: "Build Check",
+    timeoutMs: 30_000,
+    maxAttempts: 3,
+    maxUniqueErrors: 10,
+    buildCommand: "bunx vite build --mode development",
   }, col * X_SPACING, Y_CENTER - Y_SPACING / 2);
   nodes.push(buildCheckFix);
   edges.push(makeEdge("frontend-fix", "build-check-fix"));
@@ -380,6 +400,11 @@ export function generateFixDefault(): FlowTemplate {
     type: "action",
     kind: "test-run",
     label: "Test Run",
+    timeoutMs: 60_000,
+    maxAttempts: 2,
+    maxTestFailures: 5,
+    maxUniqueErrors: 10,
+    testCommand: "bunx vitest run",
   }, col * X_SPACING, Y_CENTER + Y_SPACING);
   nodes.push(testRunFix);
   edges.push(makeEdge("frontend-fix", "test-run-fix"));
@@ -437,6 +462,8 @@ export function generateFixDefault(): FlowTemplate {
     type: "action",
     kind: "remediation",
     label: "Remediation",
+    maxAttempts: 2,
+    remediationReviewerKeys: ["code-review-fix", "security-fix", "qa-fix"],
   }, col * X_SPACING, Y_CENTER);
   nodes.push(remediationFix);
   edges.push(makeEdge("code-review-fix", "remediation-fix"));
@@ -458,6 +485,7 @@ export function generateFixDefault(): FlowTemplate {
     type: "action",
     kind: "summary",
     label: "Summary",
+    maxOutputTokens: 1024,
   }, col * X_SPACING, Y_CENTER - Y_SPACING);
   nodes.push(summaryFix);
   edges.push(makeEdge("version-quick", "summary-fix"));
