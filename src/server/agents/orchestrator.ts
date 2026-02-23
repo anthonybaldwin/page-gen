@@ -83,6 +83,20 @@ export function isNonRetriableApiError(err: unknown): { nonRetriable: boolean; r
  * Returns formatted string with counts, e.g., "[3x] Cannot find module '@/utils'"
  * Caps at MAX_UNIQUE_ERRORS unique patterns.
  */
+/** Default mood analysis prompt (extracted for reuse in settings API). */
+const MOOD_ANALYSIS_DEFAULT_PROMPT = `Analyze these inspiration/mood board images. Extract design inspiration guidance (not exact specifications to replicate). Return a structured JSON response with:
+{
+  "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
+  "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
+  "textureNotes": "description of textures and materials",
+  "typographyHints": "description of typography style if visible",
+  "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
+  "layoutPatterns": "spatial organization, grid structure, element hierarchy, button/control shapes, display-to-control ratio, whitespace usage",
+  "designEra": "the design period or movement this evokes (e.g. 'mid-century modern', 'neo-brutalist', 'skeuomorphic 2010s', 'flat material')",
+  "componentPatterns": ["pattern1", ...]  // distinct UI component patterns visible (e.g. 'floating cards', 'segmented controls', 'pill buttons', 'inline validation')
+}
+Return ONLY the JSON.`;
+
 export function deduplicateErrors(errorLines: string[], overrides?: ActionOverrides): string {
   if (errorLines.length === 0) return "";
   const counts = new Map<string, { count: number; example: string }>();
@@ -412,18 +426,7 @@ async function analyzeMoodImages(
 
   try {
     const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
-    const defaultPrompt = `Analyze these inspiration/mood board images. Extract design inspiration guidance (not exact specifications to replicate). Return a structured JSON response with:
-{
-  "palette": ["#hex1", "#hex2", ...],  // 5-8 dominant colors
-  "styleDescriptors": ["descriptor1", ...],  // 5-8 visual style words
-  "textureNotes": "description of textures and materials",
-  "typographyHints": "description of typography style if visible",
-  "moodKeywords": ["keyword1", ...],  // 5-8 mood/feeling words
-  "layoutPatterns": "spatial organization, grid structure, element hierarchy, button/control shapes, display-to-control ratio, whitespace usage",
-  "designEra": "the design period or movement this evokes (e.g. 'mid-century modern', 'neo-brutalist', 'skeuomorphic 2010s', 'flat material')",
-  "componentPatterns": ["pattern1", ...]  // distinct UI component patterns visible (e.g. 'floating cards', 'segmented controls', 'pill buttons', 'inline validation')
-}
-Return ONLY the JSON.`;
+    const defaultPrompt = MOOD_ANALYSIS_DEFAULT_PROMPT;
     const result = await generateText({
       model: visionProvider(modelId),
       ...(opts?.systemPrompt ? { system: opts.systemPrompt } : {}),
@@ -2521,6 +2524,16 @@ Key files: \`src/components/Hero.tsx\`, \`src/components/Features.tsx\`, \`src/c
 Try clicking the signup button or submitting the contact form to see it in action!
 ---`;
 
+/** Map of action kind → default system prompt text. Used by settings API to expose defaults. */
+export function getActionDefaultPrompt(kind: string): string | null {
+  switch (kind) {
+    case "summary": return SUMMARY_SYSTEM_PROMPT;
+    case "summary-failed": return SUMMARY_SYSTEM_PROMPT_FAILED;
+    case "mood-analysis": return MOOD_ANALYSIS_DEFAULT_PROMPT;
+    default: return null;
+  }
+}
+
 const SUMMARY_SYSTEM_PROMPT_FAILED = `You are the orchestrator for a page builder. The build has unresolved errors.
 Write a clean, honest markdown response. Include:
 - What was attempted and which files were created
@@ -3118,6 +3131,9 @@ If recent conversation context is provided, use it to resolve pronouns and refer
 
 Tie-breaking: If ambiguous between build and fix, prefer "fix" when the project already has files.`;
 
+/** Default intent classification prompt. Exported for settings API. */
+export const DEFAULT_INTENT_SYSTEM_PROMPT = INTENT_SYSTEM_PROMPT;
+
 const CLASSIFY_MAX_HISTORY_MESSAGES = 3;
 const CLASSIFY_MAX_HISTORY_CHARS = 500;
 
@@ -3201,11 +3217,15 @@ export async function classifyIntent(
   }
 
   try {
+    // Read intent classification prompt from DB, fall back to hardcoded default
+    const intentPromptRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "intent.classifyPrompt")).get();
+    const intentSystemPrompt = intentPromptRow?.value || INTENT_SYSTEM_PROMPT;
+
     const classifyPrompt = buildClassifyPrompt(userMessage, chatHistory);
-    logLLMInput("orchestrator", "orchestrator-classify", INTENT_SYSTEM_PROMPT, classifyPrompt);
+    logLLMInput("orchestrator", "orchestrator-classify", intentSystemPrompt, classifyPrompt);
     const result = await generateText({
       model: classifyModel,
-      system: INTENT_SYSTEM_PROMPT,
+      system: intentSystemPrompt,
       prompt: classifyPrompt,
       maxOutputTokens: 100,
     });

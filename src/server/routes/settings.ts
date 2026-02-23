@@ -6,6 +6,7 @@ import { log, logWarn } from "../services/logger.ts";
 import { getAllAgentConfigs, getAgentConfig, resetAgentOverrides, getAllAgentToolConfigs, resetAgentToolOverrides, getAllAgentLimitsConfigs, resetAgentLimitsOverrides, isBuiltinAgent, getCustomAgent, getCustomAgents, getAgentTools } from "../agents/registry.ts";
 import { loadDefaultPrompt, isDefaultPromptCustom } from "../agents/default-prompts.ts";
 import { loadSystemPrompt, trackedGenerateText, type TrackedGenerateTextOpts } from "../agents/base.ts";
+import { getActionDefaultPrompt, DEFAULT_INTENT_SYSTEM_PROMPT } from "../agents/orchestrator.ts";
 import { getAllPricing, getModelPricing, upsertPricing, deletePricingOverride, DEFAULT_PRICING, getAllCacheMultipliers, upsertCacheMultipliers, deleteCacheMultiplierOverride, upsertModelCategory, getModelCategoryFromDB } from "../services/pricing.ts";
 import { PROVIDER_IDS, PROVIDERS as PROVIDER_DEFS, getModelsForProvider, getModelProvider, VALIDATION_MODELS, getModelCategory, type ModelCategory, CATEGORY_ORDER } from "../../shared/providers.ts";
 import { flowRoutes } from "./flow.ts";
@@ -881,6 +882,52 @@ settingsRoutes.post("/custom-tools/:name/test", async (c) => {
   const body = await c.req.json<{ params: Record<string, unknown> }>();
   const result = await executeCustomTool(tool, body.params ?? {});
   return c.json(result);
+});
+
+// --- Action default prompt endpoint ---
+
+// Get the hardcoded default prompt for an action kind (summary, summary-failed, mood-analysis)
+settingsRoutes.get("/actions/:kind/defaultPrompt", (c) => {
+  const kind = c.req.param("kind");
+  const prompt = getActionDefaultPrompt(kind);
+  if (!prompt) return c.json({ error: `No default prompt for action kind "${kind}"` }, 404);
+  return c.json({ prompt, kind });
+});
+
+// --- Intent classification prompt endpoints ---
+
+// Get current intent classification prompt (DB override or default)
+settingsRoutes.get("/intent/classifyPrompt", (c) => {
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "intent.classifyPrompt")).get();
+  return c.json({
+    prompt: row?.value || DEFAULT_INTENT_SYSTEM_PROMPT,
+    isCustom: !!row,
+    defaultPrompt: DEFAULT_INTENT_SYSTEM_PROMPT,
+  });
+});
+
+// Save custom intent classification prompt
+settingsRoutes.put("/intent/classifyPrompt", async (c) => {
+  const body = await c.req.json<{ prompt: string }>();
+  if (!body.prompt?.trim()) return c.json({ error: "prompt is required" }, 400);
+
+  const key = "intent.classifyPrompt";
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: body.prompt }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: body.prompt }).run();
+  }
+
+  log("settings", `Intent classification prompt updated`, { chars: body.prompt.length });
+  return c.json({ ok: true });
+});
+
+// Reset intent classification prompt to default
+settingsRoutes.delete("/intent/classifyPrompt", (c) => {
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, "intent.classifyPrompt")).run();
+  log("settings", "Intent classification prompt reset to default");
+  return c.json({ ok: true, prompt: DEFAULT_INTENT_SYSTEM_PROMPT });
 });
 
 // --- Flow pipeline routes (mounted as sub-router) ---

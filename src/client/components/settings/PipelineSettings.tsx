@@ -97,6 +97,12 @@ export function PipelineSettings() {
   const [defaults, setDefaults] = useState<PipelineConfig>({ ...EMPTY_CONFIG });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Intent classification prompt state
+  const [intentPrompt, setIntentPrompt] = useState("");
+  const [intentDefault, setIntentDefault] = useState("");
+  const [intentIsCustom, setIntentIsCustom] = useState(false);
+  const [intentSaving, setIntentSaving] = useState(false);
+  const [intentSaved, setIntentSaved] = useState(false);
 
   useEffect(() => {
     api
@@ -104,6 +110,14 @@ export function PipelineSettings() {
       .then((res) => {
         setSettings(res.settings);
         setDefaults(res.defaults);
+      })
+      .catch(console.error);
+    api
+      .get<{ prompt: string; isCustom: boolean; defaultPrompt: string }>("/settings/intent/classifyPrompt")
+      .then((res) => {
+        setIntentPrompt(res.prompt);
+        setIntentDefault(res.defaultPrompt);
+        setIntentIsCustom(res.isCustom);
       })
       .catch(console.error);
   }, []);
@@ -221,6 +235,82 @@ export function PipelineSettings() {
       <Button onClick={handleSave} disabled={saving}>
         {saving ? "Saving..." : saved ? "Saved" : "Save Pipeline Settings"}
       </Button>
+
+      {/* Intent Classification section */}
+      <hr className="border-border my-4" />
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+        Intent Classification
+      </h4>
+      <p className="text-[10px] text-muted-foreground/50 mb-2">
+        This prompt classifies user messages as build/fix/question and determines scope.
+      </p>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <label className="block text-sm font-medium text-muted-foreground">
+            Classification Prompt
+          </label>
+          {intentIsCustom && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+              custom
+            </span>
+          )}
+        </div>
+        <textarea
+          value={intentPrompt}
+          onChange={(e) => {
+            setIntentPrompt(e.target.value);
+            setIntentIsCustom(e.target.value !== intentDefault);
+          }}
+          rows={8}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono resize-y"
+        />
+        <p className="text-xs text-muted-foreground/60 mt-1">
+          Must return JSON: {"{"}"intent","scope","needsBackend","reasoning"{"}"}
+        </p>
+      </div>
+      <div className="flex gap-2 mt-2">
+        <Button
+          onClick={async () => {
+            setIntentSaving(true);
+            setIntentSaved(false);
+            try {
+              await api.put("/settings/intent/classifyPrompt", { prompt: intentPrompt });
+              setIntentIsCustom(true);
+              setIntentSaved(true);
+              setTimeout(() => setIntentSaved(false), 2000);
+            } catch (err) {
+              console.error("[pipeline] Failed to save intent prompt:", err);
+            } finally {
+              setIntentSaving(false);
+            }
+          }}
+          disabled={intentSaving}
+        >
+          {intentSaving ? "Saving..." : intentSaved ? "Saved" : "Save Intent Prompt"}
+        </Button>
+        {intentIsCustom && (
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              setIntentSaving(true);
+              try {
+                const res = await api.delete<{ prompt: string }>("/settings/intent/classifyPrompt");
+                setIntentPrompt(res.prompt);
+                setIntentIsCustom(false);
+                setIntentSaved(false);
+              } catch (err) {
+                console.error("[pipeline] Failed to reset intent prompt:", err);
+              } finally {
+                setIntentSaving(false);
+              }
+            }}
+            disabled={intentSaving}
+            className="text-xs text-muted-foreground"
+          >
+            Reset to default
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

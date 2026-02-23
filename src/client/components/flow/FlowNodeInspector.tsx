@@ -833,6 +833,9 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   // Build/test command state
   const [buildCommand, setBuildCommand] = useState(data.buildCommand ?? "");
   const [testCommand, setTestCommand] = useState(data.testCommand ?? "");
+  // Default prompt viewing state (for agentic kinds)
+  const [defaultPromptText, setDefaultPromptText] = useState<string | null>(null);
+  const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
 
   const isAgentic = AGENTIC_KINDS.has(data.kind);
   const isRemediation = data.kind === "remediation";
@@ -968,12 +971,50 @@ function ActionInspector({ data, nodeId, onUpdate }: {
                 placeholder="Enter custom system prompt..."
               />
             ) : (
-              <div
-                className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground rounded border border-transparent hover:border-border px-1 py-0.5"
-                onClick={() => handleToggleCustomPrompt(true)}
-              >
-                <span>{KIND_DEFAULT_PROMPT_LABEL[data.kind] ?? "Using default prompt"}</span>
-                <span className="text-primary/60">Customize</span>
+              <div className="mt-1 space-y-1">
+                <div
+                  className="flex items-center justify-between text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground rounded border border-transparent hover:border-border px-1 py-0.5"
+                  onClick={() => {
+                    // Fetch default prompt, then copy into custom
+                    api
+                      .get<{ prompt: string }>(`/settings/actions/${data.kind}/defaultPrompt`)
+                      .then((res) => {
+                        setSystemPrompt(res.prompt);
+                        setUseCustomPrompt(true);
+                      })
+                      .catch(() => setUseCustomPrompt(true));
+                  }}
+                >
+                  <span>{KIND_DEFAULT_PROMPT_LABEL[data.kind] ?? "Using default prompt"}</span>
+                  <span className="text-primary/60">Customize</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    if (showDefaultPrompt) {
+                      setShowDefaultPrompt(false);
+                    } else {
+                      api
+                        .get<{ prompt: string }>(`/settings/actions/${data.kind}/defaultPrompt`)
+                        .then((res) => {
+                          setDefaultPromptText(res.prompt);
+                          setShowDefaultPrompt(true);
+                        })
+                        .catch(() => setShowDefaultPrompt(false));
+                    }
+                  }}
+                >
+                  {showDefaultPrompt ? "Hide default" : "View default"}
+                </button>
+                {showDefaultPrompt && defaultPromptText && (
+                  <textarea
+                    readOnly
+                    value={defaultPromptText}
+                    rows={6}
+                    className="w-full rounded-md border border-border bg-muted/50 px-2 py-1 text-[10px] font-mono resize-y text-muted-foreground"
+                  />
+                )}
               </div>
             )}
           </div>
