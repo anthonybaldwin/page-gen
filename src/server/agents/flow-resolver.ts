@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, VersionNodeData, ConfigNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, VersionNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
 import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -218,17 +218,12 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
   }
 
-  // Extract baseSystemPrompt from config nodes (metadata-only, no step generated)
+  // Read baseSystemPrompt from app_settings (pipeline.basePrompt.{intent})
   let baseSystemPrompt: string | undefined;
-  for (const nodeId of sorted) {
-    if (!activeNodes.has(nodeId)) continue;
-    const node = nodeMap.get(nodeId);
-    if (node?.data.type === "config") {
-      const configData = node.data as ConfigNodeData;
-      if (configData.baseSystemPrompt?.trim()) {
-        baseSystemPrompt = configData.baseSystemPrompt;
-      }
-    }
+  const basePromptKey = `pipeline.basePrompt.${template.intent}`;
+  const basePromptRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, basePromptKey)).get();
+  if (basePromptRow?.value?.trim()) {
+    baseSystemPrompt = basePromptRow.value;
   }
 
   // Second pass: convert active nodes to execution plan steps + collect action overrides
@@ -240,9 +235,6 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     if (!activeNodes.has(nodeId)) continue;
     const node = nodeMap.get(nodeId);
     if (!node) continue;
-
-    // Config nodes are metadata-only — no step generated
-    if (node.data.type === "config") continue;
 
     if (node.data.type === "agent") {
       const agentData = node.data as AgentNodeData;
@@ -459,6 +451,21 @@ Answer the user's question based on the project source code provided.
 Keep answers to 2-3 short paragraphs max. Be direct — answer the question, don't restate it.
 If the project has no files yet, say so in one sentence and suggest they describe what they'd like to build.`;
 
+/** Default pipeline base prompts per intent (seeded into DB, editable in Settings → Prompts). */
+export const DEFAULT_PIPELINE_BASE_PROMPTS: Record<string, string> = {
+  build: "You are part of a web application builder pipeline. Build modern, production-quality React + TypeScript + Tailwind CSS applications. Follow best practices for accessibility, performance, and code organization.",
+  fix: "You are part of a fix pipeline for an existing web application. Make minimal, targeted fixes to existing React + TypeScript + Tailwind CSS code. Preserve existing patterns and style conventions. Read files before modifying them.",
+  question: "You are a helpful assistant for a React + TypeScript + Tailwind CSS web application builder. Answer questions based on the project source code provided. Be concise and direct.",
+};
+
+/** Get the pipeline base prompt for an intent (custom override or default). */
+export function getPipelineBasePrompt(intent: string): { prompt: string; isCustom: boolean } {
+  const key = `pipeline.basePrompt.${intent}`;
+  const row = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  const defaultPrompt = DEFAULT_PIPELINE_BASE_PROMPTS[intent] ?? "";
+  return { prompt: row?.value ?? defaultPrompt, isCustom: !!row };
+}
+
 /**
  * Ensure all three intent default flow templates exist.
  * Called at the top of runOrchestration() (idempotent, synchronous SQLite).
@@ -495,5 +502,15 @@ export function ensureFlowDefaults(): void {
       value: QUESTION_SYSTEM_PROMPT,
     }).run();
     log("flow", "Seeded question agent system prompt into app_settings");
+  }
+
+  // Seed pipeline base prompts into DB if not already present
+  for (const [intent, prompt] of Object.entries(DEFAULT_PIPELINE_BASE_PROMPTS)) {
+    const baseKey = `pipeline.basePrompt.${intent}`;
+    const baseRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, baseKey)).get();
+    if (!baseRow) {
+      db.insert(schema.appSettings).values({ key: baseKey, value: prompt }).run();
+      log("flow", `Seeded pipeline base prompt for "${intent}" into app_settings`);
+    }
   }
 }

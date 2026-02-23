@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, ConfigNodeData, UpstreamSource, UpstreamTransform, ActionKind } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, UpstreamSource, UpstreamTransform, ActionKind } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "../../../shared/flow-types.ts";
 import { BUILTIN_TOOL_NAMES } from "../../../shared/types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
@@ -78,9 +78,6 @@ export function FlowNodeInspector({ node, agentNames, allNodes, allEdges, onUpda
       )}
       {node.data.type === "version" && (
         <VersionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
-      )}
-      {node.data.type === "config" && (
-        <ConfigInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
     </div>
   );
@@ -1413,46 +1410,3 @@ function VersionInspector({ data, nodeId, onUpdate }: {
   );
 }
 
-function ConfigInspector({ data, nodeId, onUpdate }: {
-  data: ConfigNodeData;
-  nodeId: string;
-  onUpdate: (nodeId: string, data: FlowNodeData) => void;
-}) {
-  const [label, setLabel] = useState(data.label);
-  const [baseSystemPrompt, setBaseSystemPrompt] = useState(data.baseSystemPrompt ?? "");
-
-  useEffect(() => {
-    setLabel(data.label);
-    setBaseSystemPrompt(data.baseSystemPrompt ?? "");
-  }, [data]);
-
-  const save = () => {
-    onUpdate(nodeId, { ...data, label, baseSystemPrompt: baseSystemPrompt || undefined });
-  };
-
-  return (
-    <div className="space-y-2">
-      <label className="block">
-        <span className="text-xs text-muted-foreground">Label</span>
-        <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
-      </label>
-      <label className="block">
-        <span className="text-xs text-muted-foreground">Base System Prompt</span>
-        <textarea
-          value={baseSystemPrompt}
-          onChange={(e) => setBaseSystemPrompt(e.target.value)}
-          onBlur={save}
-          rows={8}
-          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
-          placeholder="Enter base system prompt..."
-        />
-        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-          Prepended to every agent's system prompt in this pipeline. Individual nodes can override with their own system prompt.
-        </p>
-      </label>
-      <div className="text-[10px] text-muted-foreground leading-relaxed">
-        This node configures pipeline-wide settings. It does not produce an execution step.
-      </div>
-    </div>
-  );
-}

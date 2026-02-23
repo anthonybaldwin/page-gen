@@ -967,6 +967,54 @@ settingsRoutes.delete("/actions/:kind/prompt", (c) => {
   return c.json({ ok: true, prompt: defaultPrompt });
 });
 
+// --- Pipeline base prompt endpoints ---
+
+import { DEFAULT_PIPELINE_BASE_PROMPTS, getPipelineBasePrompt } from "../agents/flow-resolver.ts";
+
+// Get current pipeline base prompt for an intent (custom override or default)
+settingsRoutes.get("/pipeline/basePrompt/:intent", (c) => {
+  const intent = c.req.param("intent");
+  if (!DEFAULT_PIPELINE_BASE_PROMPTS[intent]) {
+    return c.json({ error: `Unknown intent "${intent}". Must be one of: build, fix, question` }, 400);
+  }
+  const { prompt, isCustom } = getPipelineBasePrompt(intent);
+  return c.json({ prompt, isCustom, intent, defaultPrompt: DEFAULT_PIPELINE_BASE_PROMPTS[intent] });
+});
+
+// Save custom pipeline base prompt override
+settingsRoutes.put("/pipeline/basePrompt/:intent", async (c) => {
+  const intent = c.req.param("intent");
+  if (!DEFAULT_PIPELINE_BASE_PROMPTS[intent]) {
+    return c.json({ error: `Unknown intent "${intent}". Must be one of: build, fix, question` }, 400);
+  }
+
+  const body = await c.req.json<{ prompt: string }>();
+  if (!body.prompt?.trim()) return c.json({ error: "prompt is required" }, 400);
+
+  const key = `pipeline.basePrompt.${intent}`;
+  const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, key)).get();
+  if (existing) {
+    db.update(schema.appSettings).set({ value: body.prompt }).where(eq(schema.appSettings.key, key)).run();
+  } else {
+    db.insert(schema.appSettings).values({ key, value: body.prompt }).run();
+  }
+
+  log("settings", `Pipeline base prompt updated: ${intent}`, { intent, chars: body.prompt.length });
+  return c.json({ ok: true });
+});
+
+// Reset pipeline base prompt to default
+settingsRoutes.delete("/pipeline/basePrompt/:intent", (c) => {
+  const intent = c.req.param("intent");
+  if (!DEFAULT_PIPELINE_BASE_PROMPTS[intent]) {
+    return c.json({ error: `Unknown intent "${intent}". Must be one of: build, fix, question` }, 400);
+  }
+
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `pipeline.basePrompt.${intent}`)).run();
+  log("settings", `Pipeline base prompt reset to default: ${intent}`, { intent });
+  return c.json({ ok: true, prompt: DEFAULT_PIPELINE_BASE_PROMPTS[intent] });
+});
+
 // --- Intent classification prompt endpoints ---
 
 // Get current intent classification prompt (DB override or default)

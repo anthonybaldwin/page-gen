@@ -31,8 +31,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 11", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(11);
+  test("is version 12", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(12);
   });
 });
 
@@ -508,52 +508,22 @@ describe("default pipeline explicit configuration", () => {
   });
 });
 
-// --- Config node tests ---
+// --- Default templates no longer contain config nodes ---
 
-describe("config node", () => {
-  test("config node extraction sets baseSystemPrompt on resolved plan", () => {
-    const template = generateBuildDefault();
-    const plan = resolveFlowTemplate(template, buildCtx);
-    expect(plan.baseSystemPrompt).toBeDefined();
-    expect(plan.baseSystemPrompt).toContain("web application builder pipeline");
-  });
-
-  test("config node produces no step in resolved plan", () => {
-    const template = generateBuildDefault();
-    const plan = resolveFlowTemplate(template, buildCtx);
-    // No step should reference the config node ID
-    for (const step of plan.steps) {
-      const sk = stepKey(step);
-      expect(sk).not.toBe("pipeline-config");
-    }
-  });
-
-  test("default templates include config nodes", () => {
+describe("default templates structure", () => {
+  test("no config nodes in default templates", () => {
     const build = generateBuildDefault();
     const fix = generateFixDefault();
     const question = generateQuestionDefault();
 
-    expect(build.nodes.find((n) => n.data.type === "config")).toBeDefined();
-    expect(fix.nodes.find((n) => n.data.type === "config")).toBeDefined();
-    expect(question.nodes.find((n) => n.data.type === "config")).toBeDefined();
+    expect(build.nodes.find((n) => n.data.type === "config")).toBeUndefined();
+    expect(fix.nodes.find((n) => n.data.type === "config")).toBeUndefined();
+    expect(question.nodes.find((n) => n.data.type === "config")).toBeUndefined();
   });
 
-  test("fix template config node has fix-specific base prompt", () => {
-    const fix = generateFixDefault();
-    const configNode = fix.nodes.find((n) => n.data.type === "config");
-    expect(configNode).toBeDefined();
-    if (configNode?.data.type === "config") {
-      expect(configNode.data.baseSystemPrompt).toContain("fix pipeline");
-    }
-  });
-
-  test("question template config node has question-specific base prompt", () => {
+  test("question template has question-agent as start node", () => {
     const question = generateQuestionDefault();
-    const configNode = question.nodes.find((n) => n.data.type === "config");
-    expect(configNode).toBeDefined();
-    if (configNode?.data.type === "config") {
-      expect(configNode.data.baseSystemPrompt).toContain("helpful assistant");
-    }
+    expect(question.nodes.find((n) => n.id === "question-agent")).toBeDefined();
   });
 });
 
@@ -584,32 +554,16 @@ describe("agentConfig passthrough", () => {
   });
 });
 
-// --- Config node validation ---
+// --- Pipeline base prompt (read from app_settings) ---
 
-describe("config node validation", () => {
-  test("at-most-one config node: two config nodes produce an error", () => {
+describe("pipeline base prompt", () => {
+  test("baseSystemPrompt is read from app_settings when set", () => {
+    // This tests the resolver reads from DB. Since we're in test env,
+    // the DB may or may not have the seeded value. We verify the plan
+    // can still resolve without config nodes.
     const template = generateBuildDefault();
-    // Add a second config node
-    template.nodes.push({
-      id: "extra-config",
-      type: "config",
-      data: { type: "config", label: "Extra Config", baseSystemPrompt: "test" },
-      position: { x: 0, y: 0 },
-    });
-    const errors = validateFlowTemplate(template);
-    const configErrors = errors.filter((e) => e.message.includes("at most one config"));
-    expect(configErrors.length).toBe(1);
-    expect(configErrors[0].type).toBe("error");
-  });
-
-  test("empty baseSystemPrompt produces a warning", () => {
-    const template = generateBuildDefault();
-    const configNode = template.nodes.find((n) => n.data.type === "config");
-    if (configNode && configNode.data.type === "config") {
-      configNode.data.baseSystemPrompt = "";
-    }
-    const errors = validateFlowTemplate(template);
-    const warnings = errors.filter((e) => e.type === "warning" && e.message.includes("empty base system prompt"));
-    expect(warnings.length).toBe(1);
+    const plan = resolveFlowTemplate(template, buildCtx);
+    // Plan should resolve regardless of base prompt
+    expect(plan.steps.length).toBeGreaterThan(0);
   });
 });

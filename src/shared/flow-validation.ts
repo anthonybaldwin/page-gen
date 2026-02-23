@@ -85,12 +85,6 @@ export function validateFlowTemplate(
     }
   }
 
-  // --- At most one config node ---
-  const configNodes = template.nodes.filter((n) => n.data.type === "config");
-  if (configNodes.length > 1) {
-    errors.push({ type: "error", message: "Flow may have at most one config node" });
-  }
-
   // --- Node-specific validation ---
   for (const node of template.nodes) {
     validateNode(node, errors, knownAgentNames);
@@ -172,12 +166,6 @@ function validateNode(
     case "version": {
       if (!data.label.trim()) {
         errors.push({ type: "warning", message: `Version node "${node.id}" has no label`, nodeId: node.id });
-      }
-      break;
-    }
-    case "config": {
-      if (!data.baseSystemPrompt?.trim()) {
-        errors.push({ type: "warning", message: `Config node "${node.id}" has an empty base system prompt`, nodeId: node.id });
       }
       break;
     }

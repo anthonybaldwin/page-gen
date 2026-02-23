@@ -23,14 +23,31 @@ const ACTION_PROMPT_ENTRIES = [
   { key: "action:mood-analysis", label: "Mood Analysis" },
 ] as const;
 
+/** Pipeline base prompt entries — per-intent base prompts prepended to every agent's system prompt. */
+const PIPELINE_PROMPT_ENTRIES = [
+  { key: "pipeline:build", label: "Build Pipeline" },
+  { key: "pipeline:fix", label: "Fix Pipeline" },
+  { key: "pipeline:question", label: "Question Pipeline" },
+] as const;
+
 /** Check if a selected item is an action prompt (not an agent). */
 function isActionPrompt(key: string): boolean {
   return key.startsWith("action:");
 }
 
+/** Check if a selected item is a pipeline base prompt. */
+function isPipelinePrompt(key: string): boolean {
+  return key.startsWith("pipeline:");
+}
+
 /** Extract the action kind from a selection key, e.g. "action:summary" → "summary". */
 function getActionKind(key: string): string {
   return key.replace("action:", "");
+}
+
+/** Extract the intent from a pipeline prompt key, e.g. "pipeline:build" → "build". */
+function getPipelineIntent(key: string): string {
+  return key.replace("pipeline:", "");
 }
 
 export function PromptEditor() {
@@ -41,7 +58,7 @@ export function PromptEditor() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  // Track which action prompts have custom overrides
+  // Track which action/pipeline prompts have custom overrides
   const [actionCustomMap, setActionCustomMap] = useState<Record<string, boolean>>({});
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
 
@@ -60,12 +77,25 @@ export function PromptEditor() {
         .then((res) => setActionCustomMap((prev) => ({ ...prev, [entry.key]: res.isCustom })))
         .catch(() => {});
     }
+    // Fetch custom status for all pipeline base prompts
+    for (const entry of PIPELINE_PROMPT_ENTRIES) {
+      const intent = getPipelineIntent(entry.key);
+      api.get<{ isCustom: boolean }>(`/settings/pipeline/basePrompt/${intent}`)
+        .then((res) => setActionCustomMap((prev) => ({ ...prev, [entry.key]: res.isCustom })))
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
     setLoading(true);
     setSaved(false);
-    if (isActionPrompt(selectedItem)) {
+    if (isPipelinePrompt(selectedItem)) {
+      const intent = getPipelineIntent(selectedItem);
+      api.get<{ prompt: string; isCustom: boolean }>(`/settings/pipeline/basePrompt/${intent}`)
+        .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else if (isActionPrompt(selectedItem)) {
       const kind = getActionKind(selectedItem);
       api.get<{ prompt: string; isCustom: boolean }>(`/settings/actions/${kind}/prompt`)
         .then((res) => { setPrompt(res.prompt); setIsCustom(res.isCustom); })
@@ -83,7 +113,12 @@ export function PromptEditor() {
     setSaving(true);
     setSaved(false);
     try {
-      if (isActionPrompt(selectedItem)) {
+      if (isPipelinePrompt(selectedItem)) {
+        const intent = getPipelineIntent(selectedItem);
+        await api.put(`/settings/pipeline/basePrompt/${intent}`, { prompt });
+        setIsCustom(true);
+        setActionCustomMap((prev) => ({ ...prev, [selectedItem]: true }));
+      } else if (isActionPrompt(selectedItem)) {
         const kind = getActionKind(selectedItem);
         await api.put(`/settings/actions/${kind}/prompt`, { prompt });
         setIsCustom(true);
@@ -106,7 +141,14 @@ export function PromptEditor() {
   async function handleReset() {
     setSaving(true);
     try {
-      if (isActionPrompt(selectedItem)) {
+      if (isPipelinePrompt(selectedItem)) {
+        const intent = getPipelineIntent(selectedItem);
+        await api.delete(`/settings/pipeline/basePrompt/${intent}`);
+        const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/pipeline/basePrompt/${intent}`);
+        setPrompt(res.prompt);
+        setIsCustom(res.isCustom);
+        setActionCustomMap((prev) => ({ ...prev, [selectedItem]: res.isCustom }));
+      } else if (isActionPrompt(selectedItem)) {
         const kind = getActionKind(selectedItem);
         await api.delete(`/settings/actions/${kind}/prompt`);
         const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/actions/${kind}/prompt`);
@@ -129,9 +171,11 @@ export function PromptEditor() {
   }
 
   const selectedConfig = configs.find((c) => c.name === selectedItem);
-  const displayName = isActionPrompt(selectedItem)
-    ? ACTION_PROMPT_ENTRIES.find((e) => e.key === selectedItem)?.label ?? selectedItem
-    : selectedConfig?.displayName || selectedItem;
+  const displayName = isPipelinePrompt(selectedItem)
+    ? PIPELINE_PROMPT_ENTRIES.find((e) => e.key === selectedItem)?.label ?? selectedItem
+    : isActionPrompt(selectedItem)
+      ? ACTION_PROMPT_ENTRIES.find((e) => e.key === selectedItem)?.label ?? selectedItem
+      : selectedConfig?.displayName || selectedItem;
 
   return (
     <div className="flex gap-3 flex-1 min-h-0">
@@ -165,6 +209,29 @@ export function PromptEditor() {
             </div>
           );
         })}
+        {/* Pipeline Base Prompts group */}
+        <div>
+          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider px-2 mb-0.5">
+            Pipeline Base Prompts
+          </p>
+          {PIPELINE_PROMPT_ENTRIES.map((entry) => (
+            <Button
+              key={entry.key}
+              variant="ghost"
+              onClick={() => setSelectedItem(entry.key)}
+              className={`w-full justify-start px-2 py-1.5 h-auto text-xs ${
+                selectedItem === entry.key
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <span className="truncate flex-1 text-left">{entry.label}</span>
+              {actionCustomMap[entry.key] && (
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+              )}
+            </Button>
+          ))}
+        </div>
         {/* Action Prompts group */}
         <div>
           <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider px-2 mb-0.5">
@@ -215,6 +282,11 @@ export function PromptEditor() {
             </Button>
           )}
         </div>
+        {isPipelinePrompt(selectedItem) && (
+          <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
+            Prepended to every agent's system prompt in this pipeline. Individual agent nodes can override with their own system prompt.
+          </p>
+        )}
 
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">

@@ -20,7 +20,6 @@ import { ConditionNode } from "./nodes/ConditionNode.tsx";
 import { CheckpointNode } from "./nodes/CheckpointNode.tsx";
 import { ActionNode } from "./nodes/ActionNode.tsx";
 import { VersionNode } from "./nodes/VersionNode.tsx";
-import { ConfigNode } from "./nodes/ConfigNode.tsx";
 import type { FlowTemplate, FlowNode, FlowEdge } from "../../../shared/flow-types.ts";
 
 const nodeTypes = {
@@ -29,7 +28,6 @@ const nodeTypes = {
   checkpoint: CheckpointNode,
   action: ActionNode,
   version: VersionNode,
-  config: ConfigNode,
 };
 
 /** Convert our FlowNode[] to React Flow Node[] */
@@ -288,7 +286,6 @@ export function FlowCanvas({ template, onChange, onNodeSelect }: FlowCanvasProps
               case "condition": return "#f59e0b";
               case "checkpoint": return "#3b82f6";
               case "version": return "#14b8a6";
-              case "config": return "#818cf8";
               case "action": {
                 const kind = (node.data as Record<string, unknown>)?.kind;
                 switch (kind) {

@@ -2,7 +2,7 @@ import type { OrchestratorIntent } from "./types.ts";
 
 // --- Flow Node Types ---
 
-export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action" | "version" | "config";
+export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action" | "version";
 
 // --- Upstream Source Configuration ---
 
@@ -96,14 +96,7 @@ export interface VersionNodeData {
   label: string;
 }
 
-export interface ConfigNodeData {
-  type: "config";
-  label: string;
-  /** Base system prompt prepended to every agent's system prompt in this pipeline */
-  baseSystemPrompt?: string;
-}
-
-export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData | VersionNodeData | ConfigNodeData;
+export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData | VersionNodeData;
 
 export interface FlowNode {
   id: string;
