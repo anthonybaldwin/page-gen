@@ -266,9 +266,9 @@ export async function runAgent(
   abortSignal?: AbortSignal,
   chatId?: string,
   instanceId?: string,
-  overrides?: { maxOutputTokens?: number; maxToolSteps?: number }
+  overrides?: { maxOutputTokens?: number; maxToolSteps?: number; systemPromptOverride?: string }
 ): Promise<AgentOutput> {
-  const systemPrompt = loadSystemPrompt(config.name);
+  const systemPrompt = overrides?.systemPromptOverride ?? loadSystemPrompt(config.name);
   const provider = getProviderModel(config, providers);
   const cid = chatId || "";
   // Use instanceId for broadcasting (distinguishes parallel instances), base name for config

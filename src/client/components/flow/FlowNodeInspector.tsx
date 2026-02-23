@@ -213,6 +213,9 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
   const [upstreamSources, setUpstreamSources] = useState<UpstreamSource[]>(data.upstreamSources ?? []);
   const [showToolOverrides, setShowToolOverrides] = useState(!!data.toolOverrides);
   const [toolOverrides, setToolOverrides] = useState<string[]>(data.toolOverrides ?? [...BUILTIN_TOOL_NAMES]);
+  const [useCustomSystemPrompt, setUseCustomSystemPrompt] = useState(!!data.systemPrompt);
+  const [systemPrompt, setSystemPrompt] = useState(data.systemPrompt ?? "");
+  const [agentSystemPromptDefault, setAgentSystemPromptDefault] = useState<string | null>(null);
 
   useEffect(() => {
     setAgentName(data.agentName);
@@ -223,9 +226,11 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
     setShowSources(!!data.upstreamSources);
     setShowToolOverrides(!!data.toolOverrides);
     setToolOverrides(data.toolOverrides ?? [...BUILTIN_TOOL_NAMES]);
+    setUseCustomSystemPrompt(!!data.systemPrompt);
+    setSystemPrompt(data.systemPrompt ?? "");
   }, [data]);
 
-  // Fetch default prompt when agent name is set
+  // Fetch default input prompt when agent name is set
   useEffect(() => {
     if (!agentName) {
       setAgentDefaultPrompt(null);
@@ -237,6 +242,18 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
       .catch(() => setAgentDefaultPrompt(null));
   }, [agentName]);
 
+  // Fetch system prompt default when agent name is set
+  useEffect(() => {
+    if (!agentName) {
+      setAgentSystemPromptDefault(null);
+      return;
+    }
+    api
+      .get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${agentName}/prompt`)
+      .then((res) => setAgentSystemPromptDefault(res.prompt))
+      .catch(() => setAgentSystemPromptDefault(null));
+  }, [agentName]);
+
   const buildData = useCallback(
     (overrides?: Partial<AgentNodeData>): AgentNodeData => ({
       ...data,
@@ -246,9 +263,10 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
       maxToolSteps: maxToolSteps ? parseInt(maxToolSteps) : undefined,
       upstreamSources: showSources ? upstreamSources : undefined,
       toolOverrides: showToolOverrides ? toolOverrides : undefined,
+      systemPrompt: useCustomSystemPrompt && systemPrompt ? systemPrompt : undefined,
       ...overrides,
     }),
-    [data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, upstreamSources, showSources, toolOverrides, showToolOverrides],
+    [data, agentName, inputTemplate, maxOutputTokens, maxToolSteps, upstreamSources, showSources, toolOverrides, showToolOverrides, useCustomSystemPrompt, systemPrompt],
   );
 
   const save = useCallback(() => {
@@ -356,6 +374,56 @@ function AgentInspector({ data, nodeId, agentNames, allNodes, allEdges, onUpdate
           ))}
         </select>
       </label>
+
+      {/* System Prompt section */}
+      <div className="border-t border-border pt-2 mt-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">System Prompt</span>
+            {useCustomSystemPrompt && (
+              <span className="text-[10px] px-1 py-0.5 rounded bg-primary/20 text-primary">
+                custom
+              </span>
+            )}
+          </div>
+          {useCustomSystemPrompt && (
+            <button
+              type="button"
+              onClick={() => {
+                setUseCustomSystemPrompt(false);
+                setSystemPrompt("");
+                onUpdate(nodeId, buildData({ systemPrompt: undefined }));
+              }}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+        {useCustomSystemPrompt ? (
+          <textarea
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            onBlur={save}
+            rows={5}
+            className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+            placeholder="Enter custom system prompt..."
+          />
+        ) : (
+          <div
+            className="flex items-center justify-between text-[10px] text-muted-foreground italic cursor-pointer hover:text-foreground rounded border border-transparent hover:border-border px-1 py-0.5"
+            onClick={() => {
+              setUseCustomSystemPrompt(true);
+              if (agentSystemPromptDefault) {
+                setSystemPrompt(agentSystemPromptDefault);
+              }
+            }}
+          >
+            <span>Using agent default system prompt</span>
+            <span className="text-primary/60">Customize</span>
+          </div>
+        )}
+      </div>
 
       {/* Data Sources section */}
       <div className="border-t border-border pt-2 mt-2">

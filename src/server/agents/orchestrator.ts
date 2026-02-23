@@ -995,6 +995,7 @@ export interface AgentStep {
   maxToolSteps?: number;
   upstreamSources?: import("../../shared/flow-types.ts").UpstreamSource[];
   toolOverrides?: string[];
+  systemPrompt?: string;  // per-node system prompt override
 }
 
 export interface CheckpointStep {
@@ -1198,10 +1199,11 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       }
 
       // Build per-step overrides from flow node data
-      const stepOverrides = (step.maxOutputTokens || step.maxToolSteps)
+      const stepOverrides = (step.maxOutputTokens || step.maxToolSteps || step.systemPrompt)
         ? {
             ...(step.maxOutputTokens ? { maxOutputTokens: step.maxOutputTokens } : {}),
             ...(step.maxToolSteps ? { maxToolSteps: step.maxToolSteps } : {}),
+            ...(step.systemPrompt ? { systemPromptOverride: step.systemPrompt } : {}),
           }
         : undefined;
 

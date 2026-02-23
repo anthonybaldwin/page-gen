@@ -31,6 +31,7 @@ export interface AgentNodeData {
   maxToolSteps?: number;     // per-node override
   upstreamSources?: UpstreamSource[];
   toolOverrides?: string[];  // per-node tool override (replaces global agent tools when set)
+  systemPrompt?: string;     // per-node system prompt override (falls back to agent default)
 }
 
 export interface ConditionNodeData {

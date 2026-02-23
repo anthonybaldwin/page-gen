@@ -245,6 +245,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         maxToolSteps: agentData.maxToolSteps,
         upstreamSources: agentData.upstreamSources,
         toolOverrides: agentData.toolOverrides,
+        systemPrompt: agentData.systemPrompt,
       });
 
       nodeToStepKey.set(nodeId, agentData.agentName);
