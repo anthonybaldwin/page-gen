@@ -4,22 +4,10 @@ import { Button } from "../ui/button.tsx";
 import { Input } from "../ui/input.tsx";
 
 export interface PipelineConfig {
-  maxBuildFixAttempts: number;
-  maxRemediationCycles: number;
-  buildFixMaxOutputTokens: number;
-  buildFixMaxToolSteps: number;
-  defaultMaxOutputTokens: number;
-  defaultMaxToolSteps: number;
-  buildTimeoutMs: number;
-  testTimeoutMs: number;
-  maxTestFailures: number;
-  maxUniqueErrors: number;
-  warningThreshold: number;
-  maxVersionsRetained: number;
-  maxAgentVersionsPerRun: number;
+  [key: string]: number;
 }
 
-type ConfigKey = keyof PipelineConfig;
+type ConfigKey = string;
 
 interface FieldMeta {
   label: string;
@@ -33,14 +21,16 @@ interface FieldMeta {
 const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Record<string, FieldMeta> }[] = [
   {
     title: "General",
-    hint: "Agent defaults and versioning",
-    keys: ["defaultMaxOutputTokens", "defaultMaxToolSteps", "warningThreshold", "maxVersionsRetained", "maxAgentVersionsPerRun"],
+    hint: "Agent defaults, versioning, and streaming",
+    keys: ["defaultMaxOutputTokens", "defaultMaxToolSteps", "warningThreshold", "maxVersionsRetained", "maxAgentVersionsPerRun", "streamThrottleMs", "titleMaxChars"],
     fields: {
       defaultMaxOutputTokens: { label: "Max output tokens", hint: "Default token cap per agent" },
       defaultMaxToolSteps: { label: "Max tool steps", hint: "Default tool step cap per agent" },
       warningThreshold: { label: "Usage warning threshold", hint: "Token warning at this % of limit", displaySuffix: "%" },
       maxVersionsRetained: { label: "Max versions retained", hint: "Git commits kept per project" },
       maxAgentVersionsPerRun: { label: "Max auto-versions per run", hint: "Auto-commits per pipeline run" },
+      streamThrottleMs: { label: "Stream throttle", hint: "Delay between SSE broadcasts", displaySuffix: "ms" },
+      titleMaxChars: { label: "Title max chars", hint: "Auto-generated chat title truncation" },
     },
   },
   {
@@ -58,10 +48,11 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
   {
     title: "Testing",
     hint: "Test run limits",
-    keys: ["testTimeoutMs", "maxTestFailures"],
+    keys: ["testTimeoutMs", "maxTestFailures", "testRunMaxAttempts"],
     fields: {
       testTimeoutMs: { label: "Test timeout", hint: "Vitest run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
       maxTestFailures: { label: "Max test failures", hint: "Test failures shown to fix agent" },
+      testRunMaxAttempts: { label: "Max test-fix attempts", hint: "Fix cycles per test failure" },
     },
   },
   {
@@ -72,25 +63,43 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
       maxRemediationCycles: { label: "Max remediation cycles", hint: "Code-review / fix rounds" },
     },
   },
+  {
+    title: "Shell Actions",
+    hint: "Shell command node defaults",
+    keys: ["shellCommandTimeoutMs", "shellMaxOutputLength"],
+    fields: {
+      shellCommandTimeoutMs: { label: "Shell timeout", hint: "Default timeout for shell commands", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
+      shellMaxOutputLength: { label: "Max output length", hint: "Chars captured from shell stdout" },
+    },
+  },
+  {
+    title: "LLM Actions",
+    hint: "LLM call, summary, and classification defaults",
+    keys: ["llmCallMaxOutputTokens", "summaryMaxOutputTokens", "summaryDigestTruncateChars", "questionMaxOutputTokens", "classifyMaxOutputTokens", "classifyMaxHistoryMessages", "classifyMaxHistoryChars"],
+    fields: {
+      llmCallMaxOutputTokens: { label: "LLM-call max tokens", hint: "Default token cap for LLM-call nodes" },
+      summaryMaxOutputTokens: { label: "Summary max tokens", hint: "Token cap for summary generation" },
+      summaryDigestTruncateChars: { label: "Summary digest truncation", hint: "Agent output chars included in digest" },
+      questionMaxOutputTokens: { label: "Question max tokens", hint: "Token cap for question answering" },
+      classifyMaxOutputTokens: { label: "Classify max tokens", hint: "Token cap for intent classification" },
+      classifyMaxHistoryMessages: { label: "Classify history messages", hint: "Recent messages included for context" },
+      classifyMaxHistoryChars: { label: "Classify history chars", hint: "Max chars of conversation history" },
+    },
+  },
+  {
+    title: "Mood Analysis",
+    hint: "Vision-based mood board analysis",
+    keys: ["moodAnalysisMaxImages", "moodAnalysisMaxOutputTokens"],
+    fields: {
+      moodAnalysisMaxImages: { label: "Max images", hint: "Images processed from mood board" },
+      moodAnalysisMaxOutputTokens: { label: "Max output tokens", hint: "Token cap for mood analysis" },
+    },
+  },
 ];
 
 const ALL_KEYS = SECTIONS.flatMap((s) => s.keys);
 
-const EMPTY_CONFIG: PipelineConfig = {
-  maxBuildFixAttempts: 3,
-  maxRemediationCycles: 2,
-  buildFixMaxOutputTokens: 16000,
-  buildFixMaxToolSteps: 10,
-  defaultMaxOutputTokens: 8192,
-  defaultMaxToolSteps: 10,
-  buildTimeoutMs: 30000,
-  testTimeoutMs: 60000,
-  maxTestFailures: 5,
-  maxUniqueErrors: 10,
-  warningThreshold: 80,
-  maxVersionsRetained: 50,
-  maxAgentVersionsPerRun: 3,
-};
+const EMPTY_CONFIG: PipelineConfig = {};
 
 export function PipelineSettings() {
   const [settings, setSettings] = useState<PipelineConfig>({ ...EMPTY_CONFIG });
