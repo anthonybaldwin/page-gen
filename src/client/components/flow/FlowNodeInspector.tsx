@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, UpstreamSource, UpstreamTransform } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, UpstreamSource, UpstreamTransform, ActionKind } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "../../../shared/flow-types.ts";
 import { BUILTIN_TOOL_NAMES } from "../../../shared/types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
@@ -74,7 +74,7 @@ export function FlowNodeInspector({ node, agentNames, allNodes, allEdges, onUpda
         <CheckpointInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
       {node.data.type === "action" && (
-        <ActionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
+        <ActionInspector data={node.data} nodeId={node.id} agentNames={agentNames} onUpdate={onUpdate} />
       )}
       {node.data.type === "version" && (
         <VersionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
@@ -746,6 +746,20 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
   );
 }
 
+const ACTION_KIND_LABELS: Record<ActionKind, string> = {
+  "build-check": "Build Check",
+  "test-run": "Test Run",
+  "remediation": "Remediation",
+  "summary": "Summary",
+  "vibe-intake": "Vibe Brief",
+  "mood-analysis": "Mood Analysis",
+  "answer": "Answer",
+  "shell": "Shell Command",
+  "llm-call": "LLM Call",
+};
+
+const ALL_ACTION_KINDS = Object.keys(ACTION_KIND_LABELS) as ActionKind[];
+
 const KIND_DESCRIPTIONS: Record<string, string> = {
   "build-check": "Runs the configured build command to verify the project compiles. If errors are found, a build-fix agent attempts to fix them (up to Max Attempts).",
   "test-run": "Runs the configured test command. If tests fail, a build-fix agent attempts to fix them and re-runs only the failed tests.",
@@ -819,9 +833,10 @@ const KIND_FIELDS: Record<string, Array<{ key: keyof ActionNodeData; label: stri
   ],
 };
 
-function ActionInspector({ data, nodeId, onUpdate }: {
+function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
   data: ActionNodeData;
   nodeId: string;
+  agentNames: string[];
   onUpdate: (nodeId: string, data: FlowNodeData) => void;
 }) {
   const [label, setLabel] = useState(data.label);
@@ -924,6 +939,21 @@ function ActionInspector({ data, nodeId, onUpdate }: {
         <span className="text-xs text-muted-foreground">Label</span>
         <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
       </label>
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Kind</span>
+        <select
+          value={data.kind}
+          onChange={(e) => {
+            const newKind = e.target.value as ActionKind;
+            onUpdate(nodeId, { ...data, kind: newKind, label: ACTION_KIND_LABELS[newKind] });
+          }}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs h-7"
+        >
+          {ALL_ACTION_KINDS.map((k) => (
+            <option key={k} value={k}>{ACTION_KIND_LABELS[k]}</option>
+          ))}
+        </select>
+      </label>
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
@@ -977,9 +1007,9 @@ function ActionInspector({ data, nodeId, onUpdate }: {
               className="mt-0.5 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
             >
               <option value="">Auto-detect (default)</option>
-              <option value="frontend-dev">frontend-dev</option>
-              <option value="backend-dev">backend-dev</option>
-              <option value="styling">styling</option>
+              {agentNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
             </select>
             <p className="text-[10px] text-muted-foreground/60 mt-0.5">
               Agent that handles build/test fix attempts. Auto-detect routes based on error content.
@@ -992,7 +1022,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       {data.kind === "shell" && (
         <div className="border-t border-border pt-2 mt-2">
           <label className="block">
-            <span className="text-[10px] text-muted-foreground">Command</span>
+            <span className="text-[10px] text-muted-foreground">Command <span className="text-destructive">*</span></span>
             <textarea
               value={shellCommand}
               onChange={(e) => setShellCommand(e.target.value)}
@@ -1018,7 +1048,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       {data.kind === "llm-call" && (
         <div className="border-t border-border pt-2 mt-2">
           <label className="block">
-            <span className="text-[10px] text-muted-foreground">Input Template</span>
+            <span className="text-[10px] text-muted-foreground">Input Template <span className="text-destructive">*</span></span>
             <textarea
               value={llmInputTemplate}
               onChange={(e) => setLlmInputTemplate(e.target.value)}
@@ -1043,7 +1073,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
           <div className="mt-1.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-muted-foreground">System Prompt</span>
+                <span className="text-[10px] text-muted-foreground">System Prompt{data.kind === "llm-call" && <span className="text-destructive"> *</span>}</span>
                 {useCustomPrompt && (
                   <span className="text-[10px] px-1 py-0.5 rounded bg-primary/20 text-primary">
                     custom
@@ -1165,7 +1195,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
             </div>
             {useCustomFixAgents ? (
               <div className="space-y-1">
-                {["frontend-dev", "backend-dev", "styling"].map((agent) => (
+                {agentNames.map((agent) => (
                   <label key={agent} className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -1252,7 +1282,7 @@ function ActionInspector({ data, nodeId, onUpdate }: {
             </div>
             {useCustomReviewerKeys ? (
               <div className="space-y-1">
-                {["code-review", "qa", "security"].map((key) => (
+                {agentNames.map((key) => (
                   <label key={key} className="flex items-center gap-2">
                     <input
                       type="checkbox"
