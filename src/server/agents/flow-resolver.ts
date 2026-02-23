@@ -1,4 +1,4 @@
-import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, VersionNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
+import type { FlowTemplate, FlowNode, FlowEdge, FlowResolutionContext, ConditionNodeData, ActionNodeData, CheckpointNodeData, VersionNodeData, ConfigNodeData, ActionKind, AgentNodeData } from "../../shared/flow-types.ts";
 import { topologicalSort } from "../../shared/flow-validation.ts";
 import type { ExecutionPlan, ActionOverrides, PlanStep } from "./orchestrator.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -218,6 +218,19 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     }
   }
 
+  // Extract baseSystemPrompt from config nodes (metadata-only, no step generated)
+  let baseSystemPrompt: string | undefined;
+  for (const nodeId of sorted) {
+    if (!activeNodes.has(nodeId)) continue;
+    const node = nodeMap.get(nodeId);
+    if (node?.data.type === "config") {
+      const configData = node.data as ConfigNodeData;
+      if (configData.baseSystemPrompt?.trim()) {
+        baseSystemPrompt = configData.baseSystemPrompt;
+      }
+    }
+  }
+
   // Second pass: convert active nodes to execution plan steps + collect action overrides
   const steps: PlanStep[] = [];
   const nodeToStepKey = new Map<string, string>(); // nodeId → stepKey for dependsOn resolution
@@ -227,6 +240,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
     if (!activeNodes.has(nodeId)) continue;
     const node = nodeMap.get(nodeId);
     if (!node) continue;
+
+    // Config nodes are metadata-only — no step generated
+    if (node.data.type === "config") continue;
 
     if (node.data.type === "agent") {
       const agentData = node.data as AgentNodeData;
@@ -283,6 +299,8 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         shellCaptureOutput: actionData.shellCaptureOutput,
         // LLM call action
         llmInputTemplate: actionData.llmInputTemplate,
+        // Agent config (for agentic action kinds)
+        agentConfig: actionData.agentConfig,
       });
       nodeToStepKey.set(nodeId, nodeId);
 
@@ -332,7 +350,7 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
   });
 
   const hasOverrides = Object.keys(actionOverrides).length > 0;
-  return { steps, ...(hasOverrides ? { actionOverrides } : {}) };
+  return { steps, ...(hasOverrides ? { actionOverrides } : {}), ...(baseSystemPrompt ? { baseSystemPrompt } : {}) };
 }
 
 /**

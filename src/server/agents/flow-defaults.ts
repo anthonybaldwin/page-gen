@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { loadDefaultPrompt } from "./default-prompts.ts";
 
 /** Bump this when default templates change structurally (auto-upgrades existing defaults) */
-export const FLOW_DEFAULTS_VERSION = 10;
+export const FLOW_DEFAULTS_VERSION = 11;
 
 /** Layout helpers for auto-positioning nodes */
 const X_SPACING = 280;
@@ -36,13 +36,23 @@ export function generateBuildDefault(): FlowTemplate {
   // Column positions
   let col = 0;
 
+  // Pipeline Config
+  const pipelineConfig = makeNode("pipeline-config", "config", {
+    type: "config",
+    label: "Pipeline Config",
+    baseSystemPrompt: "You are part of a web application builder pipeline. Build modern, production-quality React + TypeScript + Tailwind CSS applications. Follow best practices for accessibility, performance, and code organization.",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(pipelineConfig);
+
   // Vibe Intake
+  col++;
   const vibeIntake = makeNode("vibe-intake", "action", {
     type: "action",
     kind: "vibe-intake",
     label: "Vibe Brief",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(vibeIntake);
+  edges.push(makeEdge("pipeline-config", "vibe-intake"));
 
   // Mood Analysis
   col++;
@@ -291,7 +301,16 @@ export function generateFixDefault(): FlowTemplate {
     { sourceKey: "project-source", transform: "project-source" },
   ];
 
-  // ── Col 0: Styling scope? ──
+  // ── Col 0: Pipeline Config ──
+  const pipelineConfig = makeNode("pipeline-config", "config", {
+    type: "config",
+    label: "Pipeline Config",
+    baseSystemPrompt: "You are part of a fix pipeline for an existing web application. Make minimal, targeted fixes to existing React + TypeScript + Tailwind CSS code. Preserve existing patterns and style conventions. Read files before modifying them.",
+  }, col * X_SPACING, Y_CENTER);
+  nodes.push(pipelineConfig);
+
+  // ── Col 1: Styling scope? ──
+  col++;
   const condScope = makeNode("cond-scope", "condition", {
     type: "condition",
     mode: "expression",
@@ -299,8 +318,9 @@ export function generateFixDefault(): FlowTemplate {
     label: "Styling only?",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(condScope);
+  edges.push(makeEdge("pipeline-config", "cond-scope"));
 
-  // ── Col 1: Quick-edit styling (true branch) ──
+  // ── Col 2: Quick-edit styling (true branch) ──
   col++;
   const stylingQuick = makeNode("styling-quick", "agent", {
     type: "agent",
@@ -520,6 +540,11 @@ export function generateQuestionDefault(): FlowTemplate {
     version: FLOW_DEFAULTS_VERSION,
     enabled: true,
     nodes: [
+      makeNode("pipeline-config", "config", {
+        type: "config",
+        label: "Pipeline Config",
+        baseSystemPrompt: "You are a helpful assistant for a React + TypeScript + Tailwind CSS web application builder. Answer questions based on the project source code provided. Be concise and direct.",
+      }, 0, Y_CENTER),
       makeNode("question-agent", "agent", {
         type: "agent",
         agentName: "orchestrator:question",
@@ -527,14 +552,15 @@ export function generateQuestionDefault(): FlowTemplate {
         upstreamSources: [
           { sourceKey: "project-source", transform: "project-source" },
         ],
-      }, 0, Y_CENTER),
+      }, X_SPACING, Y_CENTER),
       makeNode("question-answer", "action", {
         type: "action",
         kind: "answer" as ActionKind,
         label: "Answer",
-      }, 350, Y_CENTER),
+      }, X_SPACING + 350, Y_CENTER),
     ],
     edges: [
+      { id: "e-config-question", source: "pipeline-config", target: "question-agent" },
       { id: "e-question-answer", source: "question-agent", target: "question-answer" },
     ],
     createdAt: now,

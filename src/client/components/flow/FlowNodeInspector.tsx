@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../ui/input.tsx";
 import { Button } from "../ui/button.tsx";
 import { api } from "../../lib/api.ts";
-import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, UpstreamSource, UpstreamTransform, ActionKind } from "../../../shared/flow-types.ts";
+import type { FlowNode, FlowEdge, FlowNodeData, AgentNodeData, ConditionNodeData, CheckpointNodeData, ActionNodeData, VersionNodeData, ConfigNodeData, UpstreamSource, UpstreamTransform, ActionKind } from "../../../shared/flow-types.ts";
 import { PREDEFINED_CONDITIONS, UPSTREAM_TRANSFORMS, WELL_KNOWN_SOURCES } from "../../../shared/flow-types.ts";
 import { BUILTIN_TOOL_NAMES } from "../../../shared/types.ts";
 import type { PipelineConfig } from "../settings/PipelineSettings.tsx";
@@ -78,6 +78,9 @@ export function FlowNodeInspector({ node, agentNames, allNodes, allEdges, onUpda
       )}
       {node.data.type === "version" && (
         <VersionInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
+      )}
+      {node.data.type === "config" && (
+        <ConfigInspector data={node.data} nodeId={node.id} onUpdate={onUpdate} />
       )}
     </div>
   );
@@ -868,6 +871,8 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
   const [shellCaptureOutput, setShellCaptureOutput] = useState(data.shellCaptureOutput !== false);
   // LLM call action state
   const [llmInputTemplate, setLlmInputTemplate] = useState(data.llmInputTemplate ?? "");
+  // Agent config state (for agentic kinds)
+  const [agentConfig, setAgentConfig] = useState(data.agentConfig ?? "");
   // Default prompt viewing state (for agentic kinds)
   const [defaultPromptText, setDefaultPromptText] = useState<string | null>(null);
   const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
@@ -898,6 +903,7 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
     setShellCommand(data.shellCommand ?? "");
     setShellCaptureOutput(data.shellCaptureOutput !== false);
     setLlmInputTemplate(data.llmInputTemplate ?? "");
+    setAgentConfig(data.agentConfig ?? "");
   }, [data]);
 
   const save = useCallback(() => {
@@ -919,8 +925,9 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
       shellCommand: shellCommand || undefined,
       shellCaptureOutput: data.kind === "shell" ? shellCaptureOutput : undefined,
       llmInputTemplate: llmInputTemplate || undefined,
+      agentConfig: agentConfig || undefined,
     });
-  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, useCustomFailSignals, failSignalsText, buildFixAgent, shellCommand, shellCaptureOutput, llmInputTemplate, onUpdate]);
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, buildCommand, testCommand, useCustomFailSignals, failSignalsText, buildFixAgent, shellCommand, shellCaptureOutput, llmInputTemplate, agentConfig, onUpdate]);
 
   const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
     setUseCustomPrompt(enabled);
@@ -957,12 +964,32 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
       <div className="text-[10px] text-muted-foreground leading-relaxed">
         {KIND_DESCRIPTIONS[data.kind] ?? ""}
       </div>
-      {KIND_AGENT_LABEL[data.kind] && (
+      {/* Agent Config selector for agentic kinds */}
+      {isAgentic ? (
+        <div className="border-t border-border pt-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] text-muted-foreground">Agent Config</span>
+            <select
+              value={agentConfig}
+              onChange={(e) => { setAgentConfig(e.target.value); setTimeout(save, 0); }}
+              className="mt-0.5 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+            >
+              <option value="">Default ({KIND_AGENT_LABEL[data.kind] ?? "auto"})</option>
+              {agentNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+              Model/provider resolved via agent config. Leave blank for default.
+            </p>
+          </label>
+        </div>
+      ) : KIND_AGENT_LABEL[data.kind] ? (
         <div className="flex items-center gap-1.5 text-[10px]">
           <span className="text-muted-foreground">Agent:</span>
           <code className="font-mono bg-muted px-1.5 py-0.5 rounded text-foreground">{KIND_AGENT_LABEL[data.kind]}</code>
         </div>
-      )}
+      ) : null}
 
       {/* Build Command (for build-check kind) */}
       {data.kind === "build-check" && (
@@ -1381,6 +1408,50 @@ function VersionInspector({ data, nodeId, onUpdate }: {
         <div className="text-[10px] text-muted-foreground mt-1">
           Output key: <code className="font-mono bg-muted px-1.5 py-0.5 rounded">{nodeId}</code>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfigInspector({ data, nodeId, onUpdate }: {
+  data: ConfigNodeData;
+  nodeId: string;
+  onUpdate: (nodeId: string, data: FlowNodeData) => void;
+}) {
+  const [label, setLabel] = useState(data.label);
+  const [baseSystemPrompt, setBaseSystemPrompt] = useState(data.baseSystemPrompt ?? "");
+
+  useEffect(() => {
+    setLabel(data.label);
+    setBaseSystemPrompt(data.baseSystemPrompt ?? "");
+  }, [data]);
+
+  const save = () => {
+    onUpdate(nodeId, { ...data, label, baseSystemPrompt: baseSystemPrompt || undefined });
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Label</span>
+        <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={save} className="mt-1 h-7 text-xs" />
+      </label>
+      <label className="block">
+        <span className="text-xs text-muted-foreground">Base System Prompt</span>
+        <textarea
+          value={baseSystemPrompt}
+          onChange={(e) => setBaseSystemPrompt(e.target.value)}
+          onBlur={save}
+          rows={8}
+          className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs font-mono resize-y"
+          placeholder="Enter base system prompt..."
+        />
+        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+          Prepended to every agent's system prompt in this pipeline. Individual nodes can override with their own system prompt.
+        </p>
+      </label>
+      <div className="text-[10px] text-muted-foreground leading-relaxed">
+        This node configures pipeline-wide settings. It does not produce an execution step.
       </div>
     </div>
   );

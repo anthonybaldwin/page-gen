@@ -2,7 +2,7 @@ import type { OrchestratorIntent } from "./types.ts";
 
 // --- Flow Node Types ---
 
-export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action" | "version";
+export type FlowNodeType = "agent" | "condition" | "checkpoint" | "action" | "version" | "config";
 
 // --- Upstream Source Configuration ---
 
@@ -86,6 +86,9 @@ export interface ActionNodeData {
   shellCaptureOutput?: boolean;   // shell: store stdout as node output (default: true)
   // LLM call action
   llmInputTemplate?: string;      // llm-call: user message template with {{variable}} substitution
+  /** Agent config name for agentic action kinds (summary, mood-analysis, llm-call).
+   *  Resolves provider+model via getAgentConfigResolved(). Defaults per kind. */
+  agentConfig?: string;
 }
 
 export interface VersionNodeData {
@@ -93,7 +96,14 @@ export interface VersionNodeData {
   label: string;
 }
 
-export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData | VersionNodeData;
+export interface ConfigNodeData {
+  type: "config";
+  label: string;
+  /** Base system prompt prepended to every agent's system prompt in this pipeline */
+  baseSystemPrompt?: string;
+}
+
+export type FlowNodeData = AgentNodeData | ConditionNodeData | CheckpointNodeData | ActionNodeData | VersionNodeData | ConfigNodeData;
 
 export interface FlowNode {
   id: string;

@@ -7,7 +7,7 @@ import type { AgentName, IntentClassification, OrchestratorIntent, IntentScope }
 import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { getActiveFlowTemplate, resolveFlowTemplate, ensureFlowDefaults } from "./flow-resolver.ts";
-import { runAgent, trackedGenerateText, AgentAbortError, type AgentInput, type AgentOutput } from "./base.ts";
+import { runAgent, trackedGenerateText, AgentAbortError, loadSystemPrompt, type AgentInput, type AgentOutput } from "./base.ts";
 import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -392,7 +392,7 @@ async function analyzeMoodImages(
   providers: ProviderInstance,
   apiKeys: Record<string, string>,
   signal: AbortSignal,
-  opts?: { systemPrompt?: string; maxOutputTokens?: number },
+  opts?: { systemPrompt?: string; maxOutputTokens?: number; agentConfig?: string },
 ): Promise<string | null> {
   const moodDir = join(projectPath, "mood");
   if (!existsSync(moodDir)) return null;
@@ -425,14 +425,25 @@ async function analyzeMoodImages(
   if (imageParts.length === 0) return null;
 
   try {
-    const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+    // Resolve model: agentConfig override > hardcoded vision model fallback
+    let moodModel;
+    if (opts?.agentConfig) {
+      const resolvedConfig = getAgentConfigResolved(opts.agentConfig);
+      if (resolvedConfig) {
+        moodModel = resolveProviderModel(resolvedConfig, providers);
+      }
+    }
+    if (!moodModel) {
+      const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+      moodModel = visionProvider(modelId);
+    }
     // Priority chain: per-node override > global DB override > hardcoded default
     const effectivePrompt = opts?.systemPrompt
       ?? db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "action.mood-analysis.prompt")).get()?.value
       ?? null;
     const defaultPrompt = MOOD_ANALYSIS_DEFAULT_PROMPT;
     const result = await generateText({
-      model: visionProvider(modelId),
+      model: moodModel,
       ...(effectivePrompt ? { system: effectivePrompt } : {}),
       messages: [{
         role: "user",
@@ -1033,6 +1044,8 @@ export interface ActionStep {
   shellCaptureOutput?: boolean;
   // LLM call action
   llmInputTemplate?: string;
+  // Agent config (for agentic action kinds: summary, mood-analysis, llm-call)
+  agentConfig?: string;
 }
 
 export interface VersionStep {
@@ -1066,6 +1079,7 @@ export function stepKey(step: PlanStep): string {
 export interface ExecutionPlan {
   steps: PlanStep[];
   actionOverrides?: ActionOverrides;
+  baseSystemPrompt?: string;
 }
 
 // Shared mutable counters — passed by reference so all call sites share the same count
@@ -1089,6 +1103,7 @@ interface PipelineStepContext {
   apiKeys: Record<string, string>;
   signal: AbortSignal;
   actionOverrides?: ActionOverrides;
+  baseSystemPrompt?: string;
 }
 
 /**
@@ -1098,7 +1113,7 @@ interface PipelineStepContext {
 async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null> {
   const { step, chatId, projectId, projectPath, projectName, chatTitle,
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-    providers, apiKeys, signal, actionOverrides } = ctx;
+    providers, apiKeys, signal, actionOverrides, baseSystemPrompt } = ctx;
 
   // Use instanceId for keying/broadcasting, base agentName for config lookup
   const stepKey = step.instanceId ?? step.agentName;
@@ -1209,11 +1224,20 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
       }
 
       // Build per-step overrides from flow node data
-      const stepOverrides = (step.maxOutputTokens || step.maxToolSteps || step.systemPrompt)
+      // Priority: per-node systemPrompt (full replace) > baseSystemPrompt + agent default (prepend) > agent default only
+      let effectiveSystemPromptOverride: string | undefined;
+      if (step.systemPrompt) {
+        effectiveSystemPromptOverride = step.systemPrompt;
+      } else if (baseSystemPrompt) {
+        const agentDefault = loadSystemPrompt(config.name);
+        effectiveSystemPromptOverride = `${baseSystemPrompt}\n\n---\n\n${agentDefault}`;
+      }
+
+      const stepOverrides = (step.maxOutputTokens || step.maxToolSteps || effectiveSystemPromptOverride)
         ? {
             ...(step.maxOutputTokens ? { maxOutputTokens: step.maxOutputTokens } : {}),
             ...(step.maxToolSteps ? { maxToolSteps: step.maxToolSteps } : {}),
-            ...(step.systemPrompt ? { systemPromptOverride: step.systemPrompt } : {}),
+            ...(effectiveSystemPromptOverride ? { systemPromptOverride: effectiveSystemPromptOverride } : {}),
           }
         : undefined;
 
@@ -1996,6 +2020,7 @@ async function executePipelineSteps(ctx: {
     userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
     providers, apiKeys, signal, pipelineRunId } = ctx;
   const actionOverrides = plan.actionOverrides;
+  const baseSystemPrompt = plan.baseSystemPrompt;
 
   const completedSet = new Set<string>(
     agentResults.keys()
@@ -2095,9 +2120,12 @@ async function executePipelineSteps(ctx: {
             }
           }
         } else if (act.actionKind === "mood-analysis") {
+          // Prepend baseSystemPrompt if node has no own system prompt override
+          const moodSystemPrompt = act.systemPrompt ?? (baseSystemPrompt ? baseSystemPrompt : undefined);
           const moodResult = await analyzeMoodImages(projectPath, providers, apiKeys, signal, {
-            systemPrompt: act.systemPrompt,
+            systemPrompt: moodSystemPrompt,
             maxOutputTokens: act.maxOutputTokens,
+            agentConfig: act.agentConfig,
           });
           if (moodResult) {
             agentResults.set("mood-analysis", moodResult);
@@ -2244,6 +2272,8 @@ async function executePipelineSteps(ctx: {
             buildFailed,
             customSystemPrompt: act.systemPrompt,
             customMaxOutputTokens: act.maxOutputTokens,
+            agentConfig: act.agentConfig,
+            baseSystemPrompt,
           });
 
           await db.insert(schema.messages).values({
@@ -2311,7 +2341,8 @@ async function executePipelineSteps(ctx: {
             return agentResults.get(key) ?? `[no output for ${key}]`;
           });
 
-          const llmConfig = getAgentConfigResolved("orchestrator:summary");
+          const llmConfigName = act.agentConfig ?? "orchestrator:summary";
+          const llmConfig = getAgentConfigResolved(llmConfigName);
           if (!llmConfig) throw new Error("No model config available for LLM call");
           const llmModel = resolveProviderModel(llmConfig, providers);
           if (!llmModel) throw new Error("No model available for LLM call");
@@ -2455,7 +2486,7 @@ async function executePipelineSteps(ctx: {
             const result = await runPipelineStep({
               step, chatId, projectId, projectPath, projectName, chatTitle,
               userMessage, chatHistory, agentResults, completedAgents, callCounter, buildFixCounter,
-              providers, apiKeys, signal, actionOverrides,
+              providers, apiKeys, signal, actionOverrides, baseSystemPrompt,
             });
             resolve({ stepKey: step.instanceId ?? step.agentName, result });
           }, i * STAGGER_MS)
@@ -2621,17 +2652,20 @@ interface SummaryInput {
   buildFailed?: boolean;
   customSystemPrompt?: string;
   customMaxOutputTokens?: number;
+  agentConfig?: string;
+  baseSystemPrompt?: string;
 }
 
 async function generateSummary(input: SummaryInput): Promise<string> {
-  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed, customSystemPrompt, customMaxOutputTokens } = input;
-  // Priority chain: per-node override > global DB override > hardcoded default
+  const { userMessage, agentResults, chatId, projectId, projectName, chatTitle, providers, apiKeys, buildFailed, customSystemPrompt, customMaxOutputTokens, agentConfig, baseSystemPrompt } = input;
+  // Priority chain: per-node override > baseSystemPrompt + default (prepend) > global DB override > hardcoded default
   const resolvePrompt = (): string => {
     if (customSystemPrompt) return customSystemPrompt;
     const kind = buildFailed ? "summary-failed" : "summary";
     const dbRow = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, `action.${kind}.prompt`)).get();
-    if (dbRow) return dbRow.value;
-    return buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT;
+    const base = dbRow?.value ?? (buildFailed ? SUMMARY_SYSTEM_PROMPT_FAILED : SUMMARY_SYSTEM_PROMPT);
+    if (baseSystemPrompt) return `${baseSystemPrompt}\n\n---\n\n${base}`;
+    return base;
   };
   const systemPrompt = resolvePrompt();
 
@@ -2639,7 +2673,8 @@ async function generateSummary(input: SummaryInput): Promise<string> {
     .map(([agent, output]) => `**${agent}:** ${output}`)
     .join("\n\n");
 
-  const summaryConfig = getAgentConfigResolved("orchestrator:summary");
+  const summaryConfigName = agentConfig ?? "orchestrator:summary";
+  const summaryConfig = getAgentConfigResolved(summaryConfigName);
   if (!summaryConfig) return fallback();
   const summaryModel = resolveProviderModel(summaryConfig, providers);
   if (!summaryModel) return fallback();

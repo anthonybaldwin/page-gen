@@ -1,5 +1,5 @@
 import { Button } from "../ui/button.tsx";
-import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Bookmark, Terminal, MessageSquare } from "lucide-react";
+import { Check, RotateCcw, AlertTriangle, Bot, GitBranch, CirclePause, CheckCircle2, Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Bookmark, Terminal, MessageSquare, Settings } from "lucide-react";
 import type { FlowNode, FlowNodeType, FlowNodeData, ActionKind } from "../../../shared/flow-types.ts";
 import type { ValidationError } from "../../../shared/flow-validation.ts";
 import { nanoid } from "nanoid";
@@ -47,6 +47,9 @@ function makeNewNode(type: FlowNodeType, actionKind?: ActionKind): FlowNode {
     case "version":
       data = { type: "version", label: "Version" };
       break;
+    case "config":
+      data = { type: "config", label: "Pipeline Config", baseSystemPrompt: "" };
+      break;
   }
 
   return {
@@ -76,6 +79,9 @@ export function FlowToolbar({ onAddNode, onValidate, onSave, onReset, saving, er
         </Button>
         <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("version"))} className="h-7 text-xs gap-1">
           <Bookmark className="h-3 w-3" /> Version
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => onAddNode(makeNewNode("config"))} className="h-7 text-xs gap-1">
+          <Settings className="h-3 w-3" /> Config
         </Button>
       </div>
 

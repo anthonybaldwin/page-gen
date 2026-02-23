@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { resolveFlowTemplate } from "../../src/server/agents/flow-resolver.ts";
-import { generateBuildDefault, generateFixDefault, FLOW_DEFAULTS_VERSION } from "../../src/server/agents/flow-defaults.ts";
-import type { FlowTemplate, FlowResolutionContext } from "../../src/shared/flow-types.ts";
+import { generateBuildDefault, generateFixDefault, generateQuestionDefault, FLOW_DEFAULTS_VERSION } from "../../src/server/agents/flow-defaults.ts";
+import type { FlowTemplate, FlowResolutionContext, FlowNode, FlowEdge } from "../../src/shared/flow-types.ts";
+import { validateFlowTemplate } from "../../src/shared/flow-validation.ts";
 import { isActionStep, isAgentStep, stepKey, type ActionStep, type PlanStep } from "../../src/server/agents/orchestrator.ts";
 
 /** Extract action steps from a resolved plan */
@@ -30,8 +31,8 @@ const fixCtx: FlowResolutionContext = {
 // --- Flow defaults version ---
 
 describe("FLOW_DEFAULTS_VERSION", () => {
-  test("is version 10", () => {
-    expect(FLOW_DEFAULTS_VERSION).toBe(10);
+  test("is version 11", () => {
+    expect(FLOW_DEFAULTS_VERSION).toBe(11);
   });
 });
 
@@ -504,5 +505,111 @@ describe("default pipeline explicit configuration", () => {
           break;
       }
     }
+  });
+});
+
+// --- Config node tests ---
+
+describe("config node", () => {
+  test("config node extraction sets baseSystemPrompt on resolved plan", () => {
+    const template = generateBuildDefault();
+    const plan = resolveFlowTemplate(template, buildCtx);
+    expect(plan.baseSystemPrompt).toBeDefined();
+    expect(plan.baseSystemPrompt).toContain("web application builder pipeline");
+  });
+
+  test("config node produces no step in resolved plan", () => {
+    const template = generateBuildDefault();
+    const plan = resolveFlowTemplate(template, buildCtx);
+    // No step should reference the config node ID
+    for (const step of plan.steps) {
+      const sk = stepKey(step);
+      expect(sk).not.toBe("pipeline-config");
+    }
+  });
+
+  test("default templates include config nodes", () => {
+    const build = generateBuildDefault();
+    const fix = generateFixDefault();
+    const question = generateQuestionDefault();
+
+    expect(build.nodes.find((n) => n.data.type === "config")).toBeDefined();
+    expect(fix.nodes.find((n) => n.data.type === "config")).toBeDefined();
+    expect(question.nodes.find((n) => n.data.type === "config")).toBeDefined();
+  });
+
+  test("fix template config node has fix-specific base prompt", () => {
+    const fix = generateFixDefault();
+    const configNode = fix.nodes.find((n) => n.data.type === "config");
+    expect(configNode).toBeDefined();
+    if (configNode?.data.type === "config") {
+      expect(configNode.data.baseSystemPrompt).toContain("fix pipeline");
+    }
+  });
+
+  test("question template config node has question-specific base prompt", () => {
+    const question = generateQuestionDefault();
+    const configNode = question.nodes.find((n) => n.data.type === "config");
+    expect(configNode).toBeDefined();
+    if (configNode?.data.type === "config") {
+      expect(configNode.data.baseSystemPrompt).toContain("helpful assistant");
+    }
+  });
+});
+
+// --- agentConfig passthrough ---
+
+describe("agentConfig passthrough", () => {
+  test("agentConfig is passed through to ActionStep when set on node", () => {
+    const template = generateBuildDefault();
+    const summaryNode = template.nodes.find(
+      (n) => n.data.type === "action" && n.data.kind === "summary"
+    );
+    if (summaryNode && summaryNode.data.type === "action") {
+      summaryNode.data.agentConfig = "orchestrator:question";
+    }
+
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.agentConfig).toBe("orchestrator:question");
+  });
+
+  test("agentConfig is undefined when not set on node", () => {
+    const template = generateBuildDefault();
+    const plan = resolveFlowTemplate(template, buildCtx);
+    const actions = actionSteps(plan.steps);
+    const summary = actions.find((a) => a.actionKind === "summary");
+    expect(summary!.agentConfig).toBeUndefined();
+  });
+});
+
+// --- Config node validation ---
+
+describe("config node validation", () => {
+  test("at-most-one config node: two config nodes produce an error", () => {
+    const template = generateBuildDefault();
+    // Add a second config node
+    template.nodes.push({
+      id: "extra-config",
+      type: "config",
+      data: { type: "config", label: "Extra Config", baseSystemPrompt: "test" },
+      position: { x: 0, y: 0 },
+    });
+    const errors = validateFlowTemplate(template);
+    const configErrors = errors.filter((e) => e.message.includes("at most one config"));
+    expect(configErrors.length).toBe(1);
+    expect(configErrors[0].type).toBe("error");
+  });
+
+  test("empty baseSystemPrompt produces a warning", () => {
+    const template = generateBuildDefault();
+    const configNode = template.nodes.find((n) => n.data.type === "config");
+    if (configNode && configNode.data.type === "config") {
+      configNode.data.baseSystemPrompt = "";
+    }
+    const errors = validateFlowTemplate(template);
+    const warnings = errors.filter((e) => e.type === "warning" && e.message.includes("empty base system prompt"));
+    expect(warnings.length).toBe(1);
   });
 });
