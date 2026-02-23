@@ -33,6 +33,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: "POST",
+    headers: getApiKeyHeaders(),
     body: formData,
     // No Content-Type header — browser sets multipart boundary automatically
   });

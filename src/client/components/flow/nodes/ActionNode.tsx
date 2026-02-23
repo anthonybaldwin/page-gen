@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Terminal, MessageSquare } from "lucide-react";
+import { Hammer, FlaskConical, RefreshCw, Sparkles, Image, FileText, Terminal, MessageSquare, MessageCircleReply } from "lucide-react";
 import type { ActionNodeData } from "../../../../shared/flow-types.ts";
 
 type ActionNodeProps = NodeProps & { data: ActionNodeData };
@@ -12,8 +12,9 @@ const KIND_CONFIG: Record<string, { icon: typeof Hammer; color: string; ringColo
   "summary": { icon: FileText, color: "text-amber-500", ringColor: "ring-amber-500" },
   "vibe-intake": { icon: Sparkles, color: "text-pink-500", ringColor: "ring-pink-500" },
   "mood-analysis": { icon: Image, color: "text-sky-500", ringColor: "ring-sky-500" },
+  "answer": { icon: MessageCircleReply, color: "text-indigo-500", ringColor: "ring-indigo-500" },
   "shell": { icon: Terminal, color: "text-slate-500", ringColor: "ring-slate-500" },
-  "llm-call": { icon: MessageSquare, color: "text-indigo-500", ringColor: "ring-indigo-500" },
+  "llm-call": { icon: MessageSquare, color: "text-cyan-500", ringColor: "ring-cyan-500" },
 };
 
 export const ActionNode = memo(function ActionNode({ data, selected }: ActionNodeProps) {

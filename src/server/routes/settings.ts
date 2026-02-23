@@ -528,6 +528,37 @@ settingsRoutes.put("/agents/:name/prompt", async (c) => {
   return c.json({ ok: true });
 });
 
+// Reset agent prompt override (keeps other overrides intact)
+settingsRoutes.delete("/agents/:name/prompt", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  // For custom agents, clear the prompt column
+  if (!isBuiltinAgent(name)) {
+    const custom = getCustomAgent(name);
+    if (custom) {
+      db.update(schema.customAgents).set({ prompt: null, updatedAt: Date.now() }).where(eq(schema.customAgents.name, name)).run();
+      log("settings", `Custom agent prompt reset: ${name}`, { agent: name });
+      return c.json({ ok: true });
+    }
+  }
+
+  // Built-in agent: remove prompt from app_settings
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.prompt`)).run();
+  log("settings", `Agent prompt reset: ${name}`, { agent: name });
+  return c.json({ ok: true });
+});
+
+// Reset agent default prompt override
+settingsRoutes.delete("/agents/:name/defaultPrompt", (c) => {
+  const name = c.req.param("name") as AgentName;
+  if (!isValidAgentName(name)) return c.json({ error: "Unknown agent" }, 400);
+
+  db.delete(schema.appSettings).where(eq(schema.appSettings.key, `agent.${name}.defaultPrompt`)).run();
+  log("settings", `Agent default prompt reset: ${name}`, { agent: name });
+  return c.json({ ok: true });
+});
+
 // Get agent default prompt (DB override or built-in default)
 settingsRoutes.get("/agents/:name/defaultPrompt", (c) => {
   const name = c.req.param("name") as AgentName;

@@ -114,7 +114,7 @@ export function PromptEditor() {
         setIsCustom(res.isCustom);
         setActionCustomMap((prev) => ({ ...prev, [selectedItem]: res.isCustom }));
       } else {
-        await api.delete(`/settings/agents/${selectedItem}/overrides`);
+        await api.delete(`/settings/agents/${selectedItem}/prompt`);
         const res = await api.get<{ prompt: string; isCustom: boolean }>(`/settings/agents/${selectedItem}/prompt`);
         setPrompt(res.prompt);
         setIsCustom(res.isCustom);

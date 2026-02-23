@@ -172,5 +172,15 @@ export function runMigrations() {
     db.run(sql`ALTER TABLE pipeline_runs ADD COLUMN checkpoint_data TEXT`);
   } catch { /* already exists */ }
 
+  // Create indexes on foreign key columns for query performance
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_chats_project_id ON chats(project_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_agent_executions_chat_id ON agent_executions(chat_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_token_usage_chat_id ON token_usage(chat_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_token_usage_execution_id ON token_usage(execution_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_billing_ledger_chat_id ON billing_ledger(chat_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_billing_ledger_project_id ON billing_ledger(project_id)`);
+  db.run(sql`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_chat_id ON pipeline_runs(chat_id)`);
+
   log("db", "Migrations complete");
 }

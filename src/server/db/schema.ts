@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -17,7 +17,9 @@ export const chats = sqliteTable("chats", {
   title: text("title").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
-});
+}, (table) => [
+  index("idx_chats_project_id").on(table.projectId),
+]);
 
 export const messages = sqliteTable("messages", {
   id: text("id").primaryKey(),
@@ -29,7 +31,9 @@ export const messages = sqliteTable("messages", {
   agentName: text("agent_name"),
   metadata: text("metadata"), // JSON string
   createdAt: integer("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_messages_chat_id").on(table.chatId),
+]);
 
 export const agentExecutions = sqliteTable("agent_executions", {
   id: text("id").primaryKey(),
@@ -44,7 +48,9 @@ export const agentExecutions = sqliteTable("agent_executions", {
   retryCount: integer("retry_count").notNull().default(0),
   startedAt: integer("started_at").notNull(),
   completedAt: integer("completed_at"),
-});
+}, (table) => [
+  index("idx_agent_executions_chat_id").on(table.chatId),
+]);
 
 export const tokenUsage = sqliteTable("token_usage", {
   id: text("id").primaryKey(),
@@ -66,7 +72,10 @@ export const tokenUsage = sqliteTable("token_usage", {
   costEstimate: real("cost_estimate").notNull(),
   estimated: integer("estimated").notNull().default(0),
   createdAt: integer("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_token_usage_chat_id").on(table.chatId),
+  index("idx_token_usage_execution_id").on(table.executionId),
+]);
 
 // Permanent billing ledger — NO foreign keys so records survive chat/project deletion
 export const billingLedger = sqliteTable("billing_ledger", {
@@ -88,7 +97,10 @@ export const billingLedger = sqliteTable("billing_ledger", {
   costEstimate: real("cost_estimate").notNull(),
   estimated: integer("estimated").notNull().default(0),
   createdAt: integer("created_at").notNull(),
-});
+}, (table) => [
+  index("idx_billing_ledger_chat_id").on(table.chatId),
+  index("idx_billing_ledger_project_id").on(table.projectId),
+]);
 
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),
@@ -124,4 +136,6 @@ export const pipelineRuns = sqliteTable("pipeline_runs", {
   checkpointData: text("checkpoint_data"), // JSON string of checkpoint options, nullable
   startedAt: integer("started_at").notNull(),
   completedAt: integer("completed_at"),
-});
+}, (table) => [
+  index("idx_pipeline_runs_chat_id").on(table.chatId),
+]);
