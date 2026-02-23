@@ -25,6 +25,38 @@ export const PIPELINE_DEFAULTS: Record<string, number> = {
   reasoningMinOutputTokens: 16_000,
   allowShellTools: 0, // 0 = disabled, 1 = enabled — gates shell-based custom tools
   checkpointTimeoutMs: 600_000, // 10 minutes default timeout for checkpoint pauses
+
+  // Shell action defaults
+  shellCommandTimeoutMs: 60_000,
+  shellMaxOutputLength: 50_000,
+
+  // Intent classification
+  classifyMaxOutputTokens: 100,
+  classifyMaxHistoryMessages: 3,
+  classifyMaxHistoryChars: 500,
+
+  // Summary / digest
+  summaryMaxOutputTokens: 1024,
+  summaryDigestTruncateChars: 500,
+
+  // Question answering
+  questionMaxOutputTokens: 2048,
+
+  // LLM-call action
+  llmCallMaxOutputTokens: 4096,
+
+  // Mood analysis
+  moodAnalysisMaxImages: 5,
+  moodAnalysisMaxOutputTokens: 1000,
+
+  // Test-run action
+  testRunMaxAttempts: 2,
+
+  // Chat title generation
+  titleMaxChars: 60,
+
+  // Stream throttle (ms between SSE broadcasts)
+  streamThrottleMs: 150,
 };
 
 /**

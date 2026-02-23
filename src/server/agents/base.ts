@@ -344,7 +344,7 @@ export async function runAgent(
     let fullText = "";
     let pendingChunk = "";
     let lastBroadcast = 0;
-    const THROTTLE_MS = 150;
+    const THROTTLE_MS = getPipelineSetting("streamThrottleMs");
     const filesWritten: string[] = [];
     let streamErrorCount = 0;
     const MAX_STREAM_ERRORS = 3;

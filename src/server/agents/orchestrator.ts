@@ -408,7 +408,7 @@ async function analyzeMoodImages(
 
   // Read images as base64 data URLs
   const imageParts: Array<{ type: "image"; image: string; mimeType: string }> = [];
-  for (const file of files.slice(0, 5)) {
+  for (const file of files.slice(0, getPipelineSetting("moodAnalysisMaxImages"))) {
     try {
       const filePath = join(moodDir, file);
       const buffer = Bun.file(filePath);
@@ -448,7 +448,7 @@ async function analyzeMoodImages(
           },
         ],
       }],
-      maxOutputTokens: opts?.maxOutputTokens ?? 1000,
+      maxOutputTokens: opts?.maxOutputTokens ?? getPipelineSetting("moodAnalysisMaxOutputTokens"),
       abortSignal: signal,
     });
     log("orchestrator", "Mood analysis completed", { imageCount: imageParts.length });
@@ -1490,7 +1490,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
         apiKey: titleApiKey,
         chatId, projectId, projectName, chatTitle,
       }).then(({ text }) => {
-        const autoTitle = text.trim().replace(/^["']|["']$/g, "").slice(0, 60);
+        const autoTitle = text.trim().replace(/^["']|["']$/g, "").slice(0, getPipelineSetting("titleMaxChars"));
         if (!autoTitle) return;
         db.update(schema.chats)
           .set({ title: autoTitle, updatedAt: Date.now() })
@@ -2178,7 +2178,7 @@ async function executePipelineSteps(ctx: {
           if (act.timeoutMs !== undefined) stepOverrides.testTimeoutMs = act.timeoutMs;
           if (act.maxTestFailures !== undefined) stepOverrides.maxTestFailures = act.maxTestFailures;
           if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
-          const maxFixes = act.maxAttempts ?? 2;
+          const maxFixes = act.maxAttempts ?? getPipelineSetting("testRunMaxAttempts");
 
           const hasTestFiles = testFilesExist(projectPath);
           if (hasTestFiles) {
@@ -2275,7 +2275,7 @@ async function executePipelineSteps(ctx: {
             throw new Error("Shell action requires a shellCommand");
           }
           broadcastAgentThinking(chatId, sk, `Running: ${act.shellCommand}`);
-          const timeout = act.timeoutMs ?? 60000;
+          const timeout = act.timeoutMs ?? getPipelineSetting("shellCommandTimeoutMs");
           const proc = Bun.spawn(["sh", "-c", act.shellCommand], {
             cwd: projectPath,
             stdout: "pipe",
@@ -2292,11 +2292,11 @@ async function executePipelineSteps(ctx: {
           const output = (stdout + (stderr ? `\n--- stderr ---\n${stderr}` : "")).trim();
           if (exitCode !== 0) {
             log("orchestrator", `Shell command failed (exit ${exitCode}): ${act.shellCommand}`);
-            agentResults.set(sk, `Shell failed (exit ${exitCode}):\n${output.slice(0, 2000)}`);
+            agentResults.set(sk, `Shell failed (exit ${exitCode}):\n${output.slice(0, getPipelineSetting("shellMaxOutputLength"))}`);
           } else {
             log("orchestrator", `Shell command completed: ${act.shellCommand}`, { exitCode, outputLength: output.length });
             const captureOutput = act.shellCaptureOutput !== false; // default true
-            agentResults.set(sk, captureOutput ? output.slice(0, 50000) : `Shell completed (exit 0)`);
+            agentResults.set(sk, captureOutput ? output.slice(0, getPipelineSetting("shellMaxOutputLength")) : `Shell completed (exit 0)`);
           }
         } else if (act.actionKind === "llm-call") {
           // LLM Call: custom LLM call with user-defined system prompt and input template
@@ -2323,7 +2323,7 @@ async function executePipelineSteps(ctx: {
             model: llmModel,
             system: act.systemPrompt,
             prompt: userInput,
-            maxOutputTokens: act.maxOutputTokens ?? 4096,
+            maxOutputTokens: act.maxOutputTokens ?? getPipelineSetting("llmCallMaxOutputTokens"),
             agentName: `action:${sk}`,
             provider: llmConfig.provider,
             modelId: llmConfig.model,
@@ -2646,10 +2646,11 @@ async function generateSummary(input: SummaryInput): Promise<string> {
   const providerKey = apiKeys[summaryConfig.provider];
   if (!providerKey) return fallback();
 
-  // Truncate each agent's output to 500 chars — summary only needs high-level view
+  // Truncate each agent's output — summary only needs high-level view
+  const digestCap = getPipelineSetting("summaryDigestTruncateChars");
   const digest = Array.from(agentResults.entries())
     .map(([agent, output]) => {
-      const truncated = output.length > 500 ? output.slice(0, 500) + "\n... (truncated)" : output;
+      const truncated = output.length > digestCap ? output.slice(0, digestCap) + "\n... (truncated)" : output;
       return `### ${agent}\n${truncated}`;
     })
     .join("\n\n");
@@ -2662,7 +2663,7 @@ async function generateSummary(input: SummaryInput): Promise<string> {
       model: summaryModel,
       system: systemPrompt,
       prompt,
-      maxOutputTokens: customMaxOutputTokens ?? SUMMARY_MAX_OUTPUT_TOKENS,
+      maxOutputTokens: customMaxOutputTokens ?? getPipelineSetting("summaryMaxOutputTokens"),
       agentName: "orchestrator:summary",
       provider: summaryConfig.provider,
       modelId: summaryConfig.model,
@@ -3223,8 +3224,8 @@ Tie-breaking: If ambiguous between build and fix, prefer "fix" when the project 
 /** Default intent classification prompt. Exported for settings API. */
 export const DEFAULT_INTENT_SYSTEM_PROMPT = INTENT_SYSTEM_PROMPT;
 
-const CLASSIFY_MAX_HISTORY_MESSAGES = 3;
-const CLASSIFY_MAX_HISTORY_CHARS = 500;
+const CLASSIFY_MAX_HISTORY_MESSAGES = () => getPipelineSetting("classifyMaxHistoryMessages");
+const CLASSIFY_MAX_HISTORY_CHARS = () => getPipelineSetting("classifyMaxHistoryChars");
 
 /**
  * Build the prompt string for intent classification, optionally including
@@ -3236,13 +3237,15 @@ export function buildClassifyPrompt(
 ): string {
   if (!chatHistory || chatHistory.length === 0) return userMessage;
 
-  const recent = chatHistory.slice(-CLASSIFY_MAX_HISTORY_MESSAGES);
+  const maxMessages = CLASSIFY_MAX_HISTORY_MESSAGES();
+  const maxChars = CLASSIFY_MAX_HISTORY_CHARS();
+  const recent = chatHistory.slice(-maxMessages);
   const lines: string[] = [];
   let chars = 0;
   for (const msg of recent) {
     const line = `${msg.role}: ${msg.content}`;
-    if (chars + line.length > CLASSIFY_MAX_HISTORY_CHARS) {
-      lines.push(`${msg.role}: ${msg.content.slice(0, CLASSIFY_MAX_HISTORY_CHARS - chars)}`);
+    if (chars + line.length > maxChars) {
+      lines.push(`${msg.role}: ${msg.content.slice(0, maxChars - chars)}`);
       break;
     }
     lines.push(line);
@@ -3316,7 +3319,7 @@ export async function classifyIntent(
       model: classifyModel,
       system: intentSystemPrompt,
       prompt: classifyPrompt,
-      maxOutputTokens: 100,
+      maxOutputTokens: getPipelineSetting("classifyMaxOutputTokens"),
     });
     logLLMOutput("orchestrator", "orchestrator-classify", result.text);
 
