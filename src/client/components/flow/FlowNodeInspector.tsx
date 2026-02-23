@@ -749,7 +749,7 @@ function CheckpointInspector({ data, nodeId, onUpdate }: {
 const KIND_DESCRIPTIONS: Record<string, string> = {
   "build-check": "Runs `vite build` to verify the project compiles. If errors are found, a build-fix agent attempts to fix them (up to Max Attempts). Configure the build-fix agent's prompt in Settings > System Prompts.",
   "test-run": "Runs the project's test suite (vitest). If tests fail, a build-fix agent attempts to fix them and re-runs only the failed tests. Configure the build-fix agent's prompt in Settings > System Prompts.",
-  "remediation": "Detects issues from review agents (code-review, QA, security), routes fixes to the appropriate dev agent, then re-runs only affected reviewers. Repeats up to Max Cycles. Configure agent prompts in Settings > System Prompts.",
+  "remediation": "Reads outputs from connected review agents, detects issues via fail signals, routes fixes to configured dev agents, then re-runs affected reviewers. Repeats up to Max Cycles or until all issues resolve. Configure which agents handle fixes below.",
   "summary": "LLM call — generates a final summary of what was built, using all agent outputs. Adapts tone based on whether the build succeeded or had errors.",
   "vibe-intake": "Loads the project's vibe brief (adjectives, metaphor, target user) and injects it into the pipeline context. No LLM call.",
   "mood-analysis": "LLM call (vision) — analyzes uploaded mood board images and extracts color palette, style descriptors, and mood keywords as structured JSON.",
@@ -825,8 +825,14 @@ function ActionInspector({ data, nodeId, onUpdate }: {
   const [useCustomPrompt, setUseCustomPrompt] = useState(!!data.systemPrompt);
   const [systemPrompt, setSystemPrompt] = useState(data.systemPrompt ?? "");
   const [maxOutputTokens, setMaxOutputTokens] = useState(data.maxOutputTokens?.toString() ?? "");
+  // Remediation config state
+  const [remediationFixAgents, setRemediationFixAgents] = useState<string[]>(data.remediationFixAgents ?? []);
+  const [remediationReviewerKeys, setRemediationReviewerKeys] = useState<string[]>(data.remediationReviewerKeys ?? []);
+  const [useCustomFixAgents, setUseCustomFixAgents] = useState(!!data.remediationFixAgents);
+  const [useCustomReviewerKeys, setUseCustomReviewerKeys] = useState(!!data.remediationReviewerKeys);
 
   const isAgentic = AGENTIC_KINDS.has(data.kind);
+  const isRemediation = data.kind === "remediation";
 
   useEffect(() => {
     setLabel(data.label);
@@ -839,6 +845,10 @@ function ActionInspector({ data, nodeId, onUpdate }: {
     setUseCustomPrompt(!!data.systemPrompt);
     setSystemPrompt(data.systemPrompt ?? "");
     setMaxOutputTokens(data.maxOutputTokens?.toString() ?? "");
+    setRemediationFixAgents(data.remediationFixAgents ?? []);
+    setRemediationReviewerKeys(data.remediationReviewerKeys ?? []);
+    setUseCustomFixAgents(!!data.remediationFixAgents);
+    setUseCustomReviewerKeys(!!data.remediationReviewerKeys);
   }, [data]);
 
   const save = useCallback(() => {
@@ -851,25 +861,18 @@ function ActionInspector({ data, nodeId, onUpdate }: {
       maxUniqueErrors: overrides.maxUniqueErrors ? parseInt(overrides.maxUniqueErrors) : undefined,
       systemPrompt: useCustomPrompt && systemPrompt ? systemPrompt : undefined,
       maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
+      remediationFixAgents: useCustomFixAgents && remediationFixAgents.length > 0 ? remediationFixAgents : undefined,
+      remediationReviewerKeys: useCustomReviewerKeys && remediationReviewerKeys.length > 0 ? remediationReviewerKeys : undefined,
     });
-  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, onUpdate]);
+  }, [nodeId, data, label, overrides, useCustomPrompt, systemPrompt, maxOutputTokens, useCustomFixAgents, remediationFixAgents, useCustomReviewerKeys, remediationReviewerKeys, onUpdate]);
 
   const handleToggleCustomPrompt = useCallback((enabled: boolean) => {
     setUseCustomPrompt(enabled);
     if (!enabled) {
       setSystemPrompt("");
-      onUpdate(nodeId, {
-        ...data,
-        label,
-        timeoutMs: overrides.timeoutMs ? parseInt(overrides.timeoutMs) : undefined,
-        maxAttempts: overrides.maxAttempts ? parseInt(overrides.maxAttempts) : undefined,
-        maxTestFailures: overrides.maxTestFailures ? parseInt(overrides.maxTestFailures) : undefined,
-        maxUniqueErrors: overrides.maxUniqueErrors ? parseInt(overrides.maxUniqueErrors) : undefined,
-        systemPrompt: undefined,
-        maxOutputTokens: maxOutputTokens ? parseInt(maxOutputTokens) : undefined,
-      });
+      setTimeout(save, 0);
     }
-  }, [nodeId, data, label, overrides, maxOutputTokens, onUpdate]);
+  }, [save]);
 
   const fields = KIND_FIELDS[data.kind] ?? [];
   const ioInfo = KIND_IO[data.kind];
@@ -949,6 +952,115 @@ function ActionInspector({ data, nodeId, onUpdate }: {
               min={1}
             />
           </label>
+        </div>
+      )}
+
+      {/* Remediation Configuration */}
+      {isRemediation && (
+        <div className="border-t border-border pt-2 mt-2 space-y-2">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Remediation Routing</span>
+
+          {/* Fix Agents */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground">Fix Agents</span>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={useCustomFixAgents}
+                  onChange={(e) => {
+                    setUseCustomFixAgents(e.target.checked);
+                    if (!e.target.checked) {
+                      setRemediationFixAgents([]);
+                      setTimeout(save, 0);
+                    } else {
+                      const defaults = ["frontend-dev", "backend-dev", "styling"];
+                      setRemediationFixAgents(defaults);
+                      setTimeout(save, 0);
+                    }
+                  }}
+                  className="rounded border-border h-3 w-3"
+                />
+                <span className="text-[10px] text-muted-foreground">Override</span>
+              </label>
+            </div>
+            {useCustomFixAgents ? (
+              <div className="space-y-1">
+                {["frontend-dev", "backend-dev", "styling"].map((agent) => (
+                  <label key={agent} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={remediationFixAgents.includes(agent)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...remediationFixAgents, agent]
+                          : remediationFixAgents.filter((a) => a !== agent);
+                        setRemediationFixAgents(next);
+                        setTimeout(save, 0);
+                      }}
+                      className="rounded border-border h-3 w-3"
+                    />
+                    <span className="text-[11px] font-mono text-foreground">{agent}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[10px] text-muted-foreground italic">
+                Auto-detect from review routing hints
+              </div>
+            )}
+          </div>
+
+          {/* Review Sources */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground">Review Sources</span>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={useCustomReviewerKeys}
+                  onChange={(e) => {
+                    setUseCustomReviewerKeys(e.target.checked);
+                    if (!e.target.checked) {
+                      setRemediationReviewerKeys([]);
+                      setTimeout(save, 0);
+                    } else {
+                      const defaults = ["code-review", "qa", "security"];
+                      setRemediationReviewerKeys(defaults);
+                      setTimeout(save, 0);
+                    }
+                  }}
+                  className="rounded border-border h-3 w-3"
+                />
+                <span className="text-[10px] text-muted-foreground">Override</span>
+              </label>
+            </div>
+            {useCustomReviewerKeys ? (
+              <div className="space-y-1">
+                {["code-review", "qa", "security"].map((key) => (
+                  <label key={key} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={remediationReviewerKeys.includes(key)}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...remediationReviewerKeys, key]
+                          : remediationReviewerKeys.filter((k) => k !== key);
+                        setRemediationReviewerKeys(next);
+                        setTimeout(save, 0);
+                      }}
+                      className="rounded border-border h-3 w-3"
+                    />
+                    <span className="text-[11px] font-mono text-foreground">{key}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[10px] text-muted-foreground italic">
+                Default: code-review, qa, security
+              </div>
+            )}
+          </div>
         </div>
       )}
 

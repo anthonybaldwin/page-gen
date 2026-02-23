@@ -1023,6 +1023,9 @@ export interface ActionStep {
   // LLM configuration (for agentic action kinds: summary, mood-analysis)
   systemPrompt?: string;
   maxOutputTokens?: number;
+  // Remediation-specific configuration
+  remediationFixAgents?: string[];
+  remediationReviewerKeys?: string[];
 }
 
 export interface VersionStep {
@@ -2215,6 +2218,8 @@ async function executePipelineSteps(ctx: {
             chatId, projectId, projectPath, projectName, chatTitle,
             userMessage, chatHistory, agentResults, completedAgents, callCounter,
             providers, apiKeys, signal, actionOverrides: stepOverrides,
+            remediationFixAgents: act.remediationFixAgents,
+            remediationReviewerKeys: act.remediationReviewerKeys,
           });
           agentResults.set(sk, "Remediation complete");
         } else if (act.actionKind === "summary") {
@@ -2615,10 +2620,11 @@ export function outputHasFailSignals(output: string): boolean {
   return FAIL_SIGNALS.some((signal) => lower.includes(signal.toLowerCase()));
 }
 
-export function detectIssues(agentResults: Map<string, string>): ReviewFindings {
-  const codeReviewOutput = agentResults.get("code-review") || "";
-  const qaOutput = agentResults.get("qa") || "";
-  const securityOutput = agentResults.get("security") || "";
+export function detectIssues(agentResults: Map<string, string>, reviewerKeys?: string[]): ReviewFindings {
+  const keys = reviewerKeys ?? ["code-review", "qa", "security"];
+  const codeReviewOutput = agentResults.get(keys[0] ?? "code-review") || "";
+  const qaOutput = keys.length > 1 ? (agentResults.get(keys[1]!) || "") : "";
+  const securityOutput = keys.length > 2 ? (agentResults.get(keys[2]!) || "") : "";
 
   // Inverted logic: treat output as clean UNLESS it contains explicit fail signals.
   // This is far more robust — LLMs vary in how they say "pass" but are consistent about flagging problems.
@@ -2648,7 +2654,12 @@ export function detectIssues(agentResults: Map<string, string>): ReviewFindings 
  * Routes based on [frontend]/[backend]/[styling] tags from code-review and QA findings.
  * Defaults to frontend-dev when no clear routing (backward compatible).
  */
-export function determineFixAgents(findings: ReviewFindings): AgentName[] {
+export function determineFixAgents(findings: ReviewFindings, overrideAgents?: string[]): AgentName[] {
+  // When explicit fix agents are configured on the remediation node, use those
+  if (overrideAgents && overrideAgents.length > 0) {
+    return overrideAgents as AgentName[];
+  }
+
   const agents: AgentName[] = [];
   const { routingHints } = findings;
 
@@ -2690,6 +2701,9 @@ interface RemediationContext {
   apiKeys: Record<string, string>;
   signal: AbortSignal;
   actionOverrides?: ActionOverrides;
+  // Per-node remediation configuration
+  remediationFixAgents?: string[];
+  remediationReviewerKeys?: string[];
 }
 
 /**
@@ -2706,7 +2720,7 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
     if (ctx.signal.aborted) return;
 
     // 1. Check for issues in current code-review/QA/security output
-    const findings = detectIssues(ctx.agentResults);
+    const findings = detectIssues(ctx.agentResults, ctx.remediationReviewerKeys);
     if (!findings.hasIssues) return; // All clean — exit loop
 
     // Count current issues — break if not improving (prevents ping-pong loops)
@@ -2727,7 +2741,7 @@ async function runRemediationLoop(ctx: RemediationContext): Promise<void> {
     const cycleLabel = cycle + 1;
 
     // 3. Determine which agent(s) should fix the findings
-    const fixAgents = determineFixAgents(findings);
+    const fixAgents = determineFixAgents(findings, ctx.remediationFixAgents);
 
     // 4. Run each fix agent
     let totalFilesWritten = 0;

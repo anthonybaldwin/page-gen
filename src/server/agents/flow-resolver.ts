@@ -269,6 +269,9 @@ export function resolveFlowTemplate(template: FlowTemplate, ctx: FlowResolutionC
         // LLM configuration (for agentic action kinds)
         systemPrompt: actionData.systemPrompt,
         maxOutputTokens: actionData.maxOutputTokens,
+        // Remediation-specific configuration
+        remediationFixAgents: actionData.remediationFixAgents,
+        remediationReviewerKeys: actionData.remediationReviewerKeys,
       });
       nodeToStepKey.set(nodeId, nodeId);
 

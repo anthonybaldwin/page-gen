@@ -71,6 +71,9 @@ export interface ActionNodeData {
   // LLM configuration (for agentic action kinds: summary, mood-analysis)
   systemPrompt?: string;       // custom system prompt override
   maxOutputTokens?: number;    // max output tokens for the LLM call
+  // Remediation-specific configuration
+  remediationFixAgents?: string[];     // agents to use for fixes (default: auto-detect via routing hints)
+  remediationReviewerKeys?: string[];  // result keys to scan for issues (default: ["code-review", "qa", "security"])
 }
 
 export interface VersionNodeData {
