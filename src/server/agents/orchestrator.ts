@@ -1668,7 +1668,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     }
     log("orchestrator", `Using flow template "${fixTemplate.name}" for fix intent`);
     const plan = resolveFlowTemplate(fixTemplate, {
-      intent: "fix", scope, needsBackend: scope === "backend" || scope === "full",
+      intent: "fix", scope, needsBackend: classification.needsBackend,
       hasFiles: true, userMessage,
     });
     if (plan.steps.length === 0) {
@@ -1737,7 +1737,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const plan = resolveFlowTemplate(buildTemplate, {
     intent: "build",
     scope: classification.scope,
-    needsBackend: classification.scope === "backend" || classification.scope === "full",
+    needsBackend: classification.needsBackend,
     hasFiles: projectHasFiles(projectPath),
     userMessage,
   });
@@ -1886,10 +1886,13 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     abortControllers.delete(chatId);
     return;
   }
+  // For resume, we don't have the original classification — derive needsBackend from scope
+  // (backend-dev only appears in plan if scope was backend/full AND needsBackend was true)
+  const resumeNeedsBackend = scope === "backend" || scope === "full";
   plan = resolveFlowTemplate(template, {
     intent,
     scope,
-    needsBackend: scope === "backend" || scope === "full",
+    needsBackend: resumeNeedsBackend,
     hasFiles: intent === "build" ? projectHasFiles(projectPath) : true,
     userMessage: originalMessage,
   });
@@ -3045,7 +3048,7 @@ export function needsBackend(researchOutput: string): boolean {
 // --- Intent classification ---
 
 const INTENT_SYSTEM_PROMPT = `You classify user messages for a page builder app.
-Respond with ONLY a JSON object: {"intent":"build"|"fix"|"question","scope":"frontend"|"backend"|"styling"|"full","reasoning":"<one sentence>"}
+Respond with ONLY a JSON object: {"intent":"build"|"fix"|"question","scope":"frontend"|"backend"|"styling"|"full","needsBackend":true|false,"reasoning":"<one sentence>"}
 
 Rules:
 - "build": New feature, new page, new project, or adding something that doesn't exist yet
@@ -3055,13 +3058,16 @@ Rules:
 - scope "backend": API routes, server logic, database
 - scope "styling": CSS, colors, fonts, spacing, visual polish
 - scope "full": Multiple areas or unclear
+- needsBackend: true ONLY when the request clearly requires server-side logic, API routes, or a database. Default to false when unclear.
 
 Examples:
-- "Build me a landing page with a hero and contact form" → {"intent":"build","scope":"full","reasoning":"New page request with multiple sections"}
-- "The submit button isn't working" → {"intent":"fix","scope":"frontend","reasoning":"Bug report about existing button behavior"}
-- "Change the header color to blue" → {"intent":"fix","scope":"styling","reasoning":"Visual change to existing element"}
-- "Add a REST API for user signup" → {"intent":"build","scope":"backend","reasoning":"New API endpoint that doesn't exist yet"}
-- "How does the routing work?" → {"intent":"question","scope":"full","reasoning":"Asking about project architecture"}
+- "Build me a landing page with a hero and contact form" → {"intent":"build","scope":"full","needsBackend":false,"reasoning":"New page request — contact form can be frontend-only"}
+- "Create a simple calculator app. No backend." → {"intent":"build","scope":"frontend","needsBackend":false,"reasoning":"Explicitly frontend-only, no server needed"}
+- "The submit button isn't working" → {"intent":"fix","scope":"frontend","needsBackend":false,"reasoning":"Bug report about existing button behavior"}
+- "Change the header color to blue" → {"intent":"fix","scope":"styling","needsBackend":false,"reasoning":"Visual change to existing element"}
+- "Add a REST API for user signup" → {"intent":"build","scope":"backend","needsBackend":true,"reasoning":"New API endpoint requires server-side logic"}
+- "Build an app with user authentication and database" → {"intent":"build","scope":"full","needsBackend":true,"reasoning":"Auth and database require server-side logic"}
+- "How does the routing work?" → {"intent":"question","scope":"full","needsBackend":false,"reasoning":"Asking about project architecture"}
 
 If recent conversation context is provided, use it to resolve pronouns and references (e.g., "them", "it", "those").
 
@@ -3097,6 +3103,25 @@ export function buildClassifyPrompt(
 }
 
 /**
+ * Quick keyword heuristic for needsBackend on the fast path (no LLM call).
+ * Negation patterns ("no backend", "no server", "frontend only") → false.
+ * Positive signals ("api route", "database", "server-side", "express") → true.
+ * Default → false (most page-builder projects are frontend-only).
+ */
+export function fastPathNeedsBackend(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase();
+  // Negation patterns — explicitly frontend-only
+  if (/no\s+back\s*end|no\s+server|without\s+(a\s+)?back\s*end|frontend[\s-]*only|client[\s-]*side[\s-]*only|single[\s-]*page|no\s+api/i.test(lower)) {
+    return false;
+  }
+  // Positive backend signals
+  if (/api\s*route|server[\s-]*side|database|express|back\s*end|rest\s*api|graphql|authentication|user\s*auth/i.test(lower)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Classify the user's intent using the orchestrator model.
  * Fast-path: if no existing files, always returns "build" (skip API call).
  * Fallback: any error returns "build" (safe default).
@@ -3118,16 +3143,16 @@ export async function classifyIntent(
 }> {
   // Fast path: empty project → always build
   if (!hasExistingFiles) {
-    return { intent: "build", scope: "full", reasoning: "New project with no existing files" };
+    return { intent: "build", scope: "full", needsBackend: fastPathNeedsBackend(userMessage), reasoning: "New project with no existing files" };
   }
 
   const classifyConfig = getAgentConfigResolved("orchestrator:classify");
   if (!classifyConfig) {
-    return { intent: "build", scope: "full", reasoning: "Fallback: no classify config" };
+    return { intent: "build", scope: "full", needsBackend: false, reasoning: "Fallback: no classify config" };
   }
   const classifyModel = resolveProviderModel(classifyConfig, providers);
   if (!classifyModel) {
-    return { intent: "build", scope: "full", reasoning: "Fallback: no classify model" };
+    return { intent: "build", scope: "full", needsBackend: false, reasoning: "Fallback: no classify model" };
   }
 
   try {
@@ -3162,13 +3187,16 @@ export async function classifyIntent(
       parsed = JSON.parse(raw);
     } catch {
       logWarn("orchestrator", `Intent classification returned invalid JSON, defaulting to build`, { raw });
-      return { intent: "build" as OrchestratorIntent, scope: "full" as IntentScope, reasoning: "Fallback: invalid JSON", tokenUsage };
+      return { intent: "build" as OrchestratorIntent, scope: "full" as IntentScope, needsBackend: false, reasoning: "Fallback: invalid JSON", tokenUsage };
     }
     const intent: OrchestratorIntent = ["build", "fix", "question"].includes(parsed.intent!) ? parsed.intent as OrchestratorIntent : "build";
     const scope: IntentScope = ["frontend", "backend", "styling", "full"].includes(parsed.scope!) ? parsed.scope as IntentScope : "full";
+    const classifiedNeedsBackend = typeof (parsed as Record<string, unknown>).needsBackend === "boolean"
+      ? (parsed as Record<string, unknown>).needsBackend as boolean
+      : scope === "backend";
 
     log("orchestrator:classify", "classified", {
-      intent, scope,
+      intent, scope, needsBackend: classifiedNeedsBackend,
       model: classifyConfig.model,
       promptChars: userMessage.length,
       tokens: {
@@ -3180,10 +3208,10 @@ export async function classifyIntent(
       rawResponse: raw,
     });
 
-    return { intent, scope, reasoning: parsed.reasoning || "", tokenUsage };
+    return { intent, scope, needsBackend: classifiedNeedsBackend, reasoning: parsed.reasoning || "", tokenUsage };
   } catch (err) {
     logError("orchestrator", "Intent classification failed, defaulting to build", err);
-    return { intent: "build", scope: "full", reasoning: "Fallback: classification error" };
+    return { intent: "build", scope: "full", needsBackend: false, reasoning: "Fallback: classification error" };
   }
 }
 

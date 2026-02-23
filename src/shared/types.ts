@@ -141,6 +141,7 @@ export type IntentScope = "frontend" | "backend" | "styling" | "full";
 export interface IntentClassification {
   intent: OrchestratorIntent;
   scope: IntentScope;
+  needsBackend: boolean;
   reasoning: string;
 }
 

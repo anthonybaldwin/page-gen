@@ -21,6 +21,7 @@ import {
   buildFixPlan,
   isDataFile,
   isAgentStep,
+  fastPathNeedsBackend,
   type AgentStep,
 } from "../../src/server/agents/orchestrator.ts";
 import { buildPrompt, buildSplitPrompt } from "../../src/server/agents/base.ts";
@@ -791,6 +792,62 @@ describe("buildExecutionPlan (fix mode — tiered)", () => {
   });
 });
 
+// --- fastPathNeedsBackend ---
+
+describe("fastPathNeedsBackend", () => {
+  test("returns false for 'no backend' negation", () => {
+    expect(fastPathNeedsBackend("Create a calculator. No backend.")).toBe(false);
+  });
+
+  test("returns false for 'no server' negation", () => {
+    expect(fastPathNeedsBackend("Simple page with no server")).toBe(false);
+  });
+
+  test("returns false for 'frontend only'", () => {
+    expect(fastPathNeedsBackend("Frontend only calculator app")).toBe(false);
+  });
+
+  test("returns false for 'single page'", () => {
+    expect(fastPathNeedsBackend("Single page app, no API needed")).toBe(false);
+  });
+
+  test("returns false for 'client-side only'", () => {
+    expect(fastPathNeedsBackend("Client-side only todo list")).toBe(false);
+  });
+
+  test("returns true for 'api route'", () => {
+    expect(fastPathNeedsBackend("Build an app with api routes")).toBe(true);
+  });
+
+  test("returns true for 'database'", () => {
+    expect(fastPathNeedsBackend("App with a database for users")).toBe(true);
+  });
+
+  test("returns true for 'server-side'", () => {
+    expect(fastPathNeedsBackend("Needs server-side rendering")).toBe(true);
+  });
+
+  test("returns true for 'rest api'", () => {
+    expect(fastPathNeedsBackend("Build a rest api for managing tasks")).toBe(true);
+  });
+
+  test("returns true for 'authentication'", () => {
+    expect(fastPathNeedsBackend("Build an app with user authentication")).toBe(true);
+  });
+
+  test("returns false for generic frontend request", () => {
+    expect(fastPathNeedsBackend("Build a simple landing page with hero and CTA")).toBe(false);
+  });
+
+  test("returns false for empty message", () => {
+    expect(fastPathNeedsBackend("")).toBe(false);
+  });
+
+  test("negation wins over positive signal", () => {
+    expect(fastPathNeedsBackend("No backend needed, just a frontend calculator")).toBe(false);
+  });
+});
+
 // --- classifyIntent ---
 
 describe("classifyIntent", () => {
@@ -800,17 +857,32 @@ describe("classifyIntent", () => {
     const result = await classifyIntent("fix the button", false, emptyProviders);
     expect(result.intent).toBe("build");
     expect(result.scope).toBe("full");
+    expect(result.needsBackend).toBe(false);
     expect(result.reasoning).toContain("no existing files");
   });
 
   test("fast-path: ignores message content when no files", async () => {
     const result = await classifyIntent("how does the routing work?", false, emptyProviders);
     expect(result.intent).toBe("build");
+    expect(result.needsBackend).toBe(false);
   });
 
-  test("fallback: returns build when no providers available", async () => {
+  test("fast-path: needsBackend true when message mentions backend", async () => {
+    const result = await classifyIntent("Build an app with a REST API and database", false, emptyProviders);
+    expect(result.intent).toBe("build");
+    expect(result.needsBackend).toBe(true);
+  });
+
+  test("fast-path: needsBackend false when message says no backend", async () => {
+    const result = await classifyIntent("Simple calculator. No backend.", false, emptyProviders);
+    expect(result.intent).toBe("build");
+    expect(result.needsBackend).toBe(false);
+  });
+
+  test("fallback: returns build with needsBackend false when no providers available", async () => {
     const result = await classifyIntent("fix the button", true, emptyProviders);
     expect(result.intent).toBe("build");
+    expect(result.needsBackend).toBe(false);
     expect(result.reasoning).toContain("Fallback");
   });
 
@@ -819,6 +891,7 @@ describe("classifyIntent", () => {
     const result = await classifyIntent("fix the button", false, emptyProviders, history);
     expect(result.intent).toBe("build");
     expect(result.scope).toBe("full");
+    expect(result.needsBackend).toBe(false);
   });
 });
 
