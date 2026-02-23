@@ -5,7 +5,8 @@ import { useUsageStore } from "../../stores/usageStore.ts";
 import { useThemeStore } from "../../stores/themeStore.ts";
 import { api } from "../../lib/api.ts";
 import type { Project, Chat } from "../../../shared/types.ts";
-import { UsageBadge } from "../billing/UsageBadge.tsx";
+import { UsageBadge, formatCost } from "../billing/UsageBadge.tsx";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../ui/tooltip.tsx";
 const UsageDashboard = React.lazy(() => import("../billing/UsageDashboard.tsx").then(m => ({ default: m.UsageDashboard })));
 import { SettingsButton } from "../settings/SettingsButton.tsx";
 const SettingsModal = React.lazy(() => import("../settings/SettingsModal.tsx").then(m => ({ default: m.SettingsModal })));
@@ -45,6 +46,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [chatToDelete, setChatToDelete] = useState<Chat | null>(null);
   const [deleting, setDeleting] = useState(false);
   const { theme, setTheme } = useThemeStore();
+
+  // Usage store values for collapsed tooltip
+  const totalCost = useUsageStore((s) => s.totalCost);
+  const projectCost = useUsageStore((s) => s.projectCost);
+  const chatCost = useUsageStore((s) => s.chatCost);
 
   // Sync active chat id to usage store
   const setActiveChatId = useUsageStore((s) => s.setActiveChatId);
@@ -188,16 +194,39 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         <div className="flex-1" />
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => setShowUsage(true)}
-          aria-label="Usage & billing"
-          title="Usage & billing"
-        >
-          <DollarSign className="h-4 w-4" />
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setShowUsage(true)}
+                aria-label="Usage & billing"
+              >
+                <DollarSign className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="py-2 px-3">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs">Total spent</span>
+                <span className="text-xs font-medium text-emerald-400">{formatCost(totalCost)}</span>
+              </div>
+              {activeProject && (
+                <div className="flex items-center justify-between gap-4 mt-0.5">
+                  <span className="text-xs opacity-70">This project</span>
+                  <span className="text-xs">{formatCost(projectCost)}</span>
+                </div>
+              )}
+              {activeChat && (
+                <div className="flex items-center justify-between gap-4 mt-0.5">
+                  <span className="text-xs opacity-70">This chat</span>
+                  <span className="text-xs">{formatCost(chatCost)}</span>
+                </div>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <SettingsButton onClick={() => setShowSettings(true)} />
         <Button
           variant="ghost"

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useUsageStore } from "../../stores/usageStore.ts";
 import { api } from "../../lib/api.ts";
 
-function formatCost(cost: number): string {
+export function formatCost(cost: number): string {
   if (cost === 0) return "$0.00";
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
