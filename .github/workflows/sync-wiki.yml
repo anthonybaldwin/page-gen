@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout docs/wiki
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           sparse-checkout: docs/wiki
           sparse-checkout-cone-mode: false
