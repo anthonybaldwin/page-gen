@@ -221,8 +221,9 @@ export function FileExplorer() {
       a.download = `${activeProject.name || activeProject.id}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      // download failed silently
+    } catch (err) {
+      console.error("[file-explorer] Download failed:", err);
+      alert("Download failed. Check the console for details.");
     }
   }
 

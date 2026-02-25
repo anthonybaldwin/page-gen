@@ -27,7 +27,7 @@ export function UsageBadge({ onClick }: Props) {
     api
       .get<{ totalCost: number }>("/usage/summary")
       .then((summary) => setLifetimeCost(summary.totalCost))
-      .catch(() => {});
+      .catch((err) => console.warn("[usage] Failed to load lifetime cost:", err));
   }, [setLifetimeCost]);
 
   // Seed project cost from DB when active project changes
@@ -36,7 +36,7 @@ export function UsageBadge({ onClick }: Props) {
     api
       .get<{ totalCost: number }>(`/usage/summary?projectId=${activeProjectId}`)
       .then((summary) => seedProjectCost(summary.totalCost))
-      .catch(() => {});
+      .catch((err) => console.warn("[usage] Failed to load project cost:", err));
   }, [activeProjectId, seedProjectCost]);
 
   // Seed chat cost from DB when active chat changes
@@ -45,7 +45,7 @@ export function UsageBadge({ onClick }: Props) {
     api
       .get<{ totalCost: number }>(`/usage/summary?chatId=${activeChatId}`)
       .then((summary) => seedChatCost(summary.totalCost))
-      .catch(() => {});
+      .catch((err) => console.warn("[usage] Failed to load chat cost:", err));
   }, [activeChatId, seedChatCost]);
 
   return (

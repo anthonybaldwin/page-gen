@@ -64,7 +64,8 @@ export function ChatWindow() {
       .then(setMessages)
       .catch((err) => {
         console.error("[chat] Failed to load messages:", err);
-        setError("Failed to load messages. Is the backend server running?");
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        setError(`Failed to load messages: ${msg}`);
       });
 
     // Check if orchestration is still running and restore thinking blocks

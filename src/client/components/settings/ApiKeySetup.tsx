@@ -51,7 +51,8 @@ export function ApiKeySetup({ onComplete }: { onComplete: () => void }) {
             ...(entry.proxyUrl ? { proxyUrl: entry.proxyUrl } : {}),
           };
         }
-      } catch {
+      } catch (err) {
+        console.warn(`[api-key] Validation request failed for ${provider.id}, accepting key without validation:`, err);
         validKeys[provider.id] = {
           apiKey: entry.apiKey,
           ...(entry.proxyUrl ? { proxyUrl: entry.proxyUrl } : {}),

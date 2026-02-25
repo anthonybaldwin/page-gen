@@ -52,31 +52,42 @@ function effectiveSetting(key: string, overrides?: ActionOverrides): number {
  * instead of wasting retries. Covers credit exhaustion, auth failures,
  * invalid API keys, and billing issues.
  */
-export function isNonRetriableApiError(err: unknown): { nonRetriable: boolean; reason: string } {
+export function isNonRetriableApiError(err: unknown): { nonRetriable: boolean; reason: string; errorType: string } {
   const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
 
   // HTTP 402 Payment Required / credit exhaustion
   if (/402|payment.?required|credit|insufficient.?funds|billing|out of credit/i.test(message)) {
-    return { nonRetriable: true, reason: "API credits exhausted (402). Pipeline halted to prevent further charges." };
+    return { nonRetriable: true, reason: "API credits exhausted (402). Pipeline halted to prevent further charges.", errorType: "credit_exhaustion" };
   }
 
   // HTTP 401 Unauthorized / invalid key
   if (/401|unauthorized|invalid.?api.?key|authentication.?failed|invalid.*x-api-key/i.test(message)) {
-    return { nonRetriable: true, reason: "API authentication failed (401). Check your API key." };
+    return { nonRetriable: true, reason: "API authentication failed (401). Check your API key.", errorType: "auth_failure" };
   }
 
   // HTTP 403 Forbidden / permission denied
   if (/403|forbidden|access.?denied|permission.?denied/i.test(message)) {
-    return { nonRetriable: true, reason: "API access forbidden (403). Check your API key permissions." };
+    return { nonRetriable: true, reason: "API access forbidden (403). Check your API key permissions.", errorType: "forbidden" };
   }
 
   // Anthropic-specific: overloaded is retriable, but "invalid_request" is not
   if (/invalid_request_error/i.test(message) && !/overloaded/i.test(message)) {
-    return { nonRetriable: true, reason: "Invalid API request — not retriable." };
+    return { nonRetriable: true, reason: "Invalid API request — not retriable.", errorType: "invalid_request" };
   }
 
-  return { nonRetriable: false, reason: "" };
+  return { nonRetriable: false, reason: "", errorType: "" };
+}
+
+/**
+ * Broadcast an agent error AND persist it to the messages table so it survives page refresh.
+ * This is the correct pattern for all pipeline-visible errors (Pipeline Chat Persistence Rule).
+ */
+async function persistAgentError(chatId: string, agentName: string, content: string): Promise<void> {
+  broadcastAgentError(chatId, agentName, content);
+  await db.insert(schema.messages).values({
+    id: nanoid(), chatId, role: "system",
+    content, agentName, metadata: null, createdAt: Date.now(),
+  });
 }
 
 /**
@@ -1170,14 +1181,14 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
   // Hard cap — prevent runaway costs
   const maxCalls = getMaxAgentCalls();
   if (callCounter.value >= maxCalls) {
-    broadcastAgentError(chatId, "orchestrator", `Agent call limit reached (${maxCalls}). Stopping to prevent runaway costs.`);
+    await persistAgentError(chatId, "orchestrator", `Agent call limit reached (${maxCalls}). Stopping to prevent runaway costs.`);
     return null;
   }
   callCounter.value++;
 
   const config = getAgentConfigResolved(step.agentName);
   if (!config) {
-    broadcastAgentError(chatId, "orchestrator", `Unknown agent: ${step.agentName}`);
+    await persistAgentError(chatId, "orchestrator", `Unknown agent: ${step.agentName}`);
     return null;
   }
 
@@ -1216,7 +1227,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
     if (currentTokens + estimatedInputTokens > preflightCheck.limit * 0.95) {
       log("orchestrator", `Pre-flight skip: ${stepKey}`, { agent: stepKey, estimatedTokens: estimatedInputTokens, currentTokens, limit: preflightCheck.limit });
       const pct = Math.round((currentTokens / preflightCheck.limit) * 100);
-      broadcastAgentError(chatId, "orchestrator", `Skipping ${stepKey}: ${currentTokens.toLocaleString()} / ${preflightCheck.limit.toLocaleString()} tokens used (${pct}%), estimated ~${estimatedInputTokens.toLocaleString()} more needed`);
+      await persistAgentError(chatId, "orchestrator", `Skipping ${stepKey}: ${currentTokens.toLocaleString()} / ${preflightCheck.limit.toLocaleString()} tokens used (${pct}%), estimated ~${estimatedInputTokens.toLocaleString()} more needed`);
       return null;
     }
   }
@@ -1327,6 +1338,9 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
           cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
           costEstimate: costEst,
         });
+      } else if (provisionalIds) {
+        // Void provisional records when tokenUsage is missing to prevent orphans
+        voidProvisionalUsage(provisionalIds);
       }
 
       await db.update(schema.agentExecutions)
@@ -1408,7 +1422,7 @@ async function runPipelineStep(ctx: PipelineStepContext): Promise<string | null>
         broadcastAgentError(chatId, stepKey, apiCheck.reason);
         broadcast({
           type: "agent_error",
-          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: "credit_exhaustion" },
+          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: apiCheck.errorType },
         });
         return null; // Halt immediately — no retries
       }
@@ -1472,7 +1486,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const costCheck = checkCostLimit(chatId);
   if (!costCheck.allowed) {
     abortControllers.delete(chatId);
-    broadcastAgentError(chatId, "orchestrator", `Token limit reached (${costCheck.currentTokens}/${costCheck.limit}). Please increase your limit to continue.`);
+    await persistAgentError(chatId, "orchestrator", `Token limit reached (${costCheck.currentTokens}/${costCheck.limit}). Please increase your limit to continue.`);
     return;
   }
 
@@ -1486,7 +1500,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const dailyCheck = checkDailyCostLimit();
   if (!dailyCheck.allowed) {
     abortControllers.delete(chatId);
-    broadcastAgentError(chatId, "orchestrator", `Daily cost limit reached ($${dailyCheck.currentCost.toFixed(2)}/$${dailyCheck.limit.toFixed(2)}). Adjust your daily limit in Settings to continue.`);
+    await persistAgentError(chatId, "orchestrator", `Daily cost limit reached ($${dailyCheck.currentCost.toFixed(2)}/$${dailyCheck.limit.toFixed(2)}). Adjust your daily limit in Settings to continue.`);
     return;
   }
 
@@ -1494,7 +1508,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   const projectCheck = checkProjectCostLimit(projectId);
   if (!projectCheck.allowed) {
     abortControllers.delete(chatId);
-    broadcastAgentError(chatId, "orchestrator", `Project cost limit reached ($${projectCheck.currentCost.toFixed(2)}/$${projectCheck.limit.toFixed(2)}). Adjust your project limit in Settings to continue.`);
+    await persistAgentError(chatId, "orchestrator", `Project cost limit reached ($${projectCheck.currentCost.toFixed(2)}/$${projectCheck.limit.toFixed(2)}). Adjust your project limit in Settings to continue.`);
     return;
   }
 
@@ -1601,7 +1615,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     const preflightErrors = preflightValidatePlan(plannedAgents, providers);
     if (preflightErrors.length > 0) {
       abortControllers.delete(chatId);
-      broadcastAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
+      await persistAgentError(chatId, "orchestrator", `Preflight check failed:\n${preflightErrors.join("\n")}`);
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       return;
     }
@@ -1689,7 +1703,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Resolve flow template
     const questionTemplate = getActiveFlowTemplate("question");
     if (!questionTemplate) {
-      broadcastAgentError(chatId, "orchestrator", "No question flow template found. Reset templates in Settings → Pipelines.");
+      await persistAgentError(chatId, "orchestrator", "No question flow template found. Reset templates in Settings → Pipelines.");
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
@@ -1698,7 +1712,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       intent: "question", scope, needsBackend: false, hasFiles, userMessage,
     });
     if (plan.steps.length === 0) {
-      broadcastAgentError(chatId, "orchestrator", "Question pipeline resolved to empty plan. Check template in Settings → Pipelines.");
+      await persistAgentError(chatId, "orchestrator", "Question pipeline resolved to empty plan. Check template in Settings → Pipelines.");
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
@@ -1746,7 +1760,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     // Resolve flow template — handles scope routing via condition nodes
     const fixTemplate = getActiveFlowTemplate("fix");
     if (!fixTemplate) {
-      broadcastAgentError(chatId, "orchestrator", "No fix flow template found. Reset templates in Settings → Pipelines.");
+      await persistAgentError(chatId, "orchestrator", "No fix flow template found. Reset templates in Settings → Pipelines.");
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
@@ -1757,7 +1771,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       hasFiles: true, userMessage,
     });
     if (plan.steps.length === 0) {
-      broadcastAgentError(chatId, "orchestrator", "Fix pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
+      await persistAgentError(chatId, "orchestrator", "Fix pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
@@ -1796,7 +1810,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
       if (!postCheck.allowed) {
         broadcastAgentStatus(chatId, "orchestrator", "failed");
       } else {
-        broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
+        await persistAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
         broadcastAgentStatus(chatId, "orchestrator", "failed");
       }
       abortControllers.delete(chatId);
@@ -1813,7 +1827,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
   // --- Build mode: resolve flow template and let it drive everything ---
   const buildTemplate = getActiveFlowTemplate("build");
   if (!buildTemplate) {
-    broadcastAgentError(chatId, "orchestrator", "No build flow template found. Reset templates in Settings → Pipelines.");
+    await persistAgentError(chatId, "orchestrator", "No build flow template found. Reset templates in Settings → Pipelines.");
     broadcastAgentStatus(chatId, "orchestrator", "failed");
     abortControllers.delete(chatId);
     return;
@@ -1827,7 +1841,7 @@ export async function runOrchestration(input: OrchestratorInput): Promise<void> 
     userMessage,
   });
   if (plan.steps.length === 0) {
-    broadcastAgentError(chatId, "orchestrator", "Build pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
+    await persistAgentError(chatId, "orchestrator", "Build pipeline resolved to an empty plan. Check the template in Settings → Pipelines.");
     broadcastAgentStatus(chatId, "orchestrator", "failed");
     abortControllers.delete(chatId);
     return;
@@ -1884,7 +1898,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   // Load the pipeline run
   const pipelineRun = await db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.id, pipelineRunId)).get();
   if (!pipelineRun) {
-    broadcastAgentError(chatId, "orchestrator", "Pipeline run not found — starting fresh.");
+    await persistAgentError(chatId, "orchestrator", "Pipeline run not found — starting fresh.");
     return runOrchestration(input);
   }
 
@@ -1966,7 +1980,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
   let plan: ExecutionPlan;
   const template = getActiveFlowTemplate(intent);
   if (!template) {
-    broadcastAgentError(chatId, "orchestrator", `No ${intent} flow template found. Reset templates in Settings → Pipelines.`);
+    await persistAgentError(chatId, "orchestrator", `No ${intent} flow template found. Reset templates in Settings → Pipelines.`);
     broadcastAgentStatus(chatId, "orchestrator", "failed");
     abortControllers.delete(chatId);
     return;
@@ -1982,7 +1996,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     userMessage: originalMessage,
   });
   if (plan.steps.length === 0) {
-    broadcastAgentError(chatId, "orchestrator", `${intent} pipeline resolved to an empty plan. Check the template in Settings → Pipelines.`);
+    await persistAgentError(chatId, "orchestrator", `${intent} pipeline resolved to an empty plan. Check the template in Settings → Pipelines.`);
     broadcastAgentStatus(chatId, "orchestrator", "failed");
     abortControllers.delete(chatId);
     return;
@@ -2014,7 +2028,7 @@ export async function resumeOrchestration(input: OrchestratorInput & { pipelineR
     });
     if (!pipelineOk) {
       await db.update(schema.pipelineRuns).set({ status: "failed", completedAt: Date.now() }).where(eq(schema.pipelineRuns.id, pipelineRunId));
-      broadcastAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
+      await persistAgentError(chatId, "orchestrator", "Pipeline failed — one or more agents encountered errors.");
       broadcastAgentStatus(chatId, "orchestrator", "failed");
       abortControllers.delete(chatId);
       return;
@@ -2107,7 +2121,7 @@ async function executePipelineSteps(ctx: {
     if (ready.length === 0) {
       // Deadlock — remaining steps have unmet deps that will never resolve
       log("orchestrator", "Pipeline deadlock detected", { blockedSteps: remaining.map((s) => stepKey(s)), completedSet: [...completedSet] });
-      broadcastAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => stepKey(s)).join(", ")} have unmet dependencies`);
+      await persistAgentError(chatId, "orchestrator", `Pipeline deadlock: ${remaining.map((s) => stepKey(s)).join(", ")} have unmet dependencies`);
       return false;
     }
 
@@ -2394,11 +2408,11 @@ async function executePipelineSteps(ctx: {
 
           const llmConfigName = act.agentConfig ?? "orchestrator:summary";
           const llmConfig = getAgentConfigResolved(llmConfigName);
-          if (!llmConfig) throw new Error("No model config available for LLM call");
+          if (!llmConfig) throw new Error(`No model config available for LLM call (agent: ${llmConfigName})`);
           const llmModel = resolveProviderModel(llmConfig, providers);
-          if (!llmModel) throw new Error("No model available for LLM call");
+          if (!llmModel) throw new Error(`No model available for LLM call (provider: ${llmConfig.provider}, model: ${llmConfig.model})`);
           const llmProviderKey = apiKeys[llmConfig.provider];
-          if (!llmProviderKey) throw new Error("No API key for LLM call provider");
+          if (!llmProviderKey) throw new Error(`No API key provided for ${llmConfig.provider}. Add your ${llmConfig.provider} API key in Settings.`);
 
           broadcastAgentThinking(chatId, sk, "Making custom LLM call...");
           const { text: llmResult } = await trackedGenerateText({
@@ -3022,6 +3036,12 @@ async function runFixAgent(
   const config = getAgentConfigResolved(agentName);
   if (!config) return null;
 
+  const costCheck = checkCostLimit(ctx.chatId);
+  if (!costCheck.allowed) {
+    log("orchestrator", "Remediation fix skipped: cost limit reached");
+    return null;
+  }
+
   const displayConfig = {
     ...config,
     displayName: `${config.displayName} (remediation${cycle > 1 ? ` #${cycle}` : ""})`,
@@ -3123,6 +3143,9 @@ async function runFixAgent(
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
         costEstimate: costEst,
       });
+    } else if (remProvisionalIds) {
+      voidProvisionalUsage(remProvisionalIds);
+      remProvisionalIds = null;
     }
 
     await db.update(schema.agentExecutions)
@@ -3262,6 +3285,9 @@ async function runReviewAgent(
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
         costEstimate: costEst,
       });
+    } else if (revProvisionalIds) {
+      voidProvisionalUsage(revProvisionalIds);
+      revProvisionalIds = null;
     }
 
     await db.update(schema.agentExecutions)
@@ -4109,6 +4135,9 @@ async function runBuildFix(params: {
         cacheReadInputTokens: result.tokenUsage.cacheReadInputTokens || 0,
         costEstimate: costEst,
       });
+    } else if (bfProvisionalIds) {
+      voidProvisionalUsage(bfProvisionalIds);
+      bfProvisionalIds = null;
     }
 
     await db.update(schema.agentExecutions)
@@ -4143,7 +4172,7 @@ async function runBuildFix(params: {
         broadcastAgentError(chatId, fixAgent, apiCheck.reason);
         broadcast({
           type: "agent_error",
-          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: "credit_exhaustion" },
+          payload: { chatId, agentName: "orchestrator", error: apiCheck.reason, errorType: apiCheck.errorType },
         });
       } else {
         broadcastAgentError(chatId, fixAgent, `Build fix failed: ${errorMsg}`);

@@ -166,7 +166,7 @@ export async function trackedGenerateText(opts: TrackedGenerateTextOpts): Promis
   const rawInput = result.usage.inputTokens || 0;
   const inputTokens = Math.max(0, rawInput - cacheCreationInputTokens - cacheReadInputTokens);
   const outputTokens = result.usage.outputTokens || 0;
-  const totalTokens = rawInput + outputTokens;
+  const totalTokens = inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens;
 
   // Always track in the permanent billing ledger
   const { costEstimate } = trackBillingOnly({
@@ -272,7 +272,7 @@ export async function runAgent(
   const broadcastDisplayName = config.displayName;
 
   if (!provider) {
-    throw new Error(`No provider available for agent ${config.name} (needs ${config.provider})`);
+    throw new Error(`No API key configured for ${config.provider}. Add your ${config.provider} API key in Settings to use the ${config.name} agent.`);
   }
 
   broadcastAgentStatus(cid, broadcastName, "running");

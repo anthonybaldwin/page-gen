@@ -75,14 +75,14 @@ export function PromptEditor() {
       const kind = getActionKind(entry.key);
       api.get<{ isCustom: boolean }>(`/settings/actions/${kind}/prompt`)
         .then((res) => setActionCustomMap((prev) => ({ ...prev, [entry.key]: res.isCustom })))
-        .catch(() => {});
+        .catch((err) => console.warn(`[prompts] Failed to fetch custom status for ${entry.key}:`, err));
     }
     // Fetch custom status for all pipeline base prompts
     for (const entry of PIPELINE_PROMPT_ENTRIES) {
       const intent = getPipelineIntent(entry.key);
       api.get<{ isCustom: boolean }>(`/settings/pipeline/basePrompt/${intent}`)
         .then((res) => setActionCustomMap((prev) => ({ ...prev, [entry.key]: res.isCustom })))
-        .catch(() => {});
+        .catch((err) => console.warn(`[prompts] Failed to fetch custom status for ${entry.key}:`, err));
     }
   }, []);
 

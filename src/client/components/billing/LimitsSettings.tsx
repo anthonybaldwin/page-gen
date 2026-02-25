@@ -34,6 +34,7 @@ export function LimitsSettings() {
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -51,6 +52,7 @@ export function LimitsSettings() {
   async function handleSave() {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
     try {
       const res = await api.put<{ limits: Limits; defaults: Limits }>("/settings/limits", limits);
       setLimits(res.limits);
@@ -58,6 +60,8 @@ export function LimitsSettings() {
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
       console.error("[limits] Failed to save:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setSaveError(`Failed to save limits: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -65,12 +69,15 @@ export function LimitsSettings() {
 
   async function handleReset() {
     setSaving(true);
+    setSaveError(null);
     try {
       const res = await api.delete<{ limits: Limits; defaults: Limits }>("/settings/limits");
       setLimits(res.limits);
       setSaved(false);
     } catch (err) {
       console.error("[limits] Failed to reset:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setSaveError(`Failed to reset limits: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -128,6 +135,9 @@ export function LimitsSettings() {
       <Button onClick={handleSave} disabled={saving}>
         {saving ? "Saving..." : saved ? "Saved" : "Save Billing Limits"}
       </Button>
+      {saveError && (
+        <p className="text-sm text-destructive mt-2">{saveError}</p>
+      )}
     </div>
   );
 }

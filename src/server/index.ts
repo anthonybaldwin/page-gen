@@ -56,6 +56,19 @@ app.use(
   })
 );
 
+// Global error handler — catches unhandled errors from all routes
+app.onError((err, c) => {
+  // JSON parse errors from malformed request bodies
+  if (err instanceof SyntaxError && err.message.includes("JSON")) {
+    logWarn("http", `Malformed JSON in ${c.req.method} ${c.req.path}`, { error: err.message });
+    return c.json({ error: "Malformed JSON in request body" }, 400);
+  }
+
+  logError("http", `Unhandled error in ${c.req.method} ${c.req.path}`, err);
+  const message = err instanceof Error ? err.message : "Internal server error";
+  return c.json({ error: message }, 500);
+});
+
 // Health check
 app.get("/api/health", (c) => {
   return c.json({ status: "ok", timestamp: Date.now() });

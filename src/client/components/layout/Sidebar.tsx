@@ -112,7 +112,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       setNewProjectName("");
     } catch (err) {
       console.error("[sidebar] Failed to create project:", err);
-      setError("Failed to create project. Is the backend server running?");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to create project: ${msg}`);
     }
   }
 
@@ -127,7 +128,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       setActiveChat(chat);
     } catch (err) {
       console.error("[sidebar] Failed to create chat:", err);
-      setError("Failed to create chat. Is the backend server running?");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to create chat: ${msg}`);
     }
   }
 
@@ -139,6 +141,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       renameProject(id, name);
     } catch (err) {
       console.error("[sidebar] Failed to rename project:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to rename project: ${msg}`);
     }
     setEditingId(null);
   }
@@ -151,6 +155,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       renameChat(id, title);
     } catch (err) {
       console.error("[sidebar] Failed to rename chat:", err);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to rename chat: ${msg}`);
     }
     setEditingId(null);
   }
@@ -525,6 +531,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             setProjectToDelete(null);
           } catch (err) {
             console.error("[sidebar] Failed to delete project:", err);
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            setError(`Failed to delete project: ${msg}`);
           } finally {
             setDeleting(false);
           }
@@ -553,6 +561,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             setChatToDelete(null);
           } catch (err) {
             console.error("[sidebar] Failed to delete chat:", err);
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            setError(`Failed to delete chat: ${msg}`);
           } finally {
             setDeleting(false);
           }

@@ -24,8 +24,9 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     },
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((error as { error: string }).error || res.statusText);
+    const body = await res.json().catch(() => null);
+    const msg = body?.error || body?.message || res.statusText;
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }
@@ -38,8 +39,9 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
     // No Content-Type header — browser sets multipart boundary automatically
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((error as { error: string }).error || res.statusText);
+    const body = await res.json().catch(() => null);
+    const msg = body?.error || body?.message || res.statusText;
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }

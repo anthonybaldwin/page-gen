@@ -140,7 +140,7 @@ export function AgentStatusPanel({ chatId }: Props) {
         setAgents(agentMap);
         setPipelineActive(running);
       })
-      .catch(() => {});
+      .catch((err) => console.warn("[agent-status] Failed to load executions:", err));
   }, [chatId]);
 
   useEffect(() => {
