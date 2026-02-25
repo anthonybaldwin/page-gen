@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 
 describe("Server", () => {
   test("health check returns ok", async () => {

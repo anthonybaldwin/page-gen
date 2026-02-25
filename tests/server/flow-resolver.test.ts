@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { resolveFlowTemplate } from "../../src/server/agents/flow-resolver.ts";
 import { generateBuildDefault, generateFixDefault, generateQuestionDefault, FLOW_DEFAULTS_VERSION } from "../../src/server/agents/flow-defaults.ts";
-import type { FlowTemplate, FlowResolutionContext, FlowNode, FlowEdge } from "../../src/shared/flow-types.ts";
+import type { FlowTemplate, FlowResolutionContext } from "../../src/shared/flow-types.ts";
 import { validateFlowTemplate } from "../../src/shared/flow-validation.ts";
 import { isActionStep, isAgentStep, stepKey, type ActionStep, type PlanStep } from "../../src/server/agents/orchestrator.ts";
 

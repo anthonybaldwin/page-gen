@@ -122,5 +122,9 @@ describe("Delete cascade", () => {
     expect(db.select().from(schema.agentExecutions).where(eq(schema.agentExecutions.chatId, chatId)).all()).toEqual([]);
     expect(db.select().from(schema.tokenUsage).where(eq(schema.tokenUsage.chatId, chatId)).all()).toEqual([]);
     expect(db.select().from(schema.pipelineRuns).where(eq(schema.pipelineRuns.chatId, chatId)).all()).toEqual([]);
+
+    // Billing ledger survives project deletion (no FK, permanent audit trail)
+    const billing = db.select().from(schema.billingLedger).where(eq(schema.billingLedger.projectId, projectId)).all();
+    expect(billing.length).toBeGreaterThan(0);
   });
 });
