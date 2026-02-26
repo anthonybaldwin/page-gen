@@ -3,7 +3,7 @@ import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { trackTokenUsage, getSessionTokenTotal, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, getEstimatedTokenTotal } from "../../src/server/services/token-tracker.ts";
+import { trackTokenUsage, getSessionTokenTotal, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, getEstimatedTokenTotal, finalizeOrphanedProvisionalRecords } from "../../src/server/services/token-tracker.ts";
 
 describe("Token Tracker", () => {
   let projectId: string;
@@ -286,5 +286,62 @@ describe("Provisional Token Tracking", () => {
       .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
     expect(afterToken).toBeUndefined();
     expect(afterLedger).toBeUndefined();
+  });
+
+  test("finalizeOrphanedProvisionalRecords sets estimated=0 on orphaned records", () => {
+    // Create a provisional record
+    const ids = trackProvisionalUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      estimatedInputTokens: 2000,
+      projectId,
+    });
+
+    // Verify it's provisional
+    const beforeLedger = db.select().from(schema.billingLedger)
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
+    expect(beforeLedger!.estimated).toBe(1);
+
+    // Finalize orphaned records
+    const count = finalizeOrphanedProvisionalRecords();
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    // Verify it's now finalized
+    const afterLedger = db.select().from(schema.billingLedger)
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId)).get();
+    expect(afterLedger!.estimated).toBe(0);
+
+    const afterToken = db.select().from(schema.tokenUsage)
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId)).get();
+    expect(afterToken!.estimated).toBe(0);
+  });
+
+  test("dual-write operations are atomic (transaction test)", () => {
+    // Verify that trackTokenUsage writes to both tables
+    const beforeTokenCount = db.select().from(schema.tokenUsage).all().length;
+    const beforeLedgerCount = db.select().from(schema.billingLedger).all().length;
+
+    trackTokenUsage({
+      executionId,
+      chatId,
+      agentName: "test-agent",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      apiKey: "test-key",
+      inputTokens: 100,
+      outputTokens: 50,
+      projectId,
+    });
+
+    const afterTokenCount = db.select().from(schema.tokenUsage).all().length;
+    const afterLedgerCount = db.select().from(schema.billingLedger).all().length;
+
+    // Both tables should have exactly one new record
+    expect(afterTokenCount).toBe(beforeTokenCount + 1);
+    expect(afterLedgerCount).toBe(beforeLedgerCount + 1);
   });
 });

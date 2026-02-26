@@ -6,18 +6,20 @@ import { log } from "../services/logger.ts";
 
 export const usageRoutes = new Hono();
 
-/** Build WHERE conditions from common query params (chatId, from, to). */
+/** Build WHERE conditions from common query params (chatId, from, to).
+ * Always excludes provisional (estimated=1) records so only finalized billing data is returned. */
 function buildFilters(c: { req: { query: (k: string) => string | undefined } }) {
   const projectId = c.req.query("projectId");
   const chatId = c.req.query("chatId");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  const conditions = [];
+  // Always exclude provisional records from usage queries
+  const conditions = [eq(schema.billingLedger.estimated, 0)];
   if (projectId) conditions.push(eq(schema.billingLedger.projectId, projectId));
   if (chatId) conditions.push(eq(schema.billingLedger.chatId, chatId));
   if (from) conditions.push(gte(schema.billingLedger.createdAt, parseInt(from, 10)));
   if (to) conditions.push(lte(schema.billingLedger.createdAt, parseInt(to, 10)));
-  return conditions.length > 0 ? and(...conditions) : undefined;
+  return and(...conditions);
 }
 
 // Distinct chats from billing_ledger (for filter dropdown)
@@ -150,6 +152,7 @@ usageRoutes.get("/by-project", (c) => {
       requestCount: sql<number>`count(*)`,
     })
     .from(schema.billingLedger)
+    .where(eq(schema.billingLedger.estimated, 0))
     .groupBy(schema.billingLedger.projectId)
     .all();
   return c.json(results);
@@ -162,17 +165,16 @@ usageRoutes.get("/history", (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
 
-  const conditions = [];
+  // Always exclude provisional records
+  const conditions = [eq(schema.billingLedger.estimated, 0)];
   if (projectId) conditions.push(eq(schema.billingLedger.projectId, projectId));
   if (chatId) conditions.push(eq(schema.billingLedger.chatId, chatId));
   if (from) conditions.push(gte(schema.billingLedger.createdAt, parseInt(from, 10)));
   if (to) conditions.push(lte(schema.billingLedger.createdAt, parseInt(to, 10)));
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions)!;
 
-  const results = whereClause
-    ? db.select().from(schema.billingLedger).where(whereClause).orderBy(desc(schema.billingLedger.createdAt)).all()
-    : db.select().from(schema.billingLedger).orderBy(desc(schema.billingLedger.createdAt)).all();
+  const results = db.select().from(schema.billingLedger).where(whereClause).orderBy(desc(schema.billingLedger.createdAt)).all();
 
   return c.json(results);
 });

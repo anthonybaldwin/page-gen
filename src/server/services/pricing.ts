@@ -2,6 +2,7 @@ import { db, schema } from "../db/index.ts";
 import { eq, like } from "drizzle-orm";
 import type { CacheMultiplierInfo } from "../../shared/types.ts";
 import { MODELS, CACHE_MULTIPLIERS, MODEL_MAP, type ModelCategory } from "../../shared/providers.ts";
+import { logWarn } from "./logger.ts";
 
 /** Re-export for backward compat — derived from the shared MODELS array. */
 export const PROVIDER_CACHE_MULTIPLIERS = CACHE_MULTIPLIERS;
@@ -114,7 +115,10 @@ export function estimateCost(
   cacheReadInputTokens = 0,
 ): number {
   const pricing = getModelPricing(model);
-  if (!pricing) return 0;
+  if (!pricing) {
+    logWarn("billing", `Unknown model "${model}" has no pricing — cost recorded as $0. Add a pricing override to fix.`, { provider, model, inputTokens, outputTokens });
+    return 0;
+  }
   const cache = getCacheMultipliers(provider);
   const inputCost = inputTokens * pricing.input;
   const outputCost = outputTokens * pricing.output;

@@ -155,12 +155,46 @@ export async function trackedGenerateText(opts: TrackedGenerateTextOpts): Promis
     }
   }
 
-  const result = await generateText({
-    model: opts.model,
-    system: opts.system,
-    prompt: opts.prompt,
-    maxOutputTokens,
-  });
+  let result;
+  try {
+    result = await generateText({
+      model: opts.model,
+      system: opts.system,
+      prompt: opts.prompt,
+      maxOutputTokens,
+    });
+  } catch (err) {
+    // BUG 1: If the LLM API call fails partway, record whatever tokens were consumed.
+    // AI SDK APICallError may carry usage data on partial failures.
+    const apiErr = err as Record<string, unknown>;
+    const usage = apiErr?.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+    if (usage && (usage.inputTokens || usage.outputTokens)) {
+      try {
+        trackBillingOnly({
+          agentName: opts.agentName,
+          provider: opts.provider,
+          model: opts.modelId,
+          apiKey: opts.apiKey,
+          inputTokens: usage.inputTokens || 0,
+          outputTokens: usage.outputTokens || 0,
+          chatId: opts.chatId,
+          projectId: opts.projectId,
+          projectName: opts.projectName,
+          chatTitle: opts.chatTitle,
+        });
+        log("billing", `${opts.agentName}: partial tokens recorded after API error`, {
+          inputTokens: usage.inputTokens || 0, outputTokens: usage.outputTokens || 0,
+        });
+      } catch (billingErr) {
+        logWarn("billing", `Failed to record partial tokens after API error: ${billingErr instanceof Error ? billingErr.message : String(billingErr)}`);
+      }
+    } else {
+      logWarn("billing", `${opts.agentName}: LLM call failed with no usage data — tokens consumed by provider are untracked`, {
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      });
+    }
+    throw err;
+  }
 
   const { cacheCreationInputTokens, cacheReadInputTokens } = extractAnthropicCacheTokens(result);
   const rawInput = result.usage.inputTokens || 0;
@@ -168,36 +202,45 @@ export async function trackedGenerateText(opts: TrackedGenerateTextOpts): Promis
   const outputTokens = result.usage.outputTokens || 0;
   const totalTokens = inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens;
 
-  // Always track in the permanent billing ledger
-  const { costEstimate } = trackBillingOnly({
-    agentName: opts.agentName,
-    provider: opts.provider,
-    model: opts.modelId,
-    apiKey: opts.apiKey,
-    inputTokens,
-    outputTokens,
-    cacheCreationInputTokens,
-    cacheReadInputTokens,
-    chatId: opts.chatId,
-    projectId: opts.projectId,
-    projectName: opts.projectName,
-    chatTitle: opts.chatTitle,
-  });
-
-  // Broadcast for real-time UI updates
-  if (opts.chatId) {
-    broadcastTokenUsage({
-      chatId: opts.chatId,
-      projectId: opts.projectId,
+  // BUG 10: Wrap billing write + broadcast in try/catch so a DB failure
+  // doesn't prevent the caller from receiving the LLM response.
+  let costEstimate = 0;
+  try {
+    const billing = trackBillingOnly({
       agentName: opts.agentName,
       provider: opts.provider,
       model: opts.modelId,
+      apiKey: opts.apiKey,
       inputTokens,
       outputTokens,
-      totalTokens,
       cacheCreationInputTokens,
       cacheReadInputTokens,
-      costEstimate,
+      chatId: opts.chatId,
+      projectId: opts.projectId,
+      projectName: opts.projectName,
+      chatTitle: opts.chatTitle,
+    });
+    costEstimate = billing.costEstimate;
+
+    // Broadcast for real-time UI updates
+    if (opts.chatId) {
+      broadcastTokenUsage({
+        chatId: opts.chatId,
+        projectId: opts.projectId,
+        agentName: opts.agentName,
+        provider: opts.provider,
+        model: opts.modelId,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+        costEstimate,
+      });
+    }
+  } catch (billingErr) {
+    logWarn("billing", `${opts.agentName}: billing write failed — LLM result returned but billing record lost`, {
+      error: billingErr instanceof Error ? billingErr.message : String(billingErr),
     });
   }
 
@@ -281,6 +324,8 @@ export async function runAgent(
   // Hoisted outside try so the catch block can attach partial tokens to crash errors
   let accInputTokens = 0;
   let accOutputTokens = 0;
+  // Hoisted so catch block can access result for cache token recovery (BUG 2)
+  let result: ReturnType<typeof streamText> | undefined;
 
   try {
     const { cacheablePrefix, dynamicSuffix } = buildSplitPrompt(input);
@@ -309,7 +354,7 @@ export async function runAgent(
 
     // For Anthropic: use SystemModelMessage with cache_control and split user messages
     // For other providers: keep the simple system + prompt format
-    const result = streamText({
+    result = streamText({
       model: provider,
       ...(isAnthropic
         ? {
@@ -577,14 +622,29 @@ export async function runAgent(
     // Attach accumulated step-finish tokens to any error so the orchestrator
     // can finalize billing even when the agent crashes mid-stream.
     if ((accInputTokens > 0 || accOutputTokens > 0) && err instanceof Error && !(err instanceof AgentAbortError)) {
+      // BUG 2: Attempt to read cache token details from result before defaulting to 0.
+      let cacheCreate = 0;
+      let cacheRead = 0;
+      if (result) {
+        try {
+          const usage = await result.totalUsage;
+          if (usage?.inputTokenDetails) {
+            cacheCreate = usage.inputTokenDetails.cacheWriteTokens ?? 0;
+            cacheRead = usage.inputTokenDetails.cacheReadTokens ?? 0;
+          }
+        } catch {
+          // totalUsage rejected — cache details unavailable, keep 0
+        }
+      }
       (err as Error & { partialTokenUsage?: AgentAbortError["partialTokenUsage"] }).partialTokenUsage = {
         inputTokens: accInputTokens,
         outputTokens: accOutputTokens,
-        cacheCreationInputTokens: 0,
-        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: cacheCreate,
+        cacheReadInputTokens: cacheRead,
       };
       log("pipeline", `agent=${broadcastName} attaching partial tokens to crash error`, {
         inputTokens: accInputTokens, outputTokens: accOutputTokens,
+        cacheCreationInputTokens: cacheCreate, cacheReadInputTokens: cacheRead,
       });
     }
     const userMessage = formatUserFacingError(err);

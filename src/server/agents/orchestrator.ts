@@ -8,7 +8,7 @@ import type { ProviderInstance } from "../providers/registry.ts";
 import { getAgentConfigResolved, getAgentTools } from "./registry.ts";
 import { getActiveFlowTemplate, resolveFlowTemplate, ensureFlowDefaults } from "./flow-resolver.ts";
 import { runAgent, trackedGenerateText, AgentAbortError, loadSystemPrompt, type AgentInput, type AgentOutput } from "./base.ts";
-import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords } from "../services/token-tracker.ts";
+import { trackTokenUsage, trackBillingOnly, trackProvisionalUsage, finalizeTokenUsage, voidProvisionalUsage, countProvisionalRecords, finalizeOrphanedProvisionalRecords } from "../services/token-tracker.ts";
 import { extractAnthropicCacheTokens } from "../services/provider-metadata.ts";
 import { estimateCost } from "../services/pricing.ts";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../services/cost-limiter.ts";
@@ -436,6 +436,14 @@ async function analyzeMoodImages(
 
   if (imageParts.length === 0) return null;
 
+  // Hoisted so catch block can access it for error-path billing
+  let moodResult: Awaited<ReturnType<typeof generateText>> | undefined;
+  const moodProviderName = providers.anthropic ? "anthropic" : "openai";
+  const moodModelId = opts?.agentConfig
+    ? (getAgentConfigResolved(opts.agentConfig)?.model ?? (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o-2024-11-20"))
+    : (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o-2024-11-20");
+  const moodApiKey = apiKeys[moodProviderName];
+
   try {
     // Resolve model: agentConfig override > hardcoded vision model fallback
     let moodModel;
@@ -446,7 +454,7 @@ async function analyzeMoodImages(
       }
     }
     if (!moodModel) {
-      const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o";
+      const modelId = providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o-2024-11-20";
       moodModel = visionProvider(modelId);
     }
     // Priority chain: per-node override > global DB override > hardcoded default
@@ -454,7 +462,7 @@ async function analyzeMoodImages(
       ?? db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "action.mood-analysis.prompt")).get()?.value
       ?? null;
     const defaultPrompt = MOOD_ANALYSIS_DEFAULT_PROMPT;
-    const result = await generateText({
+    moodResult = await generateText({
       model: moodModel,
       ...(effectivePrompt ? { system: effectivePrompt } : {}),
       messages: [{
@@ -477,16 +485,10 @@ async function analyzeMoodImages(
     log("orchestrator", "Mood analysis completed", { imageCount: imageParts.length });
 
     // Track billing for mood analysis vision call
-    const { cacheCreationInputTokens: moodCacheCreate, cacheReadInputTokens: moodCacheRead } = extractAnthropicCacheTokens(result);
-    const moodRawInput = result.usage.inputTokens || 0;
+    const { cacheCreationInputTokens: moodCacheCreate, cacheReadInputTokens: moodCacheRead } = extractAnthropicCacheTokens(moodResult);
+    const moodRawInput = moodResult.usage.inputTokens || 0;
     const moodInputTokens = Math.max(0, moodRawInput - moodCacheCreate - moodCacheRead);
-    const moodOutputTokens = result.usage.outputTokens || 0;
-
-    const moodProviderName = providers.anthropic ? "anthropic" : "openai";
-    const moodModelId = opts?.agentConfig
-      ? (getAgentConfigResolved(opts.agentConfig)?.model ?? (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o"))
-      : (providers.anthropic ? "claude-sonnet-4-20250514" : "gpt-4o");
-    const moodApiKey = apiKeys[moodProviderName];
+    const moodOutputTokens = moodResult.usage.outputTokens || 0;
 
     if (moodApiKey) {
       const { costEstimate } = trackBillingOnly({
@@ -521,9 +523,57 @@ async function analyzeMoodImages(
       }
     }
 
-    return result.text;
+    return moodResult.text;
   } catch (err) {
-    logWarn("orchestrator", `Mood analysis failed (tokens not billed): ${err instanceof Error ? err.message : String(err)}`);
+    // BUG 11: Attempt to track tokens even on error
+    if (moodApiKey) {
+      try {
+        if (moodResult) {
+          // generateText succeeded but post-processing failed — track actual tokens
+          const { cacheCreationInputTokens: cc, cacheReadInputTokens: cr } = extractAnthropicCacheTokens(moodResult);
+          const rawIn = moodResult.usage.inputTokens || 0;
+          trackBillingOnly({
+            agentName: "mood-analysis",
+            provider: moodProviderName,
+            model: moodModelId,
+            apiKey: moodApiKey,
+            inputTokens: Math.max(0, rawIn - cc - cr),
+            outputTokens: moodResult.usage.outputTokens || 0,
+            cacheCreationInputTokens: cc,
+            cacheReadInputTokens: cr,
+            chatId: opts?.chatId,
+            projectId: opts?.projectId,
+            projectName: opts?.projectName,
+            chatTitle: opts?.chatTitle,
+          });
+          log("billing", "mood-analysis: error-path tokens tracked from completed generateText result");
+        } else {
+          // generateText itself failed — check if error carries usage data
+          const apiErr = err as Record<string, unknown>;
+          const usage = apiErr?.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+          if (usage && (usage.inputTokens || usage.outputTokens)) {
+            trackBillingOnly({
+              agentName: "mood-analysis",
+              provider: moodProviderName,
+              model: moodModelId,
+              apiKey: moodApiKey,
+              inputTokens: usage.inputTokens || 0,
+              outputTokens: usage.outputTokens || 0,
+              chatId: opts?.chatId,
+              projectId: opts?.projectId,
+              projectName: opts?.projectName,
+              chatTitle: opts?.chatTitle,
+            });
+            log("billing", "mood-analysis: partial error-path tokens tracked from API error");
+          } else {
+            logWarn("billing", "mood-analysis: LLM call failed with no usage data — tokens untracked");
+          }
+        }
+      } catch (billingErr) {
+        logWarn("billing", `mood-analysis: error-path billing failed: ${billingErr instanceof Error ? billingErr.message : String(billingErr)}`);
+      }
+    }
+    logWarn("orchestrator", `Mood analysis failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -1030,10 +1080,11 @@ export async function cleanupStaleExecutions(): Promise<number> {
     })
     .where(inArray(schema.pipelineRuns.status, ["running", "awaiting_checkpoint"]));
 
-  // Log any provisional billing records from interrupted pipelines
-  const provisionalCount = countProvisionalRecords();
+  // Finalize orphaned provisional billing records from interrupted pipelines.
+  // Sets estimated=0 so they count as finalized estimates (best-effort billing).
+  const provisionalCount = finalizeOrphanedProvisionalRecords();
   if (provisionalCount > 0) {
-    log("orchestrator", "Cleaning up provisional billing records from interrupted pipelines", { provisionalCount });
+    log("orchestrator", `Finalized ${provisionalCount} orphaned provisional billing records from interrupted pipelines`, { provisionalCount });
   }
 
   log("orchestrator", "Cleaned up stale executions", { staleCount: stale.length, affectedChats: affectedChats.length });

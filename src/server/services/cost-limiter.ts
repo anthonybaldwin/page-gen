@@ -1,7 +1,7 @@
 import { getSessionTokenTotal } from "./token-tracker.ts";
 import { getLimit } from "../routes/settings.ts";
 import { db, schema } from "../db/index.ts";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { log, logWarn } from "./logger.ts";
 import { WARNING_THRESHOLD } from "../config/limits.ts";
 import { getPipelineSetting } from "../config/pipeline.ts";
@@ -40,12 +40,15 @@ export function checkDailyCostLimit(): { allowed: boolean; currentCost: number; 
   if (limit <= 0) return { allowed: true, currentCost: 0, limit: 0 };
 
   const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  startOfDay.setUTCHours(0, 0, 0, 0);
 
   const result = db
     .select({ total: sql<number>`coalesce(sum(${schema.billingLedger.costEstimate}), 0)` })
     .from(schema.billingLedger)
-    .where(sql`${schema.billingLedger.createdAt} >= ${startOfDay.getTime()}`)
+    .where(and(
+      sql`${schema.billingLedger.createdAt} >= ${startOfDay.getTime()}`,
+      eq(schema.billingLedger.estimated, 0),
+    ))
     .get();
 
   const currentCost = result?.total || 0;
@@ -63,7 +66,10 @@ export function checkProjectCostLimit(projectId: string): { allowed: boolean; cu
   const result = db
     .select({ total: sql<number>`coalesce(sum(${schema.billingLedger.costEstimate}), 0)` })
     .from(schema.billingLedger)
-    .where(eq(schema.billingLedger.projectId, projectId))
+    .where(and(
+      eq(schema.billingLedger.projectId, projectId),
+      eq(schema.billingLedger.estimated, 0),
+    ))
     .get();
 
   const currentCost = result?.total || 0;

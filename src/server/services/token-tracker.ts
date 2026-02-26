@@ -50,8 +50,33 @@ export function trackTokenUsage(params: TrackTokensParams) {
     createdAt: now,
   };
 
-  // Operational record (deleted with chat/project)
-  db.insert(schema.tokenUsage).values(record).run();
+  // Dual-write in a transaction to ensure atomicity
+  db.transaction((tx) => {
+    // Operational record (deleted with chat/project)
+    tx.insert(schema.tokenUsage).values(record).run();
+
+    // Permanent ledger record (never deleted)
+    tx.insert(schema.billingLedger).values({
+      id: nanoid(),
+      projectId: params.projectId || null,
+      projectName: params.projectName || null,
+      chatId: params.chatId,
+      chatTitle: params.chatTitle || null,
+      executionId: params.executionId,
+      agentName: params.agentName,
+      provider: params.provider,
+      model: params.model,
+      apiKeyHash,
+      inputTokens: params.inputTokens,
+      outputTokens: params.outputTokens,
+      totalTokens,
+      cacheCreationInputTokens: params.cacheCreationInputTokens || 0,
+      cacheReadInputTokens: params.cacheReadInputTokens || 0,
+      costEstimate,
+      estimated: 0,
+      createdAt: now,
+    }).run();
+  });
 
   log("billing", `${params.agentName} usage: ${params.model}`, {
     agent: params.agentName, provider: params.provider, model: params.model,
@@ -59,28 +84,6 @@ export function trackTokenUsage(params: TrackTokensParams) {
     cacheCreate: params.cacheCreationInputTokens || 0, cacheRead: params.cacheReadInputTokens || 0,
     cost: costEstimate,
   });
-
-  // Permanent ledger record (never deleted)
-  db.insert(schema.billingLedger).values({
-    id: nanoid(),
-    projectId: params.projectId || null,
-    projectName: params.projectName || null,
-    chatId: params.chatId,
-    chatTitle: params.chatTitle || null,
-    executionId: params.executionId,
-    agentName: params.agentName,
-    provider: params.provider,
-    model: params.model,
-    apiKeyHash,
-    inputTokens: params.inputTokens,
-    outputTokens: params.outputTokens,
-    totalTokens,
-    cacheCreationInputTokens: params.cacheCreationInputTokens || 0,
-    cacheReadInputTokens: params.cacheReadInputTokens || 0,
-    costEstimate,
-    estimated: 0,
-    createdAt: now,
-  }).run();
 
   return record;
 }
@@ -165,40 +168,43 @@ export function trackProvisionalUsage(params: {
     estimatedTokens: totalTokens, estimatedCost: costEstimate,
   });
 
-  db.insert(schema.tokenUsage).values({
-    id: tokenUsageId,
-    executionId: params.executionId,
-    chatId: params.chatId,
-    agentName: params.agentName,
-    provider: params.provider,
-    model: params.model,
-    apiKeyHash,
-    inputTokens: params.estimatedInputTokens,
-    outputTokens: estimatedOutput,
-    totalTokens,
-    costEstimate,
-    estimated: 1,
-    createdAt: now,
-  }).run();
+  // Dual-write in a transaction to ensure atomicity
+  db.transaction((tx) => {
+    tx.insert(schema.tokenUsage).values({
+      id: tokenUsageId,
+      executionId: params.executionId,
+      chatId: params.chatId,
+      agentName: params.agentName,
+      provider: params.provider,
+      model: params.model,
+      apiKeyHash,
+      inputTokens: params.estimatedInputTokens,
+      outputTokens: estimatedOutput,
+      totalTokens,
+      costEstimate,
+      estimated: 1,
+      createdAt: now,
+    }).run();
 
-  db.insert(schema.billingLedger).values({
-    id: billingLedgerId,
-    projectId: params.projectId || null,
-    projectName: params.projectName || null,
-    chatId: params.chatId,
-    chatTitle: params.chatTitle || null,
-    executionId: params.executionId,
-    agentName: params.agentName,
-    provider: params.provider,
-    model: params.model,
-    apiKeyHash,
-    inputTokens: params.estimatedInputTokens,
-    outputTokens: estimatedOutput,
-    totalTokens,
-    costEstimate,
-    estimated: 1,
-    createdAt: now,
-  }).run();
+    tx.insert(schema.billingLedger).values({
+      id: billingLedgerId,
+      projectId: params.projectId || null,
+      projectName: params.projectName || null,
+      chatId: params.chatId,
+      chatTitle: params.chatTitle || null,
+      executionId: params.executionId,
+      agentName: params.agentName,
+      provider: params.provider,
+      model: params.model,
+      apiKeyHash,
+      inputTokens: params.estimatedInputTokens,
+      outputTokens: estimatedOutput,
+      totalTokens,
+      costEstimate,
+      estimated: 1,
+      createdAt: now,
+    }).run();
+  });
 
   return { tokenUsageId, billingLedgerId };
 }
@@ -209,8 +215,10 @@ export function trackProvisionalUsage(params: {
  */
 export function voidProvisionalUsage(ids: { tokenUsageId: string; billingLedgerId: string }): void {
   log("billing", `Provisional voided`, { tokenUsageId: ids.tokenUsageId, billingLedgerId: ids.billingLedgerId });
-  db.delete(schema.tokenUsage).where(eq(schema.tokenUsage.id, ids.tokenUsageId)).run();
-  db.delete(schema.billingLedger).where(eq(schema.billingLedger.id, ids.billingLedgerId)).run();
+  db.transaction((tx) => {
+    tx.delete(schema.tokenUsage).where(eq(schema.tokenUsage.id, ids.tokenUsageId)).run();
+    tx.delete(schema.billingLedger).where(eq(schema.billingLedger.id, ids.billingLedgerId)).run();
+  });
 }
 
 /**
@@ -243,31 +251,34 @@ export function finalizeTokenUsage(
     totalTokens, cost: costEstimate,
   });
 
-  db.update(schema.tokenUsage)
-    .set({
-      inputTokens: actual.inputTokens,
-      outputTokens: actual.outputTokens,
-      totalTokens,
-      cacheCreationInputTokens: actual.cacheCreationInputTokens || 0,
-      cacheReadInputTokens: actual.cacheReadInputTokens || 0,
-      costEstimate,
-      estimated: 0,
-    })
-    .where(eq(schema.tokenUsage.id, ids.tokenUsageId))
-    .run();
+  // Dual-write in a transaction to ensure atomicity
+  db.transaction((tx) => {
+    tx.update(schema.tokenUsage)
+      .set({
+        inputTokens: actual.inputTokens,
+        outputTokens: actual.outputTokens,
+        totalTokens,
+        cacheCreationInputTokens: actual.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: actual.cacheReadInputTokens || 0,
+        costEstimate,
+        estimated: 0,
+      })
+      .where(eq(schema.tokenUsage.id, ids.tokenUsageId))
+      .run();
 
-  db.update(schema.billingLedger)
-    .set({
-      inputTokens: actual.inputTokens,
-      outputTokens: actual.outputTokens,
-      totalTokens,
-      cacheCreationInputTokens: actual.cacheCreationInputTokens || 0,
-      cacheReadInputTokens: actual.cacheReadInputTokens || 0,
-      costEstimate,
-      estimated: 0,
-    })
-    .where(eq(schema.billingLedger.id, ids.billingLedgerId))
-    .run();
+    tx.update(schema.billingLedger)
+      .set({
+        inputTokens: actual.inputTokens,
+        outputTokens: actual.outputTokens,
+        totalTokens,
+        cacheCreationInputTokens: actual.cacheCreationInputTokens || 0,
+        cacheReadInputTokens: actual.cacheReadInputTokens || 0,
+        costEstimate,
+        estimated: 0,
+      })
+      .where(eq(schema.billingLedger.id, ids.billingLedgerId))
+      .run();
+  });
 }
 
 /**
@@ -281,6 +292,29 @@ export function countProvisionalRecords(): number {
     .where(eq(schema.billingLedger.estimated, 1))
     .get();
   return result?.count || 0;
+}
+
+/**
+ * Finalize orphaned provisional records by setting estimated=0.
+ * Called on startup to clean up records from interrupted pipelines.
+ * The rough estimates are kept as-is — they're the best we have.
+ * Returns the number of records finalized.
+ */
+export function finalizeOrphanedProvisionalRecords(): number {
+  const count = countProvisionalRecords();
+  if (count === 0) return 0;
+
+  db.update(schema.billingLedger)
+    .set({ estimated: 0 })
+    .where(eq(schema.billingLedger.estimated, 1))
+    .run();
+
+  db.update(schema.tokenUsage)
+    .set({ estimated: 0 })
+    .where(eq(schema.tokenUsage.estimated, 1))
+    .run();
+
+  return count;
 }
 
 /**

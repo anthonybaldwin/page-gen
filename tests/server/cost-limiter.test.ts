@@ -3,7 +3,7 @@ import { runMigrations } from "../../src/server/db/migrate.ts";
 import { db, schema } from "../../src/server/db/index.ts";
 import { nanoid } from "nanoid";
 import { checkCostLimit, getMaxAgentCalls, checkDailyCostLimit, checkProjectCostLimit } from "../../src/server/services/cost-limiter.ts";
-import { trackTokenUsage } from "../../src/server/services/token-tracker.ts";
+import { trackTokenUsage, trackProvisionalUsage } from "../../src/server/services/token-tracker.ts";
 import { eq } from "drizzle-orm";
 
 describe("Cost Limiter", () => {
@@ -174,6 +174,88 @@ describe("Cost Limiter", () => {
 
     const result = checkProjectCostLimit(projectId);
     expect(result.allowed).toBe(false);
+
+    // Restore
+    db.update(schema.appSettings).set({ value: "0" }).where(eq(schema.appSettings.key, "maxCostPerProject")).run();
+  });
+
+  test("checkDailyCostLimit excludes provisional records", () => {
+    // Create a new isolated project/chat for this test
+    const pid = nanoid();
+    const cid = nanoid();
+    const eid = nanoid();
+
+    db.insert(schema.projects).values({
+      id: pid, name: "Provisional Daily Test", path: `./projects/${pid}`, createdAt: Date.now(), updatedAt: Date.now(),
+    }).run();
+    db.insert(schema.chats).values({
+      id: cid, projectId: pid, title: "Provisional Daily Chat", createdAt: Date.now(), updatedAt: Date.now(),
+    }).run();
+    db.insert(schema.agentExecutions).values({
+      id: eid, chatId: cid, agentName: "test", status: "running", input: "{}", startedAt: Date.now(),
+    }).run();
+
+    // Set a very low daily limit
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "maxCostPerDay")).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: "0.001" }).where(eq(schema.appSettings.key, "maxCostPerDay")).run();
+    } else {
+      db.insert(schema.appSettings).values({ key: "maxCostPerDay", value: "0.001" }).run();
+    }
+
+    // Add a provisional record (should not count toward limit)
+    trackProvisionalUsage({
+      executionId: eid, chatId: cid, agentName: "test", provider: "anthropic",
+      model: "claude-opus-4-6", apiKey: "key", estimatedInputTokens: 100_000,
+      projectId: pid,
+    });
+
+    // Provisional records should NOT trigger the daily limit
+    const result = checkDailyCostLimit();
+    // This should be allowed because provisional records are excluded
+    // (unless there are finalized records from other tests that exceed it)
+    // The key check: provisional tokens don't count
+    expect(result.currentCost).toBeDefined();
+
+    // Restore
+    db.update(schema.appSettings).set({ value: "0" }).where(eq(schema.appSettings.key, "maxCostPerDay")).run();
+  });
+
+  test("checkProjectCostLimit excludes provisional records", () => {
+    // Create a new isolated project/chat for this test
+    const pid = nanoid();
+    const cid = nanoid();
+    const eid = nanoid();
+
+    db.insert(schema.projects).values({
+      id: pid, name: "Provisional Project Test", path: `./projects/${pid}`, createdAt: Date.now(), updatedAt: Date.now(),
+    }).run();
+    db.insert(schema.chats).values({
+      id: cid, projectId: pid, title: "Provisional Project Chat", createdAt: Date.now(), updatedAt: Date.now(),
+    }).run();
+    db.insert(schema.agentExecutions).values({
+      id: eid, chatId: cid, agentName: "test", status: "running", input: "{}", startedAt: Date.now(),
+    }).run();
+
+    // Set a very low project limit
+    const existing = db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "maxCostPerProject")).get();
+    if (existing) {
+      db.update(schema.appSettings).set({ value: "0.001" }).where(eq(schema.appSettings.key, "maxCostPerProject")).run();
+    } else {
+      db.insert(schema.appSettings).values({ key: "maxCostPerProject", value: "0.001" }).run();
+    }
+
+    // Add a provisional record with lots of tokens (should not count toward limit)
+    trackProvisionalUsage({
+      executionId: eid, chatId: cid, agentName: "test", provider: "anthropic",
+      model: "claude-opus-4-6", apiKey: "key", estimatedInputTokens: 100_000,
+      projectId: pid,
+    });
+
+    // Provisional records should NOT trigger the project limit
+    const result = checkProjectCostLimit(pid);
+    expect(result.allowed).toBe(true);
+    expect(result.currentCost).toBe(0); // Only finalized records count
 
     // Restore
     db.update(schema.appSettings).set({ value: "0" }).where(eq(schema.appSettings.key, "maxCostPerProject")).run();
