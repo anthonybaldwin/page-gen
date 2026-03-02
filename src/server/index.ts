@@ -18,6 +18,7 @@ import { stopAllBackendServers } from "./preview/backend-server.ts";
 import { log, logError, logWarn } from "./services/logger.ts";
 import { createMiddleware } from "hono/factory";
 import { DEFAULT_PORT, CORS_ORIGINS } from "./config/server.ts";
+import homepage from "../client/index.html";
 
 // Run migrations on startup
 runMigrations();
@@ -92,7 +93,7 @@ const server = Bun.serve({
   port: PORT,
   development: process.env.NODE_ENV !== "production",
   routes: {
-    "/": "src/client/index.html",
+    "/": homepage,
   },
   fetch(req, server) {
     // Handle WebSocket upgrade requests
