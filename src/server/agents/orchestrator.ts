@@ -16,7 +16,7 @@ import { broadcastAgentStatus, broadcastAgentError, broadcastTokenUsage, broadca
 import { broadcast } from "../ws.ts";
 import { existsSync, writeFileSync, readdirSync } from "fs";
 import { writeFile, listFiles, readFile } from "../tools/file-ops.ts";
-import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from "../preview/vite-server.ts";
+import { prepareProjectForPreview, invalidateProjectDeps, getFrontendPort } from "../preview/preview-server.ts";
 import { startBackendServer, projectHasBackend } from "../preview/backend-server.ts";
 import { createAgentTools, stripBlockedPackages } from "./tools.ts";
 import { log, logError, logWarn, logBlock, logLLMInput, logLLMOutput } from "../services/logger.ts";
@@ -2287,7 +2287,7 @@ async function executePipelineSteps(ctx: {
             log("orchestrator", "Mood analysis injected via action step", { projectId });
           }
         } else if (act.actionKind === "build-check") {
-          // Build check: run vite build, if errors → run build-fix agent up to maxAttempts
+          // Build check: run build, if errors → run build-fix agent up to maxAttempts
           const stepOverrides: ActionOverrides = { ...actionOverrides };
           if (act.timeoutMs !== undefined) stepOverrides.buildTimeoutMs = act.timeoutMs;
           if (act.maxUniqueErrors !== undefined) stepOverrides.maxUniqueErrors = act.maxUniqueErrors;
@@ -2317,7 +2317,7 @@ async function executePipelineSteps(ctx: {
             agentResults.set(sk, `Build failed: ${buildErrors.slice(0, 500)}`);
           }
         } else if (act.actionKind === "test-run") {
-          // Test run: run vitest, if failures → fix + smart re-run, up to maxAttempts
+          // Test run: run bun test, if failures → fix + smart re-run, up to maxAttempts
           const stepOverrides: ActionOverrides = { ...actionOverrides };
           if (act.timeoutMs !== undefined) stepOverrides.testTimeoutMs = act.timeoutMs;
           if (act.maxTestFailures !== undefined) stepOverrides.maxTestFailures = act.maxTestFailures;
@@ -3944,7 +3944,7 @@ function extractAndWriteFiles(
 }
 
 /**
- * Run a Vite build check on the project to detect compile errors.
+ * Run a build check on the project to detect compile errors.
  * Returns error output string if there are errors, null if build succeeds.
  */
 async function checkProjectBuild(projectPath: string, chatId?: string, overrides?: ActionOverrides, projectName?: string, buildCommand?: string): Promise<string | null> {
@@ -3962,7 +3962,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string, overrides
   const installError = await prepareProjectForPreview(projectPath, chatId, projectName);
 
   if (installError) {
-    log("build", "Dependency install failed — skipping vite build check", { chars: installError.length });
+    log("build", "Dependency install failed — skipping build check", { chars: installError.length });
     if (chatId) broadcastAgentThinking(chatId, "orchestrator", "Build System", "failed", { error: "Dependency install failed" });
     return `Dependency install failed:\n${installError}`;
   }
@@ -3971,7 +3971,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string, overrides
     broadcastAgentThinking(chatId, "orchestrator", "Build System", "streaming", { chunk: "\nRunning build check..." });
   }
 
-  const buildCmd = buildCommand ?? "bunx vite build --mode development";
+  const buildCmd = buildCommand ?? "bun build ./index.html --outdir dist";
   log("build", "Running build check", { path: fullPath, command: buildCmd });
 
   try {
@@ -4017,7 +4017,7 @@ async function checkProjectBuild(projectPath: string, chatId?: string, overrides
         if (!trimmed) return false;
         // Skip pure stack trace lines — they add noise without actionable info
         if (/^\s*at\s+/.test(trimmed)) return false;
-        // Skip vite/rollup build timing lines
+        // Skip build timing lines
         if (/^✓|^✗|built in|^rendering chunks/i.test(trimmed)) return false;
         return true;
       });
@@ -4114,7 +4114,7 @@ async function runBuildFix(params: {
   const sourceSection = projectSource
     ? `\n\nHere is the current project source:\n\n${projectSource.slice(0, MAX_PROJECT_SOURCE_CHARS)}`
     : "";
-  const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the Vite build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Do NOT use read_file or list_files — the full source is provided below. Write corrected files immediately.${sourceSection}`;
+  const fixPrompt = `The project has build errors that MUST be fixed before it can run. Here are the build errors:\n\n\`\`\`\n${buildErrors}\n\`\`\`\n\nFix ALL the errors above. Do NOT use read_file or list_files — the full source is provided below. Write corrected files immediately.${sourceSection}`;
 
   // Hoist provisional IDs so catch block can finalize billing on crash/abort
   const bfProviderKey = apiKeys[config.provider];
@@ -4244,81 +4244,86 @@ export interface TestRunResult {
 }
 
 /**
- * Parse vitest JSON reporter output into structured test results.
- * Detects suite collection errors (status: "failed" with empty assertionResults)
- * which occur when corrupted source files prevent test collection.
+ * Parse Bun test runner output into structured test results.
+ * Bun test outputs lines like:
+ *   ✓ test name [0.12ms]
+ *   ✗ test name
+ *   N pass, M fail, K expect(), ran in Xms
  */
-export function parseVitestOutput(stdout: string, stderr: string, exitCode: number): TestRunResult {
-  try {
-    const jsonOutput = JSON.parse(stdout);
-    let passed = jsonOutput.numPassedTests ?? 0;
-    let failed = jsonOutput.numFailedTests ?? 0;
-    let total = jsonOutput.numTotalTests ?? (passed + failed);
-    const duration = jsonOutput.startTime
-      ? Date.now() - jsonOutput.startTime
-      : 0;
+export function parseTestOutput(stdout: string, stderr: string, exitCode: number): TestRunResult {
+  const combined = stdout + "\n" + stderr;
+  const lines = combined.split("\n");
 
-    const failures: Array<{ name: string; error: string }> = [];
-    const testDetails: TestRunResult["testDetails"] = [];
+  let passed = 0;
+  let failed = 0;
+  let duration = 0;
+  const failures: Array<{ name: string; error: string }> = [];
+  const testDetails: TestRunResult["testDetails"] = [];
+  let currentSuite = "default";
+  let currentFailError = "";
 
-    if (jsonOutput.testResults) {
-      for (const suite of jsonOutput.testResults) {
-        const suiteName = suite.name || suite.testFilePath || "unknown suite";
+  for (const line of lines) {
+    const trimmed = line.trim();
 
-        // Detect suite collection errors: suite failed but has no assertion results
-        if (suite.status === "failed" && (!suite.assertionResults || suite.assertionResults.length === 0)) {
-          const errorMsg = (suite.message || suite.failureMessage || "Suite failed to collect").slice(0, 500);
-          failures.push({
-            name: `[Collection Error] ${suiteName}`,
-            error: errorMsg,
-          });
-          testDetails.push({
-            suite: suiteName,
-            name: "[Collection Error]",
-            status: "failed",
-            error: errorMsg,
-          });
-          failed++;
-          total++;
-          continue;
-        }
-
-        if (suite.assertionResults) {
-          for (const test of suite.assertionResults) {
-            const testName = test.fullName || test.title || "unknown test";
-            const testStatus = test.status === "passed" ? "passed"
-              : test.status === "failed" ? "failed"
-              : "skipped";
-            const testError = test.status === "failed"
-              ? (test.failureMessages || []).join("\n").slice(0, 500)
-              : undefined;
-
-            testDetails.push({
-              suite: suiteName,
-              name: testName,
-              status: testStatus,
-              error: testError,
-              duration: test.duration,
-            });
-
-            if (test.status === "failed") {
-              failures.push({
-                name: testName,
-                error: testError || "",
-              });
-            }
-          }
-        }
-      }
+    // Suite headers (file paths like "src/App.test.tsx:")
+    const suiteMatch = trimmed.match(/^(.+\.(?:test|spec)\.(?:ts|tsx|js|jsx)):?$/);
+    if (suiteMatch) {
+      currentSuite = suiteMatch[1]!;
+      continue;
     }
 
-    return { passed, failed, total, duration, failures, testDetails };
-  } catch {
-    // JSON parsing failed — create result from exit code
+    // Passing test: "✓ test name [0.12ms]" or "(pass) test name [0.12ms]"
+    const passMatch = trimmed.match(/^[✓✔]|^\(pass\)/);
+    if (passMatch) {
+      const nameMatch = trimmed.match(/^(?:[✓✔]|\(pass\))\s+(.+?)(?:\s+\[[\d.]+(?:ms|s)\])?$/);
+      const testName = nameMatch?.[1] || trimmed;
+      const durMatch = trimmed.match(/\[([\d.]+)(?:ms|s)\]/);
+      const testDur = durMatch ? (durMatch[0]!.includes("s") && !durMatch[0]!.includes("ms") ? parseFloat(durMatch[1]!) * 1000 : parseFloat(durMatch[1]!)) : undefined;
+      passed++;
+      testDetails.push({ suite: currentSuite, name: testName, status: "passed", duration: testDur });
+      continue;
+    }
+
+    // Failing test: "✗ test name" or "(fail) test name"
+    const failMatch = trimmed.match(/^[×✗]|^\(fail\)/);
+    if (failMatch) {
+      const nameMatch = trimmed.match(/^(?:[×✗]|\(fail\))\s+(.+?)(?:\s+\[[\d.]+(?:ms|s)\])?$/);
+      const testName = nameMatch?.[1] || trimmed;
+      failed++;
+      testDetails.push({ suite: currentSuite, name: testName, status: "failed" });
+      failures.push({ name: testName, error: "" });
+      continue;
+    }
+
+    // Summary line: "5 pass, 1 fail, 6 expect(), ran in 42ms"
+    const summaryMatch = trimmed.match(/(\d+)\s+pass.*?(\d+)\s+fail.*?ran in\s+([\d.]+(?:ms|s))/i);
+    if (summaryMatch) {
+      // Use parsed counts as authoritative
+      passed = parseInt(summaryMatch[1]!);
+      failed = parseInt(summaryMatch[2]!);
+      const durStr = summaryMatch[3]!;
+      duration = durStr.includes("s") && !durStr.includes("ms") ? parseFloat(durStr) * 1000 : parseFloat(durStr);
+      continue;
+    }
+
+    // All-pass summary: "5 pass, 5 expect(), ran in 42ms"
+    const allPassMatch = trimmed.match(/(\d+)\s+pass.*?ran in\s+([\d.]+(?:ms|s))/i);
+    if (allPassMatch && !trimmed.includes("fail")) {
+      passed = parseInt(allPassMatch[1]!);
+      const durStr = allPassMatch[2]!;
+      duration = durStr.includes("s") && !durStr.includes("ms") ? parseFloat(durStr) * 1000 : parseFloat(durStr);
+      continue;
+    }
+  }
+
+  const total = passed + failed;
+
+  // If we couldn't parse anything, fall back to exit code
+  if (total === 0) {
     if (exitCode === 0) {
       return { passed: 1, failed: 0, total: 1, duration: 0, failures: [] };
     } else {
-      const errorSnippet = (stderr + "\n" + stdout).trim().slice(0, 500);
+      const errorSnippet = combined.trim().slice(0, 500);
       return {
         passed: 0,
         failed: 1,
@@ -4328,11 +4333,13 @@ export function parseVitestOutput(stdout: string, stderr: string, exitCode: numb
       };
     }
   }
+
+  return { passed, failed, total, duration, failures, testDetails };
 }
 
 /**
- * Run vitest tests in the project directory.
- * Parses JSON output for structured results and broadcasts them via WebSocket.
+ * Run bun tests in the project directory.
+ * Parses output for structured results and broadcasts them via WebSocket.
  * Returns structured results, or null if tests couldn't be run.
  */
 export async function runProjectTests(
@@ -4348,23 +4355,22 @@ export async function runProjectTests(
     ? projectPath
     : join(process.cwd(), projectPath);
 
-  // Ensure vitest config + deps are installed (handled by prepareProjectForPreview)
+  // Ensure config + deps are installed (handled by prepareProjectForPreview)
   await prepareProjectForPreview(projectPath, undefined, projectName);
 
-  const testCmd = testCommand ?? "bunx vitest run";
+  const testCmd = testCommand ?? "bun test";
   log("test", "Running tests", { path: fullPath, command: testCmd });
 
   try {
-    const jsonOutputFile = join(fullPath, "vitest-results.json");
     const baseTestArgs = testCmd.split(/\s+/);
-    const vitestArgs = [...baseTestArgs, "--reporter=verbose", "--reporter=json", "--outputFile", jsonOutputFile];
+    const testArgs = [...baseTestArgs];
     // Smart re-run: only run specific failed test files instead of full suite
     if (failedTestFiles && failedTestFiles.length > 0) {
-      vitestArgs.push(...failedTestFiles);
+      testArgs.push(...failedTestFiles);
       log("test", `Smart re-run: only running ${failedTestFiles.length} failed file(s)`);
     }
     const proc = Bun.spawn(
-      vitestArgs,
+      testArgs,
       {
         cwd: fullPath,
         stdout: "pipe",
@@ -4373,28 +4379,27 @@ export async function runProjectTests(
       },
     );
 
-    // Stream verbose output line-by-line for incremental results
-    const verboseStdout = await new Response(proc.stdout).text();
-    const lines = verboseStdout.split("\n");
+    // Collect output for parsing
+    const stdoutText = await new Response(proc.stdout).text();
+    const lines = stdoutText.split("\n");
     for (const line of lines) {
-      // Vitest verbose format: " ✓ Suite > test name 3ms" or " × Suite > test name"
-      const passMatch = line.match(/^\s*[✓✔]\s+(.+?)\s+>\s+(.+?)(?:\s+(\d+)ms)?$/);
-      const failMatch = line.match(/^\s*[×✗]\s+(.+?)\s+>\s+(.+?)(?:\s+(\d+)ms)?$/);
+      // Bun test format: "✓ test name [0.12ms]" or "✗ test name"
+      const passMatch = line.match(/^\s*[✓✔]\s+(.+?)(?:\s+\[[\d.]+(?:ms|s)\])?$/);
+      const failMatch = line.match(/^\s*[×✗]\s+(.+?)(?:\s+\[[\d.]+(?:ms|s)\])?$/);
+      // Extract suite from file header lines like "src/App.test.tsx:"
       if (passMatch) {
         broadcastTestResultIncremental({
           chatId, projectId,
-          suite: passMatch[1]!.trim(),
-          name: passMatch[2]!.trim(),
+          suite: "test",
+          name: passMatch[1]!.trim(),
           status: "passed",
-          duration: passMatch[3] ? parseInt(passMatch[3]) : undefined,
         });
       } else if (failMatch) {
         broadcastTestResultIncremental({
           chatId, projectId,
-          suite: failMatch[1]!.trim(),
-          name: failMatch[2]!.trim(),
+          suite: "test",
+          name: failMatch[1]!.trim(),
           status: "failed",
-          duration: failMatch[3] ? parseInt(failMatch[3]) : undefined,
         });
       }
     }
@@ -4418,16 +4423,7 @@ export async function runProjectTests(
       logBlock("test", "Test stderr", stderr.trim().slice(0, 2000));
     }
 
-    // Read JSON output from file (json reporter writes to outputFile)
-    let jsonStdout = "";
-    try {
-      jsonStdout = await Bun.file(jsonOutputFile).text();
-    } catch {
-      // JSON file might not exist if vitest failed early — use verbose output
-      jsonStdout = verboseStdout;
-    }
-
-    const result = parseVitestOutput(jsonStdout, stderr, exitCode);
+    const result = parseTestOutput(stdoutText, stderr, exitCode);
 
     broadcastTestResults({
       chatId,

@@ -10,7 +10,7 @@ import {
   extractFilesFromOutput,
   classifyIntent,
   buildClassifyPrompt,
-  parseVitestOutput,
+  parseTestOutput,
   agentHasFileTools,
   truncateOutput,
   buildFileManifest,
@@ -985,126 +985,68 @@ describe("buildClassifyPrompt", () => {
   });
 });
 
-// --- parseVitestOutput ---
+// --- parseTestOutput ---
 
-describe("parseVitestOutput", () => {
-  test("parses normal vitest JSON output", () => {
-    const json = JSON.stringify({
-      numPassedTests: 5,
-      numFailedTests: 1,
-      numTotalTests: 6,
-      startTime: Date.now() - 1000,
-      testResults: [{
-        name: "src/App.test.tsx",
-        assertionResults: [
-          { status: "passed", fullName: "App renders", title: "renders", failureMessages: [] },
-          { status: "failed", fullName: "App handles click", title: "handles click", failureMessages: ["Expected true to be false"] },
-        ],
-      }],
-    });
-    const result = parseVitestOutput(json, "", 1);
+describe("parseTestOutput", () => {
+  test("parses bun test output with pass/fail counts", () => {
+    const stdout = `src/App.test.tsx:
+✓ App renders [0.5ms]
+✗ App handles click
+5 pass, 1 fail, 6 expect(), ran in 42ms`;
+    const result = parseTestOutput(stdout, "", 1);
     expect(result.passed).toBe(5);
     expect(result.failed).toBe(1);
     expect(result.total).toBe(6);
     expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]!.name).toBe("App handles click");
   });
 
-  test("detects suite collection errors with empty assertionResults", () => {
-    const json = JSON.stringify({
-      numPassedTests: 0,
-      numFailedTests: 0,
-      numTotalTests: 0,
-      testResults: [{
-        name: "src/App.test.tsx",
-        status: "failed",
-        message: "Cannot find module './App'",
-        assertionResults: [],
-      }],
-    });
-    const result = parseVitestOutput(json, "", 1);
-    expect(result.failed).toBe(1);
-    expect(result.total).toBe(1);
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]!.name).toContain("[Collection Error]");
-    expect(result.failures[0]!.error).toContain("Cannot find module");
-  });
-
-  test("counts collection failures as test failures", () => {
-    const json = JSON.stringify({
-      numPassedTests: 0,
-      numFailedTests: 0,
-      numTotalTests: 0,
-      testResults: [
-        { name: "a.test.tsx", status: "failed", message: "Import error", assertionResults: [] },
-        { name: "b.test.tsx", status: "failed", message: "Syntax error", assertionResults: [] },
-      ],
-    });
-    const result = parseVitestOutput(json, "", 1);
-    expect(result.failed).toBe(2);
+  test("parses all-pass output", () => {
+    const stdout = `src/App.test.tsx:
+✓ renders correctly [1.2ms]
+✓ handles click [0.8ms]
+2 pass, 2 expect(), ran in 15ms`;
+    const result = parseTestOutput(stdout, "", 0);
+    expect(result.passed).toBe(2);
+    expect(result.failed).toBe(0);
     expect(result.total).toBe(2);
-    expect(result.failures).toHaveLength(2);
+    expect(result.failures).toHaveLength(0);
   });
 
-  test("handles mixed: some suites collected, some failed", () => {
-    const json = JSON.stringify({
-      numPassedTests: 3,
-      numFailedTests: 0,
-      numTotalTests: 3,
-      testResults: [
-        {
-          name: "good.test.tsx",
-          status: "passed",
-          assertionResults: [
-            { status: "passed", fullName: "works", title: "works", failureMessages: [] },
-          ],
-        },
-        {
-          name: "broken.test.tsx",
-          status: "failed",
-          message: "Cannot resolve import",
-          assertionResults: [],
-        },
-      ],
-    });
-    const result = parseVitestOutput(json, "", 1);
-    expect(result.passed).toBe(3);
-    expect(result.failed).toBe(1);
-    expect(result.total).toBe(4);
-    expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]!.name).toContain("[Collection Error]");
-  });
-
-  test("falls back to exit code when JSON parsing fails", () => {
-    const result = parseVitestOutput("not json", "some error", 1);
+  test("falls back to exit code when output is unparseable", () => {
+    const result = parseTestOutput("some garbage", "error output", 1);
     expect(result.failed).toBe(1);
     expect(result.total).toBe(1);
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]!.name).toBe("Test suite");
   });
 
-  test("reports success on exit code 0 when JSON parsing fails", () => {
-    const result = parseVitestOutput("not json", "", 0);
+  test("reports success on exit code 0 when output is unparseable", () => {
+    const result = parseTestOutput("", "", 0);
     expect(result.passed).toBe(1);
     expect(result.failed).toBe(0);
     expect(result.total).toBe(1);
     expect(result.failures).toHaveLength(0);
   });
 
-  test("uses failureMessage when message is absent on collection error", () => {
-    const json = JSON.stringify({
-      numPassedTests: 0,
-      numFailedTests: 0,
-      numTotalTests: 0,
-      testResults: [{
-        name: "src/Broken.test.tsx",
-        status: "failed",
-        failureMessage: "ReferenceError: foo is not defined",
-        assertionResults: [],
-      }],
-    });
-    const result = parseVitestOutput(json, "", 1);
-    expect(result.failures[0]!.error).toContain("ReferenceError");
+  test("extracts duration from summary line", () => {
+    const stdout = `✓ test one [0.5ms]
+3 pass, 0 fail, 3 expect(), ran in 120ms`;
+    const result = parseTestOutput(stdout, "", 0);
+    expect(result.duration).toBe(120);
+  });
+
+  test("handles multiple test files", () => {
+    const stdout = `src/App.test.tsx:
+✓ renders [1ms]
+✓ clicks [2ms]
+src/Button.test.tsx:
+✓ renders button [0.5ms]
+✗ handles disabled state
+3 pass, 1 fail, 4 expect(), ran in 50ms`;
+    const result = parseTestOutput(stdout, "", 1);
+    expect(result.passed).toBe(3);
+    expect(result.failed).toBe(1);
+    expect(result.total).toBe(4);
   });
 });
 
@@ -1435,7 +1377,7 @@ describe("deduplicateErrors", () => {
     expect(deduplicateErrors([])).toBe("");
   });
 
-  test("preserves 'Could not resolve' error (the most common vite failure)", () => {
+  test("preserves 'Could not resolve' error (the most common build failure)", () => {
     const lines = [
       'error during build:',
       'Could not resolve "./components/Tile" from "src/App.tsx"',

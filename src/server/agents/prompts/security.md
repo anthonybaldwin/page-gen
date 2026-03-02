@@ -30,7 +30,7 @@ Search the provided code for these high-risk patterns:
 |---|---|---|
 | `dangerouslySetInnerHTML` | XSS via unsanitized HTML | Render as text: `<div>{userContent}</div>`. If HTML required: `DOMPurify.sanitize(content)` |
 | `eval(`, `new Function(` | Arbitrary code execution | Use a whitelist: `const fn = allowedFunctions[userInput]` |
-| `process.env` in client code | Env var leakage to browser | Use `VITE_` prefixed vars only for public values |
+| `process.env` in client code | Env var leakage to browser | Use only public values intended for the browser |
 | `exec(`, `spawn(`, `execSync(` | Command injection | Validate/whitelist inputs, avoid shell: use `execFile` with args array |
 | String concatenation in SQL | SQL injection | Use prepared statements: `db.query("SELECT * FROM users WHERE id = ?", [userId])` |
 | `fs.readFile` with user-controlled path | Path traversal | Validate path against allowlist, use `path.resolve` + prefix check |

@@ -30,9 +30,9 @@ Do NOT wrap tool calls in XML, JSON, or code blocks.
 ## Important
 
 The project already has these files (do NOT recreate unless modifying):
-- `index.html`, `src/main.tsx`, `vite.config.ts`, `tsconfig.json`, `package.json` (react, react-dom, vite, tailwindcss), `src/index.css`
+- `index.html`, `src/main.tsx`, `bunfig.toml`, `tsconfig.json`, `package.json` (react, react-dom, tailwindcss), `src/index.css`
 
-Do NOT create `postcss.config.*` or `tailwind.config.*` — Tailwind CSS v4 is configured via the `@tailwindcss/vite` plugin, not PostCSS. These files will be deleted automatically and their presence causes build conflicts.
+Do NOT create `postcss.config.*` or `tailwind.config.*` — Tailwind CSS v4 is configured via `bun-plugin-tailwind`, not PostCSS. These files will be deleted automatically and their presence causes build conflicts.
 
 You MUST modify `src/App.tsx` to import and render your components. If the architecture specifies additional npm dependencies, write an updated `package.json`.
 
@@ -107,9 +107,9 @@ You MUST write test files. This is not optional — skipping tests is a build fa
 - Cover: rendering, props, user interactions, edge cases (empty states, loading, errors)
 
 **Test authoring rules:**
-- Use vitest + @testing-library/react. Import `describe`, `it`, `expect` from `vitest` and render utilities from `@testing-library/react`.
+- Use `bun:test` + @testing-library/react. Import `describe`, `it`, `expect`, `mock` from `bun:test` and render utilities from `@testing-library/react`.
 - Use `@testing-library/user-event` for interactions.
-- Mock external deps with `vi.mock()`.
+- Mock external deps with `mock.module()`.
 - Each test file must match the `.test.tsx` or `.test.ts` naming convention.
 - Include test files in your `files_written` summary.
 
@@ -118,8 +118,8 @@ You MUST write test files. This is not optional — skipping tests is a build fa
 **Test query best practices:**
 - NEVER use bare `getByText` for values that also appear as button labels or in other UI regions. Use `getByRole`, `getByTestId`, or scope with `within()` (e.g. `within(screen.getByRole('region', { name: /display/i })).getByText('7')`).
 - NEVER assert CSS class names in tests. Classes are implementation details (especially with Tailwind). Assert behavior, text content, ARIA attributes, or data-testid instead.
-- Do NOT import `@testing-library/jest-dom` in test files or test-setup — it is pre-configured via `setupFiles` in vitest.config.ts. Matchers like `toBeInTheDocument` are available automatically.
-- Do NOT overwrite `vitest.config.ts` or `src/test-setup.ts` — they are scaffolded by the build system with correct settings.
+- Do NOT import `@testing-library/jest-dom` in test files or test-setup — it is pre-configured via `preload` in bunfig.toml. Matchers like `toBeInTheDocument` are available automatically.
+- Do NOT overwrite `bunfig.toml` or `src/test-setup.ts` — they are scaffolded by the build system with correct settings.
 
 ## Output Discipline
 

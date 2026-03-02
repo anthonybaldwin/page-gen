@@ -133,7 +133,7 @@ export function LivePreview() {
     if (!activeProject) return;
 
     // Await the old server stop BEFORE starting the new one — the backend
-    // waits for the Vite process tree to actually die and releases the port,
+    // waits for the process tree to actually die and releases the port,
     // preventing the new server from colliding with an orphaned process.
     const stopThenStart = async () => {
       if (prevId && prevId !== newId) {
@@ -162,7 +162,7 @@ export function LivePreview() {
         if (!cancelled) {
           healthFailsRef.current += 1;
           // Require 3 consecutive failures before marking dead — a single
-          // miss during a Vite rebuild is normal and shouldn't flash the overlay.
+          // miss during a rebuild is normal and shouldn't flash the overlay.
           if (healthFailsRef.current >= 3) {
             setServerAlive(false);
             if (!loading) {
@@ -214,7 +214,7 @@ export function LivePreview() {
       if (msg.type === "files_changed") {
         if (msgProjectId && msgProjectId !== projectId) return;
         if (!pipelineRunning && previewUrl && iframeRef.current) {
-          // Give Vite HMR a moment to push the update, then force a full
+          // Give HMR a moment to push the update, then force a full
           // reload as a fallback.  Using contentWindow.location.reload()
           // instead of re-assigning src — browsers may skip a reload when
           // the src value hasn't changed.

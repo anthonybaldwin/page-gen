@@ -24,9 +24,7 @@ export function connectWebSocket() {
   if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  // In development, Vite runs on :5173 but the backend is on :3000.
-  // Connect directly to the backend to avoid Vite's proxy (Bun compat issue).
-  const host = window.location.port === "5173" ? "localhost:3000" : window.location.host;
+  const host = window.location.host;
   ws = new WebSocket(`${protocol}//${host}/ws`);
 
   ws.onopen = () => {

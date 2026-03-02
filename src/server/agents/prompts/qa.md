@@ -114,6 +114,6 @@ Return a structured JSON report:
 - Focus on functional completeness and UX quality, not code style.
 
 **Test infrastructure checks:**
-- Verify `vitest.config.ts` has `setupFiles: ["./src/test-setup.ts"]`.
-- Verify `src/test-setup.ts` exists and imports `@testing-library/jest-dom/vitest`.
+- Verify `bunfig.toml` has `preload = ["./src/test-setup.ts"]` under `[test]`.
+- Verify `src/test-setup.ts` exists and imports `@testing-library/jest-dom`.
 - Verify no test file directly imports `@testing-library/jest-dom`.

@@ -25,18 +25,17 @@ git clone https://github.com/anthonybaldwin/page-gen.git
 cd page-gen
 bun install
 
-# 2. Start dev servers (two terminals)
-bun dev          # Backend  → http://localhost:3000
-bun dev:client   # Frontend → http://localhost:5173
+# 2. Start dev server
+bun dev          # http://localhost:3000
 
-# 3. Start logs viewer (optional — third terminal, not auto-started by Docker)
+# 3. Start logs viewer (optional — second terminal, not auto-started by Docker)
 bun logs:viewer   # http://localhost:3200
 
 # Or run in Docker (optional — sandboxed code execution)
 bun dev:docker
 ```
 
-Open `http://localhost:5173`, configure an API key in Settings, and describe what you want to build.
+Open `http://localhost:3000`, configure an API key in Settings, and describe what you want to build.
 
 ## Documentation
 

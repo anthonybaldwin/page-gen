@@ -172,7 +172,7 @@ export function generateBuildDefault(): FlowTemplate {
     timeoutMs: 30_000,
     maxAttempts: 3,
     maxUniqueErrors: 10,
-    buildCommand: "bunx vite build --mode development",
+    buildCommand: "bun build ./index.html --outdir dist",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(buildCheck);
   edges.push(makeEdge("styling", "build-check"));
@@ -186,7 +186,7 @@ export function generateBuildDefault(): FlowTemplate {
     maxAttempts: 2,
     maxTestFailures: 5,
     maxUniqueErrors: 10,
-    testCommand: "bunx vitest run",
+    testCommand: "bun test",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(testRun);
   edges.push(makeEdge("build-check", "test-run"));
@@ -391,7 +391,7 @@ export function generateFixDefault(): FlowTemplate {
     timeoutMs: 30_000,
     maxAttempts: 3,
     maxUniqueErrors: 10,
-    buildCommand: "bunx vite build --mode development",
+    buildCommand: "bun build ./index.html --outdir dist",
   }, col * X_SPACING, Y_CENTER - 2 * Y_SPACING);
   nodes.push(buildCheckQuick);
   edges.push(makeEdge("styling-quick", "build-check-quick"));
@@ -406,7 +406,7 @@ export function generateFixDefault(): FlowTemplate {
     timeoutMs: 30_000,
     maxAttempts: 3,
     maxUniqueErrors: 10,
-    buildCommand: "bunx vite build --mode development",
+    buildCommand: "bun build ./index.html --outdir dist",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(buildCheckFix);
   edges.push(makeEdge("frontend-fix", "build-check-fix"));
@@ -421,7 +421,7 @@ export function generateFixDefault(): FlowTemplate {
     maxAttempts: 2,
     maxTestFailures: 5,
     maxUniqueErrors: 10,
-    testCommand: "bunx vitest run",
+    testCommand: "bun test",
   }, col * X_SPACING, Y_CENTER);
   nodes.push(testRunFix);
   edges.push(makeEdge("build-check-fix", "test-run-fix"));

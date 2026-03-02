@@ -998,7 +998,7 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
               onChange={(e) => setBuildCommand(e.target.value)}
               onBlur={save}
               className="mt-0.5 h-6 text-xs font-mono"
-              placeholder="bunx vite build --mode development"
+              placeholder="bun build ./index.html --outdir dist"
             />
           </label>
         </div>
@@ -1014,7 +1014,7 @@ function ActionInspector({ data, nodeId, agentNames, onUpdate }: {
               onChange={(e) => setTestCommand(e.target.value)}
               onBlur={save}
               className="mt-0.5 h-6 text-xs font-mono"
-              placeholder="bunx vitest run"
+              placeholder="bun test"
             />
           </label>
         </div>

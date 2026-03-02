@@ -5,11 +5,11 @@ import { broadcastAgentThinking } from "../ws.ts";
 import {
   PREVIEW_PORT_MIN,
   PREVIEW_PORT_MAX,
-  VITE_READY_TIMEOUT,
-  VITE_FETCH_TIMEOUT,
-  VITE_READY_POLL_INTERVAL,
-  VITE_SHUTDOWN_DEADLINE,
-  VITE_SHUTDOWN_POLL,
+  PREVIEW_READY_TIMEOUT,
+  PREVIEW_FETCH_TIMEOUT,
+  PREVIEW_READY_POLL_INTERVAL,
+  PREVIEW_SHUTDOWN_DEADLINE,
+  PREVIEW_SHUTDOWN_POLL,
   DEFAULT_PREVIEW_HOST,
   TAILWIND_CONFLICT_FILES,
 } from "../config/preview.ts";
@@ -43,23 +43,17 @@ const installedProjects = new Set<string>();
 // Per-project install mutex — prevents concurrent bun install on the same directory
 const pendingInstalls = new Map<string, Promise<string | null>>();
 
-function ensureProjectHasViteConfig(projectPath: string) {
-  const configPath = join(projectPath, "vite.config.ts");
+function ensureProjectHasBunfig(projectPath: string) {
+  const configPath = join(projectPath, "bunfig.toml");
 
-  // Only write if missing — rewriting kills the running Vite dev server (file watcher detects config change)
+  // Only write if missing — rewriting could disrupt the running dev server
   if (existsSync(configPath)) return;
 
-  const config = `import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
+  const config = `[serve.static]
+plugins = ["bun-plugin-tailwind"]
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  root: ".",
-  server: {
-    hmr: true,
-  },
-});
+[test]
+preload = ["./src/test-setup.ts"]
 `;
   writeFileSync(configPath, config, "utf-8");
 }
@@ -117,18 +111,22 @@ function ensureProjectHasPackageJson(projectPath: string, projectName?: string) 
   if (!deps.hono) deps.hono = OUR_DEPS.hono || "^4.11.0";
   if (!deps.zod) deps.zod = OUR_DEPS.zod || "^4.3.0";
 
-  if (!devDeps.vite) devDeps.vite = OUR_DEPS.vite || "^7.3.0";
-  if (!devDeps["@vitejs/plugin-react"]) devDeps["@vitejs/plugin-react"] = OUR_DEPS["@vitejs/plugin-react"] || "^5.1.0";
-  if (!devDeps["@tailwindcss/vite"]) devDeps["@tailwindcss/vite"] = OUR_DEPS["@tailwindcss/vite"] || "^4.2.0";
+  if (!devDeps["bun-plugin-tailwind"]) devDeps["bun-plugin-tailwind"] = OUR_DEPS["bun-plugin-tailwind"] || "^0.1.0";
   if (!devDeps.tailwindcss) devDeps.tailwindcss = OUR_DEPS.tailwindcss || "^4.2.0";
+  if (!devDeps["@types/bun"]) devDeps["@types/bun"] = OUR_DEPS["@types/bun"] || "^1.3.9";
   if (!devDeps["@types/react"]) devDeps["@types/react"] = OUR_DEPS["@types/react"] || "^19.2.0";
   if (!devDeps["@types/react-dom"]) devDeps["@types/react-dom"] = OUR_DEPS["@types/react-dom"] || "^19.2.0";
-  // Testing deps (not in our package.json — pinned here)
-  if (!devDeps.vitest) devDeps.vitest = "^4.0.0";
+  // Testing deps
   if (!devDeps["happy-dom"]) devDeps["happy-dom"] = "^20.0.0";
   if (!devDeps["@testing-library/react"]) devDeps["@testing-library/react"] = "^16.3.0";
   if (!devDeps["@testing-library/user-event"]) devDeps["@testing-library/user-event"] = "^14.0.0";
   if (!devDeps["@testing-library/jest-dom"]) devDeps["@testing-library/jest-dom"] = "^6.6.0";
+
+  // Remove stale Vite-era deps if agents inherited them
+  delete devDeps.vite;
+  delete devDeps["@vitejs/plugin-react"];
+  delete devDeps["@tailwindcss/vite"];
+  delete devDeps.vitest;
 
   const pkg = {
     name: (existing.name as string) || (projectName ? toPackageName(projectName) : "preview-project"),
@@ -143,7 +141,7 @@ function ensureProjectHasPackageJson(projectPath: string, projectName?: string) 
 }
 
 /**
- * Ensure src/main.tsx exists as the Vite entry point.
+ * Ensure src/main.tsx exists as the app entry point.
  * If agents wrote an App.tsx or similar, import from it.
  */
 function ensureProjectHasMainEntry(projectPath: string) {
@@ -192,42 +190,17 @@ root.render(
 }
 
 /**
- * Ensure vitest.config.ts exists for test execution.
- * Does NOT overwrite — agents or users may customize the config.
- */
-function ensureProjectHasVitestConfig(projectPath: string) {
-  const configPath = join(projectPath, "vitest.config.ts");
-  if (existsSync(configPath)) return;
-
-  const config = `import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: "happy-dom",
-    setupFiles: ["./src/test-setup.ts"],
-    globals: true,
-    include: ["src/**/*.{test,spec}.{ts,tsx,js,jsx}", "server/**/*.{test,spec}.{ts,tsx,js,jsx}"],
-  },
-});
-`;
-  writeFileSync(configPath, config, "utf-8");
-}
-
-/**
- * Ensure src/test-setup.ts exists so vitest has jest-dom matchers available.
+ * Ensure src/test-setup.ts exists so bun:test has jest-dom matchers available.
  */
 function ensureProjectHasTestSetup(projectPath: string) {
   const setupPath = join(projectPath, "src", "test-setup.ts");
   if (existsSync(setupPath)) return;
   mkdirSync(join(projectPath, "src"), { recursive: true });
-  writeFileSync(setupPath, `import "@testing-library/jest-dom/vitest";\n`, "utf-8");
+  writeFileSync(setupPath, `import "@testing-library/jest-dom";\n`, "utf-8");
 }
 
 /**
- * Ensure tsconfig.json exists so Vite/esbuild correctly handles .ts files.
- * Without this, esbuild may treat .ts files as JavaScript and choke on type annotations.
+ * Ensure tsconfig.json exists so Bun correctly handles .ts files.
  */
 function ensureProjectHasTsConfig(projectPath: string) {
   const tsconfigPath = join(projectPath, "tsconfig.json");
@@ -316,7 +289,7 @@ async function installProjectDependencies(projectPath: string, chatId?: string):
 
 /**
  * Remove postcss.config.* and tailwind.config.* files that conflict with
- * the scaffold's @tailwindcss/vite plugin (Tailwind CSS v4).
+ * the bun-plugin-tailwind plugin (Tailwind CSS v4).
  */
 function removeConflictingTailwindConfigs(projectPath: string) {
   for (const file of TAILWIND_CONFLICT_FILES) {
@@ -324,6 +297,19 @@ function removeConflictingTailwindConfigs(projectPath: string) {
     if (existsSync(filePath)) {
       unlinkSync(filePath);
       log("preview", `Removed conflicting config: ${file}`);
+    }
+  }
+}
+
+/**
+ * Remove stale Vite-era config files left over from previous scaffolding.
+ */
+function removeStaleViteConfigs(projectPath: string) {
+  for (const file of ["vite.config.ts", "vitest.config.ts"]) {
+    const filePath = join(projectPath, file);
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+      log("preview", `Removed stale Vite config: ${file}`);
     }
   }
 }
@@ -342,9 +328,9 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
   }
 
   removeConflictingTailwindConfigs(fullPath);
+  removeStaleViteConfigs(fullPath);
   ensureProjectHasPackageJson(fullPath, projectName);
-  ensureProjectHasViteConfig(fullPath);
-  ensureProjectHasVitestConfig(fullPath);
+  ensureProjectHasBunfig(fullPath);
   ensureProjectHasTsConfig(fullPath);
   ensureProjectHasIndexHtml(fullPath);
   ensureProjectHasTailwindCss(fullPath);
@@ -355,7 +341,7 @@ export async function prepareProjectForPreview(projectPath: string, chatId?: str
 
 export async function startPreviewServer(projectId: string, projectPath: string, projectName?: string): Promise<{ url: string; port: number }> {
   // Wait for any in-progress stop to finish before starting — prevents the new
-  // server from colliding with an old Vite process that is still being killed.
+  // server from colliding with an old process that is still being killed.
   const pendingStop = pendingStops.get(projectId);
   if (pendingStop) {
     log("preview", `Waiting for pending stop of ${projectId} before starting`);
@@ -384,8 +370,8 @@ export async function startPreviewServer(projectId: string, projectPath: string,
   const host = process.env.PREVIEW_HOST || DEFAULT_PREVIEW_HOST;
   log("preview", `Starting preview server for ${projectId} on port ${port}`);
 
-  // Start Vite dev server for this project
-  const proc = Bun.spawn(["bunx", "vite", "--port", String(port), "--host", host], {
+  // Start Bun dev server for this project
+  const proc = Bun.spawn(["bun", "./index.html", "--port", String(port)], {
     cwd: fullPath,
     stdout: "pipe",
     stderr: "pipe",
@@ -401,25 +387,25 @@ export async function startPreviewServer(projectId: string, projectPath: string,
         stderrText = await new Response(proc.stderr).text();
       } catch { /* already consumed */ }
       const reason = stderrText.trim().split("\n").slice(-5).join("\n") || "unknown";
-      log("preview", `Vite server for ${projectId} exited (code ${code}) — removing from active servers`);
+      log("preview", `Preview server for ${projectId} exited (code ${code}) — removing from active servers`);
       if (code !== 0 && code !== null) {
-        logError("preview", `Vite server death reason`, reason);
+        logError("preview", `Preview server death reason`, reason);
       }
       releasePort(port);
       activeServers.delete(projectId);
     }
   });
 
-  // Wait for Vite to be ready by polling the port
+  // Wait for preview server to be ready by polling the port
   const startTime = Date.now();
-  while (Date.now() - startTime < VITE_READY_TIMEOUT) {
+  while (Date.now() - startTime < PREVIEW_READY_TIMEOUT) {
     try {
-      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(VITE_FETCH_TIMEOUT) });
-      if (res.ok || res.status === 404) break; // Vite is responding
+      const res = await fetch(`http://localhost:${port}`, { signal: AbortSignal.timeout(PREVIEW_FETCH_TIMEOUT) });
+      if (res.ok || res.status === 404) break;
     } catch {
       // Not ready yet
     }
-    await new Promise((resolve) => setTimeout(resolve, VITE_READY_POLL_INTERVAL));
+    await new Promise((resolve) => setTimeout(resolve, PREVIEW_READY_POLL_INTERVAL));
   }
 
   // Always return localhost to the client (browser connects to Docker-mapped ports on localhost)
@@ -435,8 +421,7 @@ export async function stopPreviewServer(projectId: string) {
 
   // Register the stop as a pending operation so concurrent starts wait for it
   const stopPromise = (async () => {
-    // Kill the entire process tree — proc.kill() only kills the parent (bunx)
-    // and orphans the Vite child, leaving the port occupied.
+    // Kill the entire process tree
     if (process.platform === "win32" && proc.pid) {
       try {
         Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {
@@ -457,12 +442,12 @@ export async function stopPreviewServer(projectId: string) {
     }
 
     // Wait for the process to actually exit before releasing the port
-    const deadline = Date.now() + VITE_SHUTDOWN_DEADLINE;
+    const deadline = Date.now() + PREVIEW_SHUTDOWN_DEADLINE;
     while (proc.exitCode === null && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, VITE_SHUTDOWN_POLL));
+      await new Promise((r) => setTimeout(r, PREVIEW_SHUTDOWN_POLL));
     }
     if (proc.exitCode === null) {
-      log("preview", `Process for ${projectId} didn't exit in ${VITE_SHUTDOWN_DEADLINE}ms — force-killing`);
+      log("preview", `Process for ${projectId} didn't exit in ${PREVIEW_SHUTDOWN_DEADLINE}ms — force-killing`);
       if (process.platform !== "win32" && proc.pid) {
         try { process.kill(-proc.pid, "SIGKILL"); } catch { /* already dead */ }
       } else {
@@ -501,47 +486,50 @@ export function invalidateProjectDeps(projectPath: string) {
 }
 
 /**
- * Get the frontend (Vite) port for a running project, or null if not running.
+ * Get the frontend port for a running project, or null if not running.
  */
 export function getFrontendPort(projectId: string): number | null {
   return activeServers.get(projectId)?.port ?? null;
 }
 
 /**
- * Rewrite vite.config.ts to include an /api proxy block pointing at the
- * backend port. Vite's file watcher detects the config change and auto-restarts.
+ * Scaffold a dev-server.ts wrapper in the project that uses Bun.serve() with
+ * routes + fetch fallback to forward /api/* to the backend port. Then restart
+ * the preview process to pick it up.
  * Called by backend-server.ts after the backend process is confirmed ready.
  */
-export function enableViteProxy(projectPath: string, backendPort: number) {
-  const configPath = join(projectPath, "vite.config.ts");
-  if (!existsSync(configPath)) return;
+export function enableBunProxy(projectPath: string, backendPort: number) {
+  const devServerPath = join(projectPath, "dev-server.ts");
 
-  const current = readFileSync(configPath, "utf-8");
+  // Already has a dev-server wrapper — skip
+  if (existsSync(devServerPath)) {
+    const current = readFileSync(devServerPath, "utf-8");
+    if (current.includes(`${backendPort}`)) return;
+  }
 
-  // Already has proxy config — skip rewrite
-  if (current.includes("/api")) return;
-
-  const config = `import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  root: ".",
-  server: {
-    hmr: true,
-    proxy: {
-      "/api": {
-        target: "http://localhost:${backendPort}",
-        changeOrigin: true,
-      },
-    },
+  const devServer = `// Auto-generated proxy wrapper — forwards /api/* to backend
+const server = Bun.serve({
+  port: parseInt(process.env.PORT || "3001"),
+  development: true,
+  routes: {
+    "/": "./index.html",
+  },
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api")) {
+      const target = "http://localhost:${backendPort}" + url.pathname + url.search;
+      return fetch(target, {
+        method: req.method,
+        headers: req.headers,
+        body: req.body,
+      });
+    }
+    return new Response("Not Found", { status: 404 });
   },
 });
+console.log("Dev server with proxy on port " + server.port);
 `;
 
-  // Delete and re-create to ensure Vite's watcher picks up the change
-  try { unlinkSync(configPath); } catch { /* may not exist */ }
-  writeFileSync(configPath, config, "utf-8");
-  log("preview", `Injected Vite proxy config for backend port ${backendPort}`);
+  writeFileSync(devServerPath, devServer, "utf-8");
+  log("preview", `Scaffolded Bun proxy dev-server for backend port ${backendPort}`);
 }

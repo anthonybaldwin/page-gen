@@ -75,8 +75,8 @@ export interface ActionNodeData {
   remediationFixAgents?: string[];     // agents to use for fixes (default: auto-detect via routing hints)
   remediationReviewerKeys?: string[];  // result keys to scan for issues (default: ["code-review", "qa", "security"])
   // Build/test command overrides
-  buildCommand?: string;   // build-check: custom build command (default: "bunx vite build --mode development")
-  testCommand?: string;    // test-run: custom test command (default: "bunx vitest run")
+  buildCommand?: string;   // build-check: custom build command (default: "bun build ./index.html --outdir dist")
+  testCommand?: string;    // test-run: custom test command (default: "bun test")
   // Fail signals (remediation)
   failSignals?: string[];    // remediation: custom fail signals (overrides global default)
   // Build-fix agent routing

@@ -22,7 +22,7 @@ Building a local-first, multi-agent page builder web app. Need to select a tech 
 | AI SDK | AI SDK 6.x | Agent abstraction, multi-provider, streaming |
 | Backend | Hono | Lightweight, Bun-native, Web Standard |
 | Database | Drizzle ORM + bun:sqlite | Type-safe, zero-dep, fast |
-| Frontend | React 19 + Vite 7 | Best HMR, mature ecosystem |
+| Frontend | React 19 + Bun dev server | Zero-config HMR, single process |
 | UI | Tailwind CSS + shadcn/ui | Full code ownership |
 | State | Zustand | Minimal React state management |
 | Streaming | WebSocket | Real-time agent status |
@@ -36,5 +36,5 @@ Building a local-first, multi-agent page builder web app. Need to select a tech 
 
 ## Consequences
 - Bun is required (not Node.js compatible for SQLite)
-- Vite 7 is cutting-edge but stable
+- Bun's built-in dev server replaces Vite — single process serves frontend + backend
 - AI SDK 6 provides strong agent primitives

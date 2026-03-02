@@ -166,8 +166,8 @@ You MUST write test files for every backend module you create. This is not optio
 - Cover: request validation, response shapes, error handling, status codes, database operations
 
 **Test authoring rules:**
-- Import `describe`, `it`, `expect`, `vi` from `vitest`.
-- Mock databases and external services with `vi.mock()`.
+- Import `describe`, `it`, `expect`, `mock` from `bun:test`.
+- Mock databases and external services with `mock.module()`.
 - Test request validation, response shapes, error handling, and status codes.
 - Include test files in your `files_written` summary.
 

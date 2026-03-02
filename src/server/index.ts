@@ -12,7 +12,7 @@ import { agentRoutes } from "./routes/agents.ts";
 import { fontRoutes } from "./routes/fonts.ts";
 import { setServer } from "./ws.ts";
 import { cleanupStaleExecutions } from "./agents/orchestrator.ts";
-import { stopAllPreviewServers } from "./preview/vite-server.ts";
+import { stopAllPreviewServers } from "./preview/preview-server.ts";
 import { PROVIDERS } from "../shared/providers.ts";
 import { stopAllBackendServers } from "./preview/backend-server.ts";
 import { log, logError, logWarn } from "./services/logger.ts";
@@ -90,6 +90,10 @@ const PORT = parseInt(process.env.PORT || String(DEFAULT_PORT), 10);
 
 const server = Bun.serve({
   port: PORT,
+  development: process.env.NODE_ENV !== "production",
+  routes: {
+    "/": "src/client/index.html",
+  },
   fetch(req, server) {
     // Handle WebSocket upgrade requests
     const url = new URL(req.url);

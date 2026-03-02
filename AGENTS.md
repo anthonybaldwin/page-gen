@@ -79,7 +79,7 @@ Read the full ADRs in `docs/adr/` before modifying any of these systems.
 
 **Build:** Research → Architect → Frontend Dev → Backend Dev (conditional) → Styling → Code Review + QA + Security (parallel) → Remediation (max 2 cycles) → Summary.
 
-**Fix:** Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary. (`finishPipeline` runs vitest directly.)
+**Fix:** Dev agent(s) by scope → Reviewers (parallel) → Remediation → Summary. (`finishPipeline` runs `bun test` directly.)
 
 **Question:** Single Sonnet call with project context, no pipeline.
 
@@ -109,7 +109,7 @@ Key files: `src/client/lib/crypto.ts`, `src/client/lib/api.ts`.
 
 ### Preview & Isolation (ADR-005)
 
-**Per-project Vite dev servers.** Each project gets its own Vite on ports 3001–3020. Managed by `src/server/preview/vite-server.ts`. Auto-scaffolds `package.json`, `vite.config.ts`, `index.html`, `src/main.tsx`, `src/index.css`, `tsconfig.json`, and `vitest.config.ts` before starting. Per-project mutex prevents concurrent `bun install`.
+**Per-project Bun dev servers.** Each project gets its own Bun dev server on ports 3001–3020. Managed by `src/server/preview/preview-server.ts`. Auto-scaffolds `package.json`, `bunfig.toml`, `index.html`, `src/main.tsx`, `src/index.css`, and `tsconfig.json` before starting. Per-project mutex prevents concurrent `bun install`.
 
 **Pipeline-aware preview gating.** `files_changed` events are ignored while the pipeline is running (agents are mid-write). `preview_ready` events always trigger a reload and are only sent after a successful build check.
 
@@ -130,7 +130,7 @@ If modifying any of the systems above:
 1. Orchestrator logic (`src/server/agents/orchestrator.ts`)
 2. Token accounting (`src/server/services/token-tracker.ts`, `cost-limiter.ts`)
 3. Billing tables (`src/server/db/schema.ts` — `token_usage`, `billing_ledger`)
-4. Preview server (`src/server/preview/vite-server.ts`)
+4. Preview server (`src/server/preview/preview-server.ts`)
 5. API key handling (`src/client/lib/crypto.ts`)
 6. Upstream output filtering (`filterUpstreamOutputs`)
 
@@ -177,7 +177,7 @@ Current ADRs:
 - **002** — Agent architecture (pipeline, registry, batching)
 - **003** — Token accounting & cost safety (dual-write, write-ahead, cost limiter, filtering)
 - **004** — Client-side security (encrypted keys, sandboxing)
-- **005** — Preview isolation & Docker (per-project Vite, hybrid extraction, containerization)
+- **005** — Preview isolation & Docker (per-project Bun dev server, hybrid extraction, containerization)
 - **006** — Git-based versioning (replaced SQLite snapshots with git, stage hooks, save_version tool)
 - **007** — Extensible agent registry & category restrictions (custom agents, allowedCategories, merged registry)
 - **008** — Visual pipeline flow editor & custom tools (flow templates, DAG resolver, custom tool executors)

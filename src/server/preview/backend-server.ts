@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { log, logError } from "../services/logger.ts";
-import { enableViteProxy } from "./vite-server.ts";
+import { enableBunProxy } from "./preview-server.ts";
 import { broadcast } from "../ws.ts";
 import {
   BACKEND_PORT_OFFSET,
@@ -70,7 +70,7 @@ function drainStream(stream: ReadableStream<Uint8Array>, onLine: (line: string) 
 
 /**
  * Start a backend server for a project. Spawns `bun run server/index.ts` with
- * the PORT env var set, polls /api/health until ready, then injects the Vite
+ * the PORT env var set, polls /api/health until ready, then injects a
  * proxy config so the frontend can reach /api/* routes.
  */
 export async function startBackendServer(
@@ -186,8 +186,8 @@ export async function startBackendServer(
 
   if (ready) {
     log("preview", `Backend server for ${projectId} ready on port ${port}`);
-    // Inject Vite proxy so frontend /api/* requests reach the backend
-    enableViteProxy(fullPath, port);
+    // Inject proxy so frontend /api/* requests reach the backend
+    enableBunProxy(fullPath, port);
     broadcast({
       type: "backend_ready",
       payload: { projectId, port },
@@ -219,7 +219,7 @@ export async function stopBackendServer(projectId: string): Promise<void> {
   const { process: proc } = entry;
   activeBackends.delete(projectId);
 
-  // Kill the entire process tree (mirrors vite-server.ts)
+  // Kill the entire process tree (mirrors preview-server.ts)
   if (process.platform === "win32" && proc.pid) {
     try {
       Bun.spawnSync(["taskkill", "/F", "/T", "/PID", String(proc.pid)], {

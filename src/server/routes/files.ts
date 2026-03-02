@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSy
 import { join, dirname, relative } from "path";
 import { zipSync, strToU8 } from "fflate";
 import type { FileNode, ContentSearchMatch, ContentSearchResult } from "../../shared/types.ts";
-import { startPreviewServer, getPreviewUrl, stopPreviewServer } from "../preview/vite-server.ts";
+import { startPreviewServer, getPreviewUrl, stopPreviewServer } from "../preview/preview-server.ts";
 import { stopBackendServer } from "../preview/backend-server.ts";
 import { broadcastFilesChanged } from "../ws.ts";
 

@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { mkdirSync, rmSync, existsSync, readdirSync, unlinkSync, writeFileSync, readFileSync } from "fs";
 import { resolve, join } from "path";
 import { abortOrchestration } from "../agents/orchestrator.ts";
-import { stopPreviewServer } from "../preview/vite-server.ts";
+import { stopPreviewServer } from "../preview/preview-server.ts";
 import { stopBackendServer } from "../preview/backend-server.ts";
 import { log } from "../services/logger.ts";
 import { ensureGitRepo } from "../services/versioning.ts";

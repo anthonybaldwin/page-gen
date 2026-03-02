@@ -38,7 +38,7 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
     hint: "Build checks and fix loops",
     keys: ["buildTimeoutMs", "maxBuildFixAttempts", "buildFixMaxOutputTokens", "buildFixMaxToolSteps", "maxUniqueErrors"],
     fields: {
-      buildTimeoutMs: { label: "Build timeout", hint: "Vite build check timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
+      buildTimeoutMs: { label: "Build timeout", hint: "Build check timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
       maxBuildFixAttempts: { label: "Max build-fix attempts", hint: "Fix cycles per build failure" },
       buildFixMaxOutputTokens: { label: "Build-fix output tokens", hint: "Token cap for fix agents" },
       buildFixMaxToolSteps: { label: "Build-fix tool steps", hint: "Tool step cap for fix agents" },
@@ -50,7 +50,7 @@ const SECTIONS: { title: string; hint?: string; keys: ConfigKey[]; fields: Recor
     hint: "Test run limits",
     keys: ["testTimeoutMs", "maxTestFailures", "testRunMaxAttempts"],
     fields: {
-      testTimeoutMs: { label: "Test timeout", hint: "Vitest run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
+      testTimeoutMs: { label: "Test timeout", hint: "Test run timeout", displayFactor: 0.001, displaySuffix: "s", step: 1000 },
       maxTestFailures: { label: "Max test failures", hint: "Test failures shown to fix agent" },
       testRunMaxAttempts: { label: "Max test-fix attempts", hint: "Fix cycles per test failure" },
     },

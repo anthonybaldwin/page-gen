@@ -539,14 +539,14 @@ describe("default pipeline explicit configuration", () => {
           expect(node.data.timeoutMs).toBe(30_000);
           expect(node.data.maxAttempts).toBe(3);
           expect(node.data.maxUniqueErrors).toBe(10);
-          expect(node.data.buildCommand).toBe("bunx vite build --mode development");
+          expect(node.data.buildCommand).toBe("bun build ./index.html --outdir dist");
           break;
         case "test-run":
           expect(node.data.timeoutMs).toBe(60_000);
           expect(node.data.maxAttempts).toBe(2);
           expect(node.data.maxTestFailures).toBe(5);
           expect(node.data.maxUniqueErrors).toBe(10);
-          expect(node.data.testCommand).toBe("bunx vitest run");
+          expect(node.data.testCommand).toBe("bun test");
           break;
         case "remediation":
           expect(node.data.maxAttempts).toBe(2);
