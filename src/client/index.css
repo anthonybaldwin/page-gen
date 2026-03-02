@@ -110,23 +110,23 @@ body {
 }
 
 /* --- Bundled UI fonts --- */
-@font-face { font-family: 'Inter'; src: url('/fonts/inter.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Open Sans'; src: url('/fonts/open-sans.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Roboto'; src: url('/fonts/roboto.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Lato'; src: url('/fonts/lato.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Nunito'; src: url('/fonts/nunito.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Source Sans 3'; src: url('/fonts/source-sans-3.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'Merriweather'; src: url('/fonts/merriweather.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('./assets/fonts/inter.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Open Sans'; src: url('./assets/fonts/open-sans.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Roboto'; src: url('./assets/fonts/roboto.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Lato'; src: url('./assets/fonts/lato.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Nunito'; src: url('./assets/fonts/nunito.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Source Sans 3'; src: url('./assets/fonts/source-sans-3.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Merriweather'; src: url('./assets/fonts/merriweather.woff2') format('woff2'); font-weight: 400; font-display: swap; }
 
 /* --- Bundled editor fonts (normal + italic so variable fonts expose real cursive glyphs) --- */
-@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'Fira Code'; src: url('/fonts/fira-code.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Fira Code'; src: url('/fonts/fira-code.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'Source Code Pro'; src: url('/fonts/source-code-pro.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Source Code Pro'; src: url('/fonts/source-code-pro.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/ibm-plex-mono.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/ibm-plex-mono.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('./assets/fonts/jetbrains-mono.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('./assets/fonts/jetbrains-mono.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Fira Code'; src: url('./assets/fonts/fira-code.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Fira Code'; src: url('./assets/fonts/fira-code.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Source Code Pro'; src: url('./assets/fonts/source-code-pro.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Source Code Pro'; src: url('./assets/fonts/source-code-pro.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('./assets/fonts/ibm-plex-mono.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('./assets/fonts/ibm-plex-mono.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
 
 /* Reduce motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
