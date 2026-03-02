@@ -2,7 +2,7 @@
 
 ## Overview
 
-Docker is an **optional** deployment method. The app continues to work without Docker via `bun dev` + `bun dev:client`. Users who want sandboxed code execution run `bun dev:docker`.
+Docker is an **optional** deployment method. The app continues to work without Docker via `bun dev`. Users who want sandboxed code execution run `bun dev:docker`.
 
 ## Quick Start
 
@@ -10,16 +10,15 @@ Docker is an **optional** deployment method. The app continues to work without D
 bun dev:docker
 ```
 
-This runs `docker compose up --build`, which builds the image, starts the container, and maps all necessary ports. Open `http://localhost:5173` — same as the non-Docker workflow. Full HMR is supported: edit any file on your host and Vite pushes the update to the browser instantly.
+This runs `docker compose up --build`, which builds the image, starts the container, and maps all necessary ports. Open `http://localhost:3000` — same as the non-Docker workflow. Full HMR is supported: edit any file on your host and Bun pushes the update to the browser instantly.
 
 ## Architecture
 
-The dev Docker setup bind-mounts your project source into the container. Inside the container, two processes run concurrently:
+The dev Docker setup bind-mounts your project source into the container. Inside the container, a single process runs:
 
-1. **Hono backend** (`bun --watch src/server/index.ts`) on port 3000
-2. **Vite dev server** (`bunx vite --host 0.0.0.0`) on port 5173 with HMR
+1. **Bun.serve()** (`bun --watch src/server/index.ts`) on port 3000 — serves both the backend API and the frontend
 
-Your source code edits on the host are immediately visible inside the container. Vite's file watcher picks up changes and pushes HMR updates to the browser — the same experience as running locally, but all generated code executes inside the container.
+Your source code edits on the host are immediately visible inside the container. Bun's file watcher picks up changes and pushes HMR updates to the browser — the same experience as running locally, but all generated code executes inside the container.
 
 The source bind mount is **read-only** (`:ro`). Generated project code running inside the container cannot modify your Page Gen source files or tamper with the backend. Bind mounts for `data/`, `logs/`, and `projects/` override the read-only flag at those paths, so the backend can still write where it needs to.
 
@@ -50,16 +49,15 @@ Bind mounts persist data on the host filesystem across container restarts.
 
 | Port | Purpose |
 |------|---------|
-| `5173` | Vite dev server (frontend + HMR) |
-| `3000` | Hono backend (API + WebSocket) |
-| `3001-3020` | Preview Vite dev servers (one per active project) |
+| `3000` | Bun.serve() (API + WebSocket + frontend) |
+| `3001-3020` | Preview Bun dev servers (one per active project) |
 | `4001-4020` | Preview backend servers (one per full-stack project, derived from frontend port + 1000) |
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PREVIEW_HOST` | `localhost` | Host for Vite preview servers. Set to `0.0.0.0` in Docker so servers are reachable from the host. |
+| `PREVIEW_HOST` | `localhost` | Host for preview servers. Set to `0.0.0.0` in Docker so servers are reachable from the host. |
 | `LOG_FORMAT` | `text` | Set to `json` for NDJSON stdout (used in Docker for `docker logs` parsing). |
 | `LOG_DIR` | `./logs` | Directory for log files. |
 | `DB_PATH` | `./data/app.db` | SQLite database path. |
@@ -71,7 +69,7 @@ All log output uses NDJSON format (one JSON object per line) in `logs/app.jsonl`
 
 ```json
 {"ts":"2026-02-20T15:30:00.000Z","level":"info","tag":"orchestrator","msg":"Intent classified","intent":"build","scope":"full"}
-{"ts":"2026-02-20T15:30:01.000Z","level":"error","tag":"preview","msg":"Vite server death reason","error":"EADDRINUSE: address already in use"}
+{"ts":"2026-02-20T15:30:01.000Z","level":"error","tag":"preview","msg":"Preview server death reason","error":"EADDRINUSE: address already in use"}
 ```
 
 Every line has `ts`, `level`, `tag`, and `msg` fields. Optional fields include `projectId`, `agent`, `error`, `data`, `file`, `chars`, `ms`, and `elapsed`.
@@ -85,13 +83,13 @@ LLM prompt/response logs are separate text files in `logs/llm/` (too large for N
 
 ## Preview Port Pool
 
-Preview Vite servers use a port pool (3001-3020) with automatic recycling. When a preview server stops, its port returns to the pool for reuse. Full-stack projects also get a backend server on ports 4001-4020 (derived as `frontendPort + 1000`). Both are stopped when a project is deleted or its preview is closed.
+Preview Bun servers use a port pool (3001-3020) with automatic recycling. When a preview server stops, its port returns to the pool for reuse. Full-stack projects also get a backend server on ports 4001-4020 (derived as `frontendPort + 1000`). Both are stopped when a project is deleted or its preview is closed.
 
 ## What Stays the Same
 
-- `bun dev` + `bun dev:client` works exactly as before
+- `bun dev` works exactly as before
 - WebSocket URL logic handles same-origin correctly
-- CORS allows both `localhost:5173` and `localhost:3000`
-- iframe sandbox isolation is preserved (different port = different origin)
+- CORS allows `localhost:3000`
+- iframe sandbox isolation is preserved (preview ports = different origin)
 - File path validation is unchanged
 - Database path is configurable via `DB_PATH` env var

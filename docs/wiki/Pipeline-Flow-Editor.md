@@ -32,8 +32,8 @@ Open **Settings > Pipeline** to access the flow editor.
 
 | Kind | Icon | Description |
 |------|------|-------------|
-| `build-check` | Hammer | Run `vite build` to check for compile errors |
-| `test-run` | Flask | Run vitest test suite |
+| `build-check` | Hammer | Run `bun build` to check for compile errors |
+| `test-run` | Flask | Run bun test suite |
 | `remediation` | Refresh | Fix issues found by review agents (max N cycles) |
 | `summary` | FileText | Generate markdown summary of pipeline results |
 | `vibe-intake` | Sparkles | Collect vibe/design brief from user |

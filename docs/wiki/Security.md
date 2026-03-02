@@ -30,7 +30,7 @@ API keys are encrypted before being stored in localStorage using AES-GCM (256-bi
 
 ## Generated Code Sandbox
 
-- Each project runs in its own Vite dev server
+- Each project runs in its own Bun dev server
 - Preview is rendered in an `<iframe>` with `sandbox="allow-scripts allow-same-origin allow-forms"`
 - Because the preview runs on a different port (3001+), the browser's same-origin policy prevents cross-origin storage access despite `allow-same-origin`
 - File operations are scoped to the project directory (e.g., `projects/{projectId}/`) — resolved paths must start with the project root, preventing parent directory traversal

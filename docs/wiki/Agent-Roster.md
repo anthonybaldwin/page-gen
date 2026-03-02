@@ -34,7 +34,7 @@ The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coor
 - **Model:** Claude Sonnet 4.6 (Anthropic)
 - **Role:** Generates React/HTML/CSS/JS code and writes test files alongside components
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
-- **Test responsibility:** Writes vitest test files alongside components, following the test plan from the architect
+- **Test responsibility:** Writes bun test files alongside components, following the test plan from the architect
 - **Single instance (build mode):** A single frontend-dev agent handles all component files defined in the architect's plan.
 
 ### 5. Backend Developer
@@ -42,8 +42,8 @@ The system uses 13 agent configs (9 base agents + 4 orchestrator subtasks), coor
 - **Role:** Generates Hono API routes, SQLite persistence, and server logic in the `server/` directory
 - **Framework:** Hono on Bun. Entry point: `server/index.ts`. All routes under `/api/`. Persistence via `bun:sqlite` only.
 - **Tools:** `write_file`, `read_file`, `list_files` — native AI SDK tools executed mid-stream
-- **Test responsibility:** Writes vitest test files alongside server modules, following the test plan
-- **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`). The preview system automatically spawns the backend process and proxies `/api/*` from Vite.
+- **Test responsibility:** Writes bun test files alongside server modules, following the test plan
+- **Note:** Only runs when the research agent identifies features requiring a backend (`requires_backend: true`). The preview system automatically spawns the backend process and proxies `/api/*` from the Bun dev server.
 
 ### 6. Styling Agent
 - **Model:** Claude Sonnet 4.6 (Anthropic)
@@ -138,7 +138,7 @@ graph TD
 
 Quick-edit paths (`frontend`, `styling`) use a single dev agent with no reviewers — the agent uses `list_files` + `read_file` for targeted edits instead of receiving a full project source dump.
 
-**Smart test re-runs:** When tests fail and a dev agent fixes the code, only the failed test files are re-run (specific file paths passed to vitest) instead of the full suite, saving 3-10s per fix cycle.
+**Smart test re-runs:** When tests fail and a dev agent fixes the code, only the failed test files are re-run (specific file paths passed to `bun test`) instead of the full suite, saving 3-10s per fix cycle.
 
 ### Question Mode
 
@@ -226,7 +226,7 @@ Test results appear **inline in the thinking block timeline** at the point where
 
 Agents use the AI SDK's native `tool()` definitions instead of text-based `<tool_call>` XML. This enables:
 
-- **Mid-stream file writes:** `write_file` executes during generation — files hit disk immediately, Vite HMR picks up changes
+- **Mid-stream file writes:** `write_file` executes during generation — files hit disk immediately, Bun HMR picks up changes
 - **File reading:** `read_file` lets agents inspect existing code (especially useful in fix mode)
 - **Project exploration:** `list_files` lets agents discover the project structure
 - **Clean thinking blocks:** Agent reasoning text contains only thoughts, not code dumps
@@ -273,7 +273,7 @@ Quick-edit optimization for `fix` requests:
 ### Build Check Pipeline
 
 After each file-producing agent (frontend-dev, backend-dev, styling), the orchestrator:
-1. Runs `bunx vite build --mode development` to check for compile errors
+1. Runs `bun build ./index.html --outdir dist` to check for compile errors
 2. Build errors are **deduplicated** by core pattern and capped at 10 unique errors (e.g., `[3x] Cannot find module '@/utils'`)
 3. If errors are found, routes them to the appropriate dev agent (backend-dev for server file errors, frontend-dev otherwise)
 4. Test failures are capped at 5 per fix attempt with a truncation message

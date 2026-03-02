@@ -59,7 +59,7 @@ Additional fields are spread to the top level of the JSON object (not nested und
 | `project` | `src/server/routes/projects.ts` | Project CRUD (create, rename, delete) |
 | `chat` | `src/server/routes/chats.ts` | Chat CRUD (create, rename, delete) |
 | `settings` | `src/server/routes/settings.ts` | Settings changes (limits, agent overrides, pricing, API key validation) |
-| `preview` | `src/server/preview/vite-server.ts`, `backend-server.ts` | Vite and backend server lifecycle, dependency installation, port allocation |
+| `preview` | `src/server/preview/preview-server.ts`, `backend-server.ts` | Preview and backend server lifecycle, dependency installation, port allocation |
 | `backend` | `src/server/preview/backend-server.ts` | Backend server stdout/stderr streams (per-project, real-time) |
 | `orchestrator` | `src/server/agents/orchestrator.ts` | Pipeline execution, agent dispatch, cost limits, remediation, intent classification |
 | `orchestrator:classify` | `src/server/agents/orchestrator.ts` | Intent classification results (intent, scope, reasoning) |
@@ -138,7 +138,7 @@ Additional fields are spread to the top level of the JSON object (not nested und
 {"ts":"2026-02-20T15:30:01.000Z","level":"info","tag":"preview","msg":"Installing dependencies in /app/projects/abc123"}
 {"ts":"2026-02-20T15:30:05.000Z","level":"info","tag":"preview","msg":"Dependencies installed successfully"}
 {"ts":"2026-02-20T15:30:06.000Z","level":"info","tag":"preview","msg":"Server for proj_123 died (exit 1) — restarting"}
-{"ts":"2026-02-20T15:30:06.000Z","level":"error","tag":"preview","msg":"Vite server death reason","error":"EADDRINUSE: address already in use"}
+{"ts":"2026-02-20T15:30:06.000Z","level":"error","tag":"preview","msg":"Preview server death reason","error":"EADDRINUSE: address already in use"}
 {"ts":"2026-02-20T15:30:07.000Z","level":"error","tag":"preview","msg":"bun install failed (exit 1)","error":"error: could not resolve..."}
 ```
 

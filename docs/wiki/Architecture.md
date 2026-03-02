@@ -22,7 +22,7 @@ graph TB
 
   subgraph PV2["Per-Project Preview"]
     direction LR
-    VITE["Vite Dev Server<br>:3001-3020"]
+    VITE["Bun Dev Server<br>:3001-3020"]
     BACK["Backend Server<br>:4001-4020<br>(full-stack only)"]
   end
 
@@ -43,7 +43,7 @@ graph TB
 7. Pipeline progress bar updates via `agent_status` WebSocket events
 8. Agent outputs are collected internally — not shown to the user as separate messages
 9. Agents write files to the project directory
-10. Vite dev server detects changes and pushes HMR updates
+10. Bun dev server detects changes and pushes HMR updates
 11. Preview iframe re-renders with the new code (always visible side-by-side with chat)
 12. After all agents complete, the orchestrator synthesizes a single markdown summary
 13. Only the summary is saved as a chat message and displayed to the user (rendered as markdown)
@@ -54,7 +54,7 @@ graph TB
 
 - See [ADR-001: Tech Stack](https://github.com/anthonybaldwin/page-gen/blob/main/docs/adr/001-tech-stack.md)
 - API keys encrypted client-side (AES-GCM); ciphertext in localStorage, encryption key in IndexedDB; sent per-request via headers
-- One Vite dev server per active project for isolated HMR
+- One Bun dev server per active project for isolated HMR
 - All data is local (SQLite), no cloud dependency
 - **Extensible agent registry:** The agent registry supports both 13 built-in agents (hardcoded in `AGENT_ROSTER`) and custom agents (stored in the `custom_agents` DB table). All registry getters (`getAgentConfig`, `getAllAgentConfigs`, `getAgentTools`, `getAgentLimits`, etc.) merge both sources. Built-in agents use `app_settings` overlays; custom agents are self-contained rows. Each agent has `allowedCategories` to restrict which model types (text, code, reasoning, voice, image, realtime) can be assigned.
 - Chat pane is resizable (drag handle, min 320px, max 50% viewport, persisted to localStorage)

@@ -30,7 +30,7 @@ Development agents (frontend-dev, backend-dev, styling) can call `save_version` 
 3. Click "Revert"
 4. All project files are restored to that version's state
 5. A new `auto: Reverted to <sha>` commit is created (rollback is non-destructive)
-6. Vite HMR detects the file changes and updates the preview
+6. Bun HMR detects the file changes and updates the preview
 
 ### Viewing Diffs
 

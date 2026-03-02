@@ -103,7 +103,7 @@ Search file contents within a project.
 ### POST /files/preview/:projectId
 Start (or return existing) preview dev server for a project.
 
-**Response:** `{ url: string }` — the localhost URL of the running Vite dev server.
+**Response:** `{ url: string }` — the localhost URL of the running preview dev server.
 
 ### DELETE /files/preview/:projectId
 Stop the preview dev server for a project.
@@ -537,7 +537,7 @@ Connect to `ws://localhost:3000/ws` for real-time agent updates.
 - `files_changed` — Files written to disk (projectId, files[])
 - `test_results` — Final test execution results (chatId, projectId, passed, failed, total, duration, failures[], testDetails[])
   - `testDetails` — Array of per-test results: `{ suite, name, status, error?, duration? }`
-- `test_result_incremental` — Individual test result streamed as vitest runs (chatId, projectId, suite, name, status, error?, duration?)
+- `test_result_incremental` — Individual test result streamed as bun test runs (chatId, projectId, suite, name, status, error?, duration?)
 - `pipeline_plan` — Broadcast at pipeline start with the list of agent names to display in the status bar
 - `pipeline_interrupted` — Pipeline was interrupted by server restart, can be resumed
 - `preview_ready` — Broadcast after a successful build check, triggers preview iframe reload
